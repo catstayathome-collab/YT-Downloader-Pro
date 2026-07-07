@@ -12,14 +12,16 @@ import locale
 import re
 import webbrowser
 import glob
+import json
 
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
-VERSION = "1.8.2"
+VERSION = "1.8.3"
 APP_NAME = "YT Downloader Pro"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", "").strip()
 COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
+DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -114,7 +116,9 @@ class YTDownloaderApp:
         
         self.root.title(f"{self.text['title']} v{VERSION}")
         self.root.geometry("600x720")
-        self.download_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        self.settings_path = self.get_settings_path()
+        self.settings = self.load_settings()
+        self.download_path = self.get_saved_download_path()
         self.video_format_list = []
         self.audio_format_list = []
         self.current_video_title = ""
@@ -205,6 +209,32 @@ class YTDownloaderApp:
                 if any(ext in file_path for ext in ['.part', '.ytdl', '.temp', '.mp4', '.m4a', '.webm', '.mp3']):
                     os.remove(file_path)
         except: pass
+
+    def get_settings_path(self):
+        support_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_NAME)
+        return os.path.join(support_dir, "settings.json")
+
+    def load_settings(self):
+        try:
+            with open(self.settings_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def save_settings(self):
+        try:
+            os.makedirs(os.path.dirname(self.settings_path), exist_ok=True)
+            with open(self.settings_path, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def get_saved_download_path(self):
+        saved_path = self.settings.get("download_path")
+        if saved_path and os.path.isdir(saved_path):
+            return saved_path
+        return DEFAULT_DOWNLOAD_PATH
 
     def get_safe_filename(self, directory, title, ext):
         safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
@@ -435,6 +465,8 @@ class YTDownloaderApp:
         p = filedialog.askdirectory()
         if p:
             self.download_path = p
+            self.settings["download_path"] = p
+            self.save_settings()
             self.lbl_path.config(text=f"{self.text['save_to']} {self.download_path}")
 
     def get_system_language(self):
