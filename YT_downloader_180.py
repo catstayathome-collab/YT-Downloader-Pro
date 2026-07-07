@@ -16,9 +16,10 @@ import glob
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 APP_NAME = "YT Downloader Pro"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", "").strip()
+COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -43,6 +44,7 @@ LANG_DATA = {
         "is_latest": "目前已是最新版本",
         "manual_update": "目前版本為 v{version}。請從正式發布頁面取得更新版本。",
         "tool_missing": "找不到內附工具：{tool}",
+        "analyze_failed": "影片解析失敗",
         "speed": "速度:",
         "size": "檔案大小:"
     },
@@ -67,6 +69,7 @@ LANG_DATA = {
         "is_latest": "Already up to date",
         "manual_update": "Current version is v{version}. Please use the official release page for updates.",
         "tool_missing": "Bundled tool not found: {tool}",
+        "analyze_failed": "Video analysis failed",
         "speed": "Speed:",
         "size": "Size:"
     },
@@ -91,6 +94,7 @@ LANG_DATA = {
         "is_latest": "最新バージョンです",
         "manual_update": "現在のバージョンは v{version} です。公式リリースページから更新してください。",
         "tool_missing": "同梱ツールが見つかりません: {tool}",
+        "analyze_failed": "動画の解析に失敗しました",
         "speed": "速度:",
         "size": "サイズ:"
     }
@@ -115,7 +119,7 @@ class YTDownloaderApp:
         self.audio_format_list = []
         self.current_video_title = ""
         self.safe_title_for_cleanup = ""
-        self.browser_cookies = ('chrome',)
+        self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
 
         # 選單列
         menubar = tk.Menu(root)
@@ -222,12 +226,13 @@ class YTDownloaderApp:
         ydl_opts = {
             'ffmpeg_location': self.get_ffmpeg_path(),
             'nocheckcertificate': True,
-            'cookiesfrombrowser': self.browser_cookies,
             'outtmpl': os.path.join(self.download_path, safe_name),
             'progress_hooks': [self.progress_hook],
             'format': f"{v_fid}+{a_fid}" if not audio_only else a_fid if a_fid else 'bestaudio/best',
             'merge_output_format': 'mp4' if not audio_only else None
         }
+        if self.browser_cookies:
+            ydl_opts['cookiesfrombrowser'] = self.browser_cookies
         if audio_only:
             ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
         try:
@@ -241,7 +246,9 @@ class YTDownloaderApp:
         finally: self.root.after(0, self.reset_ui)
 
     def analyze_video(self, url):
-        ydl_opts = {'nocheckcertificate': True, 'quiet': True, 'cookiesfrombrowser': self.browser_cookies}
+        ydl_opts = {'nocheckcertificate': True, 'quiet': True}
+        if self.browser_cookies:
+            ydl_opts['cookiesfrombrowser'] = self.browser_cookies
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -278,6 +285,7 @@ class YTDownloaderApp:
                 self.root.after(0, self.update_combos, [i['label'] for i in video_data], [i['label'] for i in audio_data])
         except Exception as e:
             self.root.after(0, lambda: self.btn_analyze.config(state="normal", text=self.text['analyze']))
+            self.root.after(0, lambda: messagebox.showerror(self.text['analyze_failed'], str(e)))
 
     def show_about(self):
         messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
@@ -310,13 +318,22 @@ class YTDownloaderApp:
 
     def get_app_contents_dir(self):
         if getattr(sys, 'frozen', False):
-            macos_dir = os.path.dirname(sys.executable)
-            return os.path.dirname(macos_dir)
+            exe_dir = os.path.dirname(sys.executable)
+            if os.path.basename(exe_dir) == "MacOS" and os.path.basename(os.path.dirname(exe_dir)) == "Contents":
+                return os.path.dirname(exe_dir)
+            return exe_dir
         return os.path.dirname(os.path.abspath(__file__))
 
     def get_tool_dir(self):
         base = self.get_app_contents_dir()
-        return os.path.join(base, "Helpers") if getattr(sys, 'frozen', False) else os.path.join(base, "tools")
+        if getattr(sys, 'frozen', False):
+            candidates = [os.path.join(base, "Helpers"), os.path.join(base, "_internal", "Helpers")]
+        else:
+            candidates = [os.path.join(base, "tools")]
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return candidate
+        return candidates[0]
 
     def get_tool_path(self, tool):
         path = os.path.realpath(os.path.join(self.get_tool_dir(), tool))
