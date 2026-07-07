@@ -29,6 +29,14 @@ Note: the currently bundled static FFmpeg helpers are Intel binaries. Homebrew's
 ./scripts/check_bundle_tools.py "dist/YT Downloader Pro.app"
 ```
 
+## Build Swift 2.0 Preview
+
+```bash
+./scripts/build_swift_2_0.sh
+./scripts/build_swift_2_0_app.sh
+./scripts/check_swift_app.sh
+```
+
 ## Swift 2.0 preview
 
 The native download center skeleton lives in `swift-2.0/`.

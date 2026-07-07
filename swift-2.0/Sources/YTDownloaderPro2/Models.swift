@@ -45,6 +45,14 @@ enum CookiesMode: String, Codable, CaseIterable, Identifiable {
     case safari
 
     var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: "None"
+        case .chrome: "Chrome"
+        case .safari: "Safari"
+        }
+    }
 }
 
 struct DownloadOptions: Codable, Equatable {
@@ -53,7 +61,7 @@ struct DownloadOptions: Codable, Equatable {
     var quality: String = "best"
     var subtitleMode: SubtitleMode = .none
     var embedThumbnail: Bool = false
-    var cookiesMode: CookiesMode = .chrome
+    var cookiesMode: CookiesMode = .none
     var outputDirectory: String = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? NSHomeDirectory()
 }
 

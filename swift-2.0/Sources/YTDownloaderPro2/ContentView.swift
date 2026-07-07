@@ -38,7 +38,7 @@ struct ContentView: View {
 
                 Picker("Cookies", selection: $options.cookiesMode) {
                     ForEach(CookiesMode.allCases) { mode in
-                        Text(mode.rawValue.capitalized).tag(mode)
+                        Text(mode.label).tag(mode)
                     }
                 }
 
@@ -57,8 +57,22 @@ struct ContentView: View {
                 }
                 .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                Button("Clear Finished") {
-                    store.removeCompleted()
+                HStack {
+                    Button(store.isQueueRunning ? "Queue Running" : "Start All") {
+                        store.startQueue()
+                    }
+                    .disabled(store.isQueueRunning || store.jobs.allSatisfy { $0.status != .queued })
+
+                    Button("Stop Queue") {
+                        store.stopQueue()
+                    }
+                    .disabled(!store.isQueueRunning)
+                }
+
+                HStack {
+                    Button("Clear Finished") {
+                        store.removeCompleted()
+                    }
                 }
 
                 Spacer()
@@ -108,6 +122,11 @@ struct DownloadQueueView: View {
                 HStack {
                     Text("\(Int(job.progress * 100))%")
                     Text(job.speed)
+                    if !job.outputPath.isEmpty {
+                        Text(job.outputPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                     Spacer()
                     Button("Start") { store.start(job) }
                         .disabled(job.status == .downloading || job.status == .merging || job.status == .completed)
@@ -117,6 +136,8 @@ struct DownloadQueueView: View {
                         .disabled(job.status == .completed || job.status == .cancelled)
                     Button("Retry") { store.retry(job) }
                         .disabled(job.status != .failed && job.status != .paused)
+                    Button("Remove") { store.remove(job) }
+                        .disabled(job.status == .downloading || job.status == .merging)
                 }
                 .font(.caption)
 

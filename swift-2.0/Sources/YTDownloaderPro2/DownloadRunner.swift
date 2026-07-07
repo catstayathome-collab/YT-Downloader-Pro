@@ -3,11 +3,14 @@ import Foundation
 @MainActor
 final class DownloadRunner {
     private var processes: [UUID: Process] = [:]
+    private var terminalOverrides: [UUID: DownloadStatus] = [:]
 
     func start(job: DownloadJob, onUpdate: @escaping (DownloadJob) -> Void) {
         var runningJob = job
         runningJob.status = .downloading
+        runningJob.error = nil
         runningJob.updatedAt = Date()
+        terminalOverrides[job.id] = nil
         onUpdate(runningJob)
 
         Task.detached {
@@ -42,7 +45,11 @@ final class DownloadRunner {
                     self.processes[runningJob.id] = nil
                     var finished = parser.currentJob
                     finished.updatedAt = Date()
-                    if process.terminationStatus == 0 {
+                    if let override = self.terminalOverrides[runningJob.id] {
+                        finished.status = override
+                        finished.speed = "--"
+                        self.terminalOverrides[runningJob.id] = nil
+                    } else if process.terminationStatus == 0 {
                         finished.status = .completed
                         finished.progress = 1
                         finished.speed = "--"
@@ -64,12 +71,14 @@ final class DownloadRunner {
     }
 
     func pause(_ id: UUID, onUpdate: (DownloadStatus) -> Void) {
+        terminalOverrides[id] = .paused
         processes[id]?.terminate()
         processes[id] = nil
         onUpdate(.paused)
     }
 
     func cancel(_ id: UUID, onUpdate: (DownloadStatus) -> Void) {
+        terminalOverrides[id] = .cancelled
         processes[id]?.terminate()
         processes[id] = nil
         onUpdate(.cancelled)
@@ -80,6 +89,8 @@ final class DownloadRunner {
             "--newline",
             "--continue",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._total_bytes_str)s",
+            "--print", "before_dl:metadata:%(title)s",
+            "--print", "after_move:filepath:%(filepath)s",
             "--ffmpeg-location", toolchain.ffmpeg.deletingLastPathComponent().path,
             "--paths", job.options.outputDirectory,
             "--output", "%(title).200B.%(ext)s"
@@ -139,7 +150,14 @@ final class ProgressParser {
             currentJob.status = .merging
         }
 
-        if line.hasPrefix("download:") {
+        if line.hasPrefix("metadata:") {
+            let title = line.replacingOccurrences(of: "metadata:", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                currentJob.title = title
+            }
+        } else if line.hasPrefix("filepath:") {
+            currentJob.outputPath = line.replacingOccurrences(of: "filepath:", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if line.hasPrefix("download:") {
             let fields = line.replacingOccurrences(of: "download:", with: "").split(separator: "|", omittingEmptySubsequences: false)
             if let percentField = fields.first {
                 currentJob.progress = ProgressParser.parsePercent(String(percentField))
