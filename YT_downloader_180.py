@@ -9,6 +9,7 @@ import subprocess
 import urllib.request
 from urllib.parse import urlparse, parse_qs, urlunparse
 import locale
+import platform
 import re
 import webbrowser
 import glob
@@ -17,11 +18,15 @@ import json
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 APP_NAME = "YT Downloader Pro"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", "").strip()
 COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
 DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
+
+
+class ToolchainError(RuntimeError):
+    pass
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -46,6 +51,9 @@ LANG_DATA = {
         "is_latest": "目前已是最新版本",
         "manual_update": "目前版本為 v{version}。請從正式發布頁面取得更新版本。",
         "tool_missing": "找不到內附工具：{tool}",
+        "tool_unavailable_title": "內建轉檔工具無法使用",
+        "tool_unavailable": "內建轉檔工具無法在這台 Mac 上執行。\n\n工具：{tool}\n位置：{path}\n原因：{detail}\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
+        "tool_ytdlp_error": "內建轉檔工具無法被下載核心使用，因此無法合併影音或轉換 MP3。\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
         "analyze_failed": "影片解析失敗",
         "speed": "速度:",
         "size": "檔案大小:"
@@ -71,6 +79,9 @@ LANG_DATA = {
         "is_latest": "Already up to date",
         "manual_update": "Current version is v{version}. Please use the official release page for updates.",
         "tool_missing": "Bundled tool not found: {tool}",
+        "tool_unavailable_title": "Bundled converter unavailable",
+        "tool_unavailable": "The bundled converter cannot run on this Mac.\n\nTool: {tool}\nPath: {path}\nReason: {detail}\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
+        "tool_ytdlp_error": "The bundled converter could not be used by the download engine, so video/audio merging or MP3 conversion cannot continue.\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
         "analyze_failed": "Video analysis failed",
         "speed": "Speed:",
         "size": "Size:"
@@ -96,6 +107,9 @@ LANG_DATA = {
         "is_latest": "最新バージョンです",
         "manual_update": "現在のバージョンは v{version} です。公式リリースページから更新してください。",
         "tool_missing": "同梱ツールが見つかりません: {tool}",
+        "tool_unavailable_title": "内蔵変換ツールを使用できません",
+        "tool_unavailable": "内蔵変換ツールをこの Mac で実行できません。\n\nツール: {tool}\n場所: {path}\n理由: {detail}\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
+        "tool_ytdlp_error": "内蔵変換ツールをダウンロードエンジンが使用できないため、動画と音声の結合または MP3 変換を続行できません。\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
         "analyze_failed": "動画の解析に失敗しました",
         "speed": "速度:",
         "size": "サイズ:"
@@ -124,6 +138,7 @@ class YTDownloaderApp:
         self.current_video_title = ""
         self.safe_title_for_cleanup = ""
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
+        self.toolchain_error = None
 
         # 選單列
         menubar = tk.Menu(root)
@@ -187,6 +202,7 @@ class YTDownloaderApp:
         self.btn_cancel.pack(side="left", padx=5)
 
         self.check_update(silent=True)
+        self.root.after(250, self.check_toolchain_on_startup)
 
     def show_context_menu(self, event):
         menu = tk.Menu(self.root, tearoff=0)
@@ -253,8 +269,15 @@ class YTDownloaderApp:
         audio_only = self.audio_only_var.get()
         ext = 'mp3' if audio_only else 'mp4'
         safe_name = self.get_safe_filename(self.download_path, self.current_video_title, ext)
+        try:
+            ffmpeg_dir = self.get_ffmpeg_path()
+        except ToolchainError as e:
+            self.toolchain_error = str(e)
+            self.root.after(0, lambda: messagebox.showerror(self.text['tool_unavailable_title'], str(e)))
+            self.root.after(0, self.reset_ui)
+            return
         ydl_opts = {
-            'ffmpeg_location': self.get_ffmpeg_path(),
+            'ffmpeg_location': ffmpeg_dir,
             'nocheckcertificate': True,
             'outtmpl': os.path.join(self.download_path, safe_name),
             'progress_hooks': [self.progress_hook],
@@ -272,7 +295,7 @@ class YTDownloaderApp:
             if str(e) == "USER_CANCEL":
                 self.cleanup_incomplete_files()
                 messagebox.showwarning("!", self.text['cancelled'])
-            else: messagebox.showerror("Error", str(e))
+            else: messagebox.showerror("Error", self.clean_download_error(e))
         finally: self.root.after(0, self.reset_ui)
 
     def analyze_video(self, url):
@@ -368,13 +391,68 @@ class YTDownloaderApp:
     def get_tool_path(self, tool):
         path = os.path.realpath(os.path.join(self.get_tool_dir(), tool))
         if not os.path.isfile(path) or not os.access(path, os.X_OK):
-            raise FileNotFoundError(self.text['tool_missing'].format(tool=tool))
+            raise ToolchainError(self.text['tool_unavailable'].format(
+                tool=tool,
+                path=path,
+                detail=self.text['tool_missing'].format(tool=tool)
+            ))
         return path
 
     def get_ffmpeg_path(self):
-        self.get_tool_path("ffmpeg")
-        self.get_tool_path("ffprobe")
+        self.validate_tool("ffmpeg")
+        self.validate_tool("ffprobe")
         return self.get_tool_dir()
+
+    def validate_tool(self, tool):
+        path = self.get_tool_path(tool)
+        if platform.machine() == "arm64":
+            arches = self.get_tool_arches(path)
+            if arches and "arm64" not in arches.split():
+                raise ToolchainError(self.text['tool_unavailable'].format(
+                    tool=tool,
+                    path=path,
+                    detail=f"architecture is {arches}, not arm64"
+                ))
+        try:
+            result = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=8)
+        except Exception as e:
+            raise ToolchainError(self.text['tool_unavailable'].format(
+                tool=tool,
+                path=path,
+                detail=str(e)
+            )) from e
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+            raise ToolchainError(self.text['tool_unavailable'].format(
+                tool=tool,
+                path=path,
+                detail=detail
+            ))
+        return path
+
+    def get_tool_arches(self, path):
+        try:
+            result = subprocess.run(["/usr/bin/lipo", "-archs", path], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    def check_toolchain_on_startup(self):
+        try:
+            self.get_ffmpeg_path()
+            self.toolchain_error = None
+        except ToolchainError as e:
+            self.toolchain_error = str(e)
+            messagebox.showerror(self.text['tool_unavailable_title'], str(e))
+
+    def clean_download_error(self, error):
+        message = str(error)
+        lowered = message.lower()
+        if "ffmpeg is not installed" in lowered or "requested merging of multiple formats" in lowered:
+            return self.text['tool_ytdlp_error']
+        return message
 
     def progress_hook(self, d):
         if self.is_cancelled: raise Exception("USER_CANCEL")
