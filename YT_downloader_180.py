@@ -16,7 +16,9 @@ import glob
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
+APP_NAME = "YT Downloader Pro"
+PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", "").strip()
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -39,6 +41,8 @@ LANG_DATA = {
         "about": "關於程式",
         "update_check": "檢查更新",
         "is_latest": "目前已是最新版本",
+        "manual_update": "目前版本為 v{version}。請從正式發布頁面取得更新版本。",
+        "tool_missing": "找不到內附工具：{tool}",
         "speed": "速度:",
         "size": "檔案大小:"
     },
@@ -61,6 +65,8 @@ LANG_DATA = {
         "about": "About",
         "update_check": "Check Update",
         "is_latest": "Already up to date",
+        "manual_update": "Current version is v{version}. Please use the official release page for updates.",
+        "tool_missing": "Bundled tool not found: {tool}",
         "speed": "Speed:",
         "size": "Size:"
     },
@@ -83,6 +89,8 @@ LANG_DATA = {
         "about": "このアプリについて",
         "update_check": "アップデートを確認",
         "is_latest": "最新バージョンです",
+        "manual_update": "現在のバージョンは v{version} です。公式リリースページから更新してください。",
+        "tool_missing": "同梱ツールが見つかりません: {tool}",
         "speed": "速度:",
         "size": "サイズ:"
     }
@@ -275,15 +283,24 @@ class YTDownloaderApp:
         messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
 
     def check_update(self, silent=True):
+        if not PUBLIC_UPDATE_MANIFEST_URL:
+            if not silent:
+                messagebox.showinfo("Update", self.text['manual_update'].format(version=VERSION))
+            return
+
         def _check():
-            v_url = "https://raw.githubusercontent.com/catstayathome-collab/YT-Downloader-Pro/refs/heads/main/version.txt"
             try:
-                with urllib.request.urlopen(urllib.request.Request(v_url), timeout=5) as resp:
+                with urllib.request.urlopen(urllib.request.Request(PUBLIC_UPDATE_MANIFEST_URL), timeout=5) as resp:
                     latest = resp.read().decode('utf-8').strip()
-                if latest > VERSION: self.root.after(0, lambda: self.show_update_dialog(latest))
+                if self.is_newer_version(latest, VERSION): self.root.after(0, lambda: self.show_update_dialog(latest))
                 elif not silent: self.root.after(0, lambda: messagebox.showinfo("Update", self.text['is_latest']))
             except: pass
         threading.Thread(target=_check, daemon=True).start()
+
+    def is_newer_version(self, latest, current):
+        def parts(v):
+            return [int(x) for x in re.findall(r'\d+', v)]
+        return parts(latest) > parts(current)
 
     def show_update_dialog(self, latest):
         """Pro 版專屬更新邏輯：導向私密 Google Drive 下載連結"""
@@ -291,14 +308,26 @@ class YTDownloaderApp:
         if messagebox.askyesno("Update", f"v{latest} available! 是否前往下載 Pro 更新版本？"):
             webbrowser.open(pro_update_url)
 
-    def get_ffmpeg_path(self):
+    def get_app_contents_dir(self):
         if getattr(sys, 'frozen', False):
-            m = os.path.dirname(sys.executable)
-            possible = [os.path.join(m, "ffmpeg"), os.path.join(os.path.dirname(m), "Frameworks", "ffmpeg")]
-            for p in possible: 
-                if os.path.exists(p): return p
-            return possible[0]
-        return '/opt/homebrew/bin/ffmpeg'
+            macos_dir = os.path.dirname(sys.executable)
+            return os.path.dirname(macos_dir)
+        return os.path.dirname(os.path.abspath(__file__))
+
+    def get_tool_dir(self):
+        base = self.get_app_contents_dir()
+        return os.path.join(base, "Helpers") if getattr(sys, 'frozen', False) else os.path.join(base, "tools")
+
+    def get_tool_path(self, tool):
+        path = os.path.realpath(os.path.join(self.get_tool_dir(), tool))
+        if not os.path.isfile(path) or not os.access(path, os.X_OK):
+            raise FileNotFoundError(self.text['tool_missing'].format(tool=tool))
+        return path
+
+    def get_ffmpeg_path(self):
+        self.get_tool_path("ffmpeg")
+        self.get_tool_path("ffprobe")
+        return self.get_tool_dir()
 
     def progress_hook(self, d):
         if self.is_cancelled: raise Exception("USER_CANCEL")

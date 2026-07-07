@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("Usage: check_bundle_tools.py /path/to/App.app", file=sys.stderr)
+        return 2
+
+    app = Path(sys.argv[1])
+    helpers = app / "Contents" / "Helpers"
+    expected = [helpers / "ffmpeg", helpers / "ffprobe"]
+    missing = [str(path) for path in expected if not path.is_file()]
+    if missing:
+        print("Missing bundled tools:", ", ".join(missing), file=sys.stderr)
+        return 1
+
+    ffmpeg_paths = list((app / "Contents").rglob("ffmpeg"))
+    real_files = {}
+    for path in ffmpeg_paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        real_files[(stat.st_dev, stat.st_ino)] = path.resolve()
+
+    if len(real_files) != 1:
+        print("Expected one physical ffmpeg file, found:", file=sys.stderr)
+        for path in sorted(real_files.values()):
+            print(f"  {path}", file=sys.stderr)
+        return 1
+
+    print(f"OK: one physical ffmpeg at {next(iter(real_files.values()))}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

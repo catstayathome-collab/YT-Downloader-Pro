@@ -1,0 +1,13 @@
+build/
+dist/
+.tmp_downloads/
+*.log
+*.spec
+*.spec.bak
+.DS_Store
+__pycache__/
+*.pyc
+.swiftpm/
+swift-2.0/.build/
+.pyinstaller-cache/
+DerivedData/
