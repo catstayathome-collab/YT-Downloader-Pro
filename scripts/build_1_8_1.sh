@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="YT Downloader Pro"
 APP_PATH="$ROOT_DIR/dist/$APP_NAME.app"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
+ONEDIR_HELPERS_DIR="$ROOT_DIR/dist/$APP_NAME/Helpers"
 
 cd "$ROOT_DIR"
 export PYINSTALLER_CONFIG_DIR="$ROOT_DIR/.pyinstaller-cache"
@@ -24,8 +25,15 @@ cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$HELPERS_DIR/"
 chmod 755 "$HELPERS_DIR/ffmpeg" "$HELPERS_DIR/ffprobe"
 xattr -cr "$HELPERS_DIR" || true
 
+mkdir -p "$ONEDIR_HELPERS_DIR"
+cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ONEDIR_HELPERS_DIR/"
+chmod 755 "$ONEDIR_HELPERS_DIR/ffmpeg" "$ONEDIR_HELPERS_DIR/ffprobe"
+xattr -cr "$ONEDIR_HELPERS_DIR" || true
+
 codesign --force --sign - "$HELPERS_DIR/ffmpeg"
 codesign --force --sign - "$HELPERS_DIR/ffprobe"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffmpeg"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffprobe"
 codesign --force --deep --sign - "$APP_PATH"
 
 "$ROOT_DIR/scripts/check_bundle_tools.py" "$APP_PATH"
