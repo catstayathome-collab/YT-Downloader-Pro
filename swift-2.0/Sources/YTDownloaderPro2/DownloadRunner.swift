@@ -16,19 +16,30 @@ final class DownloadRunner {
         Task.detached {
             do {
                 let toolchain = try Toolchain.resolve()
+                var preparedJob = runningJob
+                let metadata = try MetadataProbe.analyze(url: runningJob.url, options: runningJob.options, toolchain: toolchain)
+                if preparedJob.title == preparedJob.url || preparedJob.title == "Untitled" {
+                    preparedJob.title = metadata.title
+                }
+                let jobForProcess = preparedJob
+                let jobID = jobForProcess.id
+                await MainActor.run {
+                    onUpdate(jobForProcess)
+                }
+
                 let process = Process()
                 let outputPipe = Pipe()
                 let errorPipe = Pipe()
                 process.executableURL = toolchain.ytDlp
-                process.arguments = self.arguments(for: runningJob, toolchain: toolchain)
+                process.arguments = self.arguments(for: jobForProcess, toolchain: toolchain)
                 process.standardOutput = outputPipe
                 process.standardError = errorPipe
 
                 await MainActor.run {
-                    self.processes[runningJob.id] = process
+                    self.processes[jobID] = process
                 }
 
-                let parser = ProgressParser(job: runningJob, onUpdate: onUpdate)
+                let parser = ProgressParser(job: jobForProcess, onUpdate: onUpdate)
                 outputPipe.fileHandleForReading.readabilityHandler = { handle in
                     parser.consume(data: handle.availableData)
                 }
@@ -42,13 +53,13 @@ final class DownloadRunner {
                 errorPipe.fileHandleForReading.readabilityHandler = nil
 
                 await MainActor.run {
-                    self.processes[runningJob.id] = nil
+                    self.processes[jobID] = nil
                     var finished = parser.currentJob
                     finished.updatedAt = Date()
-                    if let override = self.terminalOverrides[runningJob.id] {
+                    if let override = self.terminalOverrides[jobID] {
                         finished.status = override
                         finished.speed = "--"
-                        self.terminalOverrides[runningJob.id] = nil
+                        self.terminalOverrides[jobID] = nil
                     } else if process.terminationStatus == 0 {
                         finished.status = .completed
                         finished.progress = 1
@@ -85,15 +96,23 @@ final class DownloadRunner {
     }
 
     private nonisolated func arguments(for job: DownloadJob, toolchain: Toolchain) -> [String] {
+        let targetExtension = (job.options.audioOnly || job.options.format == .mp3) ? "mp3" : "mp4"
+        let outputTemplate = FileNamer.uniqueOutputTemplate(
+            directory: job.options.outputDirectory,
+            title: job.title,
+            targetExtension: targetExtension
+        )
+
         var args = [
             "--newline",
             "--continue",
+            "--no-overwrites",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._total_bytes_str)s",
             "--print", "before_dl:metadata:%(title)s",
             "--print", "after_move:filepath:%(filepath)s",
             "--ffmpeg-location", toolchain.ffmpeg.deletingLastPathComponent().path,
             "--paths", job.options.outputDirectory,
-            "--output", "%(title).200B.%(ext)s"
+            "--output", outputTemplate
         ]
 
         switch job.options.cookiesMode {
@@ -106,9 +125,20 @@ final class DownloadRunner {
         }
 
         if job.options.audioOnly || job.options.format == .mp3 {
+            if let audioFormatID = job.options.audioFormatID, !audioFormatID.isEmpty {
+                args += ["--format", audioFormatID]
+            }
             args += ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "192K"]
         } else {
-            args += ["--merge-output-format", "mp4", "--format", job.options.quality == "best" ? "bv*+ba/b" : job.options.quality]
+            let selectedFormat: String
+            if let videoFormatID = job.options.videoFormatID, let audioFormatID = job.options.audioFormatID {
+                selectedFormat = "\(videoFormatID)+\(audioFormatID)"
+            } else if let videoFormatID = job.options.videoFormatID {
+                selectedFormat = "\(videoFormatID)+ba/b"
+            } else {
+                selectedFormat = job.options.quality == "best" ? "bv*+ba/b" : job.options.quality
+            }
+            args += ["--merge-output-format", "mp4", "--format", selectedFormat]
         }
 
         switch job.options.subtitleMode {

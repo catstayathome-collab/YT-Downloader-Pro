@@ -59,10 +59,28 @@ struct DownloadOptions: Codable, Equatable {
     var format: DownloadFormat = .mp4
     var audioOnly: Bool = false
     var quality: String = "best"
+    var videoFormatID: String?
+    var videoFormatLabel: String?
+    var audioFormatID: String?
+    var audioFormatLabel: String?
     var subtitleMode: SubtitleMode = .none
     var embedThumbnail: Bool = false
     var cookiesMode: CookiesMode = .none
     var outputDirectory: String = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? NSHomeDirectory()
+}
+
+struct FormatOption: Codable, Identifiable, Equatable {
+    var id: String { formatID }
+    var formatID: String
+    var label: String
+    var priority: Double
+}
+
+struct VideoAnalysis: Codable, Equatable {
+    var url: String
+    var title: String
+    var videoFormats: [FormatOption]
+    var audioFormats: [FormatOption]
 }
 
 struct DownloadJob: Codable, Identifiable, Equatable {

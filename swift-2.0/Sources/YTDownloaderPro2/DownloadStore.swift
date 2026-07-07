@@ -5,17 +5,38 @@ final class DownloadStore: ObservableObject {
     @Published private(set) var jobs: [DownloadJob] = []
     @Published var toolchainMessage = "Checking helpers..."
     @Published var isQueueRunning = false
+    @Published private(set) var defaultOptions = DownloadOptions()
 
     private let runner = DownloadRunner()
     private let saveURL: URL
+    private let settingsURL: URL
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("YT Downloader Pro", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         saveURL = support.appendingPathComponent("downloads.json")
+        settingsURL = support.appendingPathComponent("settings.json")
+        loadSettings()
         load()
         validateToolchain()
+    }
+
+    func firstURL(in text: String) -> String? {
+        text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    func analyzeFirstURL(in text: String, options: DownloadOptions) async throws -> VideoAnalysis {
+        guard let url = firstURL(in: text) else {
+            throw MetadataProbeError.processFailed("Please enter a YouTube URL.")
+        }
+        let toolchain = try Toolchain.resolve()
+        return try await Task.detached {
+            try MetadataProbe.analyze(url: url, options: options, toolchain: toolchain)
+        }.value
     }
 
     func add(urls text: String, options: DownloadOptions) {
@@ -27,6 +48,16 @@ final class DownloadStore: ObservableObject {
 
         jobs.append(contentsOf: newJobs)
         save()
+    }
+
+    func addAndStart(urls text: String, options: DownloadOptions) {
+        add(urls: text, options: options)
+        startQueue()
+    }
+
+    func remember(options: DownloadOptions) {
+        defaultOptions = options
+        saveSettings()
     }
 
     func startQueue() {
@@ -113,6 +144,27 @@ final class DownloadStore: ObservableObject {
     private func save() {
         guard let data = try? JSONEncoder().encode(jobs) else { return }
         try? data.write(to: saveURL, options: .atomic)
+    }
+
+    private func loadSettings() {
+        guard let data = try? Data(contentsOf: settingsURL) else { return }
+        if let options = try? JSONDecoder().decode(DownloadOptions.self, from: data) {
+            defaultOptions = options
+            return
+        }
+
+        if
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let downloadPath = object["download_path"] as? String,
+            FileManager.default.fileExists(atPath: downloadPath)
+        {
+            defaultOptions.outputDirectory = downloadPath
+        }
+    }
+
+    private func saveSettings() {
+        guard let data = try? JSONEncoder().encode(defaultOptions) else { return }
+        try? data.write(to: settingsURL, options: .atomic)
     }
 
     private func validateToolchain() {
