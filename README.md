@@ -24,3 +24,11 @@ It no longer falls back to `/opt/homebrew/bin/ffmpeg`.
 ./scripts/build_1_8_1.sh
 ./scripts/check_bundle_tools.py "dist/YT Downloader Pro.app"
 ```
+
+## Swift 2.0 preview
+
+The native download center skeleton lives in `swift-2.0/`.
+
+```bash
+./scripts/build_swift_2_0.sh
+```
