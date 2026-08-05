@@ -18,7 +18,7 @@ import json
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
-VERSION = "1.8.4"
+VERSION = "1.8.5"
 APP_NAME = "YT Downloader Pro"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", "").strip()
 COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
@@ -54,6 +54,7 @@ LANG_DATA = {
         "tool_unavailable_title": "內建轉檔工具無法使用",
         "tool_unavailable": "內建轉檔工具無法在這台 Mac 上執行。\n\n工具：{tool}\n位置：{path}\n原因：{detail}\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
         "tool_ytdlp_error": "內建轉檔工具無法被下載核心使用，因此無法合併影音或轉換 MP3。\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
+        "format_unavailable": "YouTube 回傳的格式已變動，或剛才選到的格式已不可用。\n\n請重新解析影片後再下載；若仍失敗，請改選另一個畫質或音訊選項。",
         "analyze_failed": "影片解析失敗",
         "speed": "速度:",
         "size": "檔案大小:"
@@ -82,6 +83,7 @@ LANG_DATA = {
         "tool_unavailable_title": "Bundled converter unavailable",
         "tool_unavailable": "The bundled converter cannot run on this Mac.\n\nTool: {tool}\nPath: {path}\nReason: {detail}\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
         "tool_ytdlp_error": "The bundled converter could not be used by the download engine, so video/audio merging or MP3 conversion cannot continue.\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
+        "format_unavailable": "The YouTube format list changed, or the selected format is no longer available.\n\nAnalyze the video again before downloading. If it still fails, choose another video or audio format.",
         "analyze_failed": "Video analysis failed",
         "speed": "Speed:",
         "size": "Size:"
@@ -110,6 +112,7 @@ LANG_DATA = {
         "tool_unavailable_title": "内蔵変換ツールを使用できません",
         "tool_unavailable": "内蔵変換ツールをこの Mac で実行できません。\n\nツール: {tool}\n場所: {path}\n理由: {detail}\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
         "tool_ytdlp_error": "内蔵変換ツールをダウンロードエンジンが使用できないため、動画と音声の結合または MP3 変換を続行できません。\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
+        "format_unavailable": "YouTube の形式リストが変更されたか、選択した形式を利用できなくなりました。\n\n動画を再解析してから再度ダウンロードしてください。まだ失敗する場合は、別の画質または音声を選択してください。",
         "analyze_failed": "動画の解析に失敗しました",
         "speed": "速度:",
         "size": "サイズ:"
@@ -310,27 +313,10 @@ class YTDownloaderApp:
                 formats = info.get('formats', [])
                 video_data, audio_data = [], []
                 for f in formats:
-                    h = f.get('height')
-                    if h and f.get('vcodec') != 'none':
-                        p = h * 10 + (5 if f.get('ext') == 'mp4' else 0)
-                        label = f"{h}p - {f.get('ext')}" + (f" ({f.get('format_note')})" if f.get('format_note') else "")
-                        video_data.append({'label': label, 'id': f.get('format_id'), 'priority': p})
-                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                        note = f.get('format_note', '').lower()
-                        abr = f.get('abr') or f.get('tbr') or 0
-                        ext_bonus = 3 if f.get('ext') == 'm4a' else 0
-                        if 'high' in note:
-                            ap = 300
-                        elif 'medium' in note:
-                            ap = 200
-                        elif 'low' in note:
-                            ap = 100
-                        else:
-                            ap = 150
-                        ap += abr + ext_bonus
-                        if 'default' in note: ap += 1
-                        label = f"Audio: {f.get('language') or 'original'} ({f.get('format_note')}) - {f.get('ext')}"
-                        audio_data.append({'label': label, 'id': f.get('format_id'), 'priority': ap})
+                    if self.is_video_merge_format(f):
+                        video_data.append(self.make_video_option(f))
+                    if self.is_audio_merge_format(f):
+                        audio_data.append(self.make_audio_option(f))
                 video_data.sort(key=lambda x: x['priority'], reverse=True)
                 audio_data.sort(key=lambda x: x['priority'], reverse=True)
                 self.video_format_list = [i['id'] for i in video_data]
@@ -342,6 +328,49 @@ class YTDownloaderApp:
 
     def show_about(self):
         messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
+
+    def is_video_merge_format(self, fmt):
+        protocol = fmt.get('protocol')
+        return (
+            bool(fmt.get('height')) and
+            fmt.get('vcodec') not in (None, 'none') and
+            fmt.get('acodec') == 'none' and
+            protocol in ('http', 'https')
+        )
+
+    def is_audio_merge_format(self, fmt):
+        return fmt.get('acodec') not in (None, 'none') and fmt.get('vcodec') == 'none'
+
+    def make_video_option(self, fmt):
+        height = fmt.get('height') or 0
+        ext = fmt.get('ext') or 'unknown'
+        note = fmt.get('format_note')
+        codec = fmt.get('vcodec') or ''
+        priority = height * 10
+        if ext == 'mp4':
+            priority += 5
+        if codec.startswith('avc1'):
+            priority += 2
+        label = f"{height}p - {ext}" + (f" ({note})" if note else "")
+        return {'label': label, 'id': fmt.get('format_id'), 'priority': priority}
+
+    def make_audio_option(self, fmt):
+        note = (fmt.get('format_note') or '').lower()
+        abr = fmt.get('abr') or fmt.get('tbr') or 0
+        ext_bonus = 3 if fmt.get('ext') == 'm4a' else 0
+        if 'high' in note:
+            priority = 300
+        elif 'medium' in note:
+            priority = 200
+        elif 'low' in note:
+            priority = 100
+        else:
+            priority = 150
+        priority += abr + ext_bonus
+        if 'default' in note:
+            priority += 1
+        label = f"Audio: {fmt.get('language') or 'original'} ({fmt.get('format_note')}) - {fmt.get('ext')}"
+        return {'label': label, 'id': fmt.get('format_id'), 'priority': priority}
 
     def check_update(self, silent=True):
         if not PUBLIC_UPDATE_MANIFEST_URL:
@@ -452,6 +481,8 @@ class YTDownloaderApp:
         lowered = message.lower()
         if "ffmpeg is not installed" in lowered or "requested merging of multiple formats" in lowered:
             return self.text['tool_ytdlp_error']
+        if "requested format is not available" in lowered:
+            return self.text['format_unavailable']
         return message
 
     def progress_hook(self, d):
