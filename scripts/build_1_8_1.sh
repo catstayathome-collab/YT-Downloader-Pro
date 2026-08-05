@@ -18,7 +18,7 @@ python3 -m PyInstaller \
   --name "$APP_NAME" \
   --icon "$ROOT_DIR/AppIcon.icns" \
   --osx-bundle-identifier "com.tachouweng.ytdownloaderpro" \
-  "$ROOT_DIR/YT_downloader_180.py"
+  "$ROOT_DIR/YT_downloader_185.py"
 
 mkdir -p "$HELPERS_DIR"
 cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$HELPERS_DIR/"

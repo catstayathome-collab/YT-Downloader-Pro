@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_180 as app_module
+import YT_downloader_185 as app_module
 
 
 class SettingsPersistenceTests(unittest.TestCase):

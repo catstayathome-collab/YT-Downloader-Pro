@@ -14,6 +14,9 @@ A professional YouTube Downloader for Mac, maintained by Ta-Chou Weng.
 
 ## 1.8.x toolchain
 
+The current 1.8.5 Python/Tkinter source file is `YT_downloader_185.py`.
+Older source snapshots are kept in their original filenames for version history.
+
 The Python app uses one bundled tool directory:
 
 - Development: `tools/ffmpeg` and `tools/ffprobe`
