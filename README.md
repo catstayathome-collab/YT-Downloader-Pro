@@ -10,11 +10,12 @@ A professional YouTube Downloader for Mac, maintained by Ta-Chou Weng.
 - `v1.8.3`: remembers the user's last selected download folder.
 - `v1.8.4`: replaces Intel-only FFmpeg helpers with Apple Silicon helpers and validates bundled tools before downloads.
 - `v1.8.5`: excludes progressive HLS formats from the merge-format quality menu to avoid unavailable `video+audio` selections.
+- `v1.8.6`: enables built-in GitHub manifest update checks for future releases.
 - `develop/v2.0-swift`: native SwiftUI download center.
 
 ## 1.8.x toolchain
 
-The current 1.8.5 Python/Tkinter source file is `YT_downloader_185.py`.
+The current 1.8.6 Python/Tkinter source file is `YT_downloader_186.py`.
 Older source snapshots are kept in their original filenames for version history.
 
 The Python app uses one bundled tool directory:
@@ -26,7 +27,7 @@ It no longer falls back to `/opt/homebrew/bin/ffmpeg`.
 
 The bundled FFmpeg helpers are Apple Silicon executables. The app checks `ffmpeg -version` and `ffprobe -version` before downloads so users see a clear app error if the helper tools are missing, damaged, quarantined, or built for the wrong architecture.
 
-## Build 1.8.5
+## Build 1.8.6
 
 ```bash
 ./scripts/verify_tools.sh

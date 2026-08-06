@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_185 as app_module
+import YT_downloader_186 as app_module
 
 
 class SettingsPersistenceTests(unittest.TestCase):
@@ -73,6 +73,18 @@ class FormatSelectionTests(unittest.TestCase):
         message = app.clean_download_error(Exception("ERROR: Requested format is not available"))
 
         self.assertIn("格式已變動", message)
+
+
+class UpdateManifestTests(unittest.TestCase):
+    def test_plain_text_manifest_version_is_parsed(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+
+        self.assertEqual(app.parse_update_manifest("v1.8.7\n"), "1.8.7")
+
+    def test_json_manifest_version_is_parsed(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+
+        self.assertEqual(app.parse_update_manifest('{"latest_version": "1.8.8"}'), "1.8.8")
 
 
 if __name__ == "__main__":
