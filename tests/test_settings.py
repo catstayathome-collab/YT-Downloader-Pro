@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import base64
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +86,12 @@ class UpdateManifestTests(unittest.TestCase):
         app = object.__new__(app_module.YTDownloaderApp)
 
         self.assertEqual(app.parse_update_manifest('{"latest_version": "1.8.8"}'), "1.8.8")
+
+    def test_github_contents_manifest_version_is_parsed(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+        encoded = base64.b64encode(b"1.8.9\n").decode()
+
+        self.assertEqual(app.parse_update_manifest(json.dumps({"content": encoded})), "1.8.9")
 
 
 if __name__ == "__main__":

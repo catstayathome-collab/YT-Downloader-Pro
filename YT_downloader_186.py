@@ -14,13 +14,14 @@ import re
 import webbrowser
 import glob
 import json
+import base64
 
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
 
 VERSION = "1.8.6"
 APP_NAME = "YT Downloader Pro"
-DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/catstayathome-collab/YT-Downloader-Pro/main/version.txt"
+DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/version.txt?ref=main"
 DEFAULT_UPDATE_DOWNLOAD_URL = "https://github.com/catstayathome-collab/YT-Downloader-Pro/tags"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", DEFAULT_UPDATE_MANIFEST_URL).strip()
 UPDATE_DOWNLOAD_URL = os.environ.get("YTDP_UPDATE_DOWNLOAD_URL", DEFAULT_UPDATE_DOWNLOAD_URL).strip()
@@ -407,6 +408,9 @@ class YTDownloaderApp:
         try:
             data = json.loads(content)
             if isinstance(data, dict):
+                if data.get("content"):
+                    decoded = base64.b64decode(str(data["content"]).encode()).decode("utf-8", errors="replace")
+                    return self.parse_update_manifest(decoded)
                 return str(data.get("latest_version") or data.get("version") or data.get("tag_name") or "").strip().lstrip("v")
         except json.JSONDecodeError:
             pass
