@@ -284,6 +284,22 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("LSMinimumSystemVersion", checker)
         self.assertIn("codesign", checker)
 
+
+class ReadmeTests(unittest.TestCase):
+    def test_readme_documents_user_release(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        for expected in (
+            "1.8.7",
+            "Apple Silicon",
+            "MP4",
+            "MP3",
+            "已知限制",
+            "問題回報",
+            "/releases/latest",
+        ):
+            self.assertIn(expected, readme)
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)
