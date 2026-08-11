@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import ssl
 import sys
 import tempfile
@@ -186,6 +187,32 @@ class AnalysisStateTests(unittest.TestCase):
 
         with self.assertRaises(AttributeError):
             request.url = "https://youtu.be/second"
+
+
+class FakeRoot:
+    def __init__(self):
+        self.after_calls = []
+
+    def after(self, delay, callback):
+        self.after_calls.append((delay, callback))
+
+    def report_callback_exception(self, *_args):
+        raise AssertionError("UI callback unexpectedly failed")
+
+
+class UIQueueTests(unittest.TestCase):
+    def test_worker_result_runs_only_when_main_queue_is_drained(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+        app.root = FakeRoot()
+        app.ui_queue = queue.Queue()
+        received = []
+
+        app.post_to_ui(received.append, "done")
+
+        self.assertEqual(received, [])
+        app.process_ui_queue()
+        self.assertEqual(received, ["done"])
+        self.assertEqual(app.root.after_calls[0][0], 50)
 
 
 class NetworkSafetyTests(unittest.TestCase):

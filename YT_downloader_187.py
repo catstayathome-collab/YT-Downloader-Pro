@@ -5,6 +5,7 @@ import yt_dlp
 import ssl
 import sys
 import threading
+import queue
 import os
 import subprocess
 import urllib.request
@@ -215,6 +216,7 @@ class YTDownloaderApp:
         self.current_artifacts = None
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
         self.toolchain_error = None
+        self.ui_queue = queue.Queue()
 
         # 選單列
         menubar = tk.Menu(root)
@@ -284,7 +286,26 @@ class YTDownloaderApp:
         self.btn_cancel.pack(side="left", padx=5)
 
         self.check_update(silent=True)
+        self.root.after(50, self.process_ui_queue)
         self.root.after(250, self.check_toolchain_on_startup)
+
+    def post_to_ui(self, callback, *args):
+        self.ui_queue.put((callback, args))
+
+    def process_ui_queue(self):
+        try:
+            while True:
+                callback, args = self.ui_queue.get_nowait()
+                try:
+                    callback(*args)
+                except Exception as error:
+                    self.root.report_callback_exception(type(error), error, error.__traceback__)
+        except queue.Empty:
+            pass
+        try:
+            self.root.after(50, self.process_ui_queue)
+        except tk.TclError:
+            pass
 
     def show_context_menu(self, event):
         menu = tk.Menu(self.root, tearoff=0)
@@ -399,27 +420,27 @@ class YTDownloaderApp:
         except ToolchainError as e:
             message = str(e)
             self.toolchain_error = message
-            self.root.after(0, self.show_download_error, message, self.text['tool_unavailable_title'])
-            self.root.after(0, self.reset_ui)
+            self.post_to_ui(self.show_download_error, message, self.text['tool_unavailable_title'])
+            self.post_to_ui(self.reset_ui)
             return
         ydl_opts = self.make_download_options(request, ffmpeg_dir, js_runtime_path)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([request.url])
-            self.root.after(0, self.show_download_success)
+            self.post_to_ui(self.show_download_success)
         except Exception as e:
             if self.is_cancelled:
                 removed_paths = self.cleanup_current_artifacts()
-                self.root.after(0, self.show_cancelled, removed_paths)
+                self.post_to_ui(self.show_cancelled, removed_paths)
             else:
                 message = self.clean_download_error(e)
-                self.root.after(0, self.show_download_error, message)
-        finally: self.root.after(0, self.reset_ui)
+                self.post_to_ui(self.show_download_error, message)
+        finally: self.post_to_ui(self.reset_ui)
 
     def analyze_video(self, request_id, url):
         try:
             js_runtime_path = self.get_qjs_path()
         except ToolchainError as e:
-            self.root.after(0, self.apply_analysis_error, request_id, str(e))
+            self.post_to_ui(self.apply_analysis_error, request_id, str(e))
             return
         ydl_opts = self.make_analysis_options(js_runtime_path)
         try:
@@ -435,8 +456,7 @@ class YTDownloaderApp:
                         audio_data.append(self.make_audio_option(f))
                 video_data.sort(key=lambda x: x['priority'], reverse=True)
                 audio_data.sort(key=lambda x: x['priority'], reverse=True)
-                self.root.after(
-                    0,
+                self.post_to_ui(
                     self.apply_analysis_result,
                     request_id,
                     url,
@@ -446,7 +466,7 @@ class YTDownloaderApp:
                 )
         except Exception as e:
             message = self.clean_download_error(e)
-            self.root.after(0, self.apply_analysis_error, request_id, message)
+            self.post_to_ui(self.apply_analysis_error, request_id, message)
 
     def show_download_success(self):
         messagebox.showinfo("OK", self.text['success'])
@@ -519,12 +539,12 @@ class YTDownloaderApp:
                     latest = self.parse_update_manifest(resp.read().decode('utf-8'))
                 if not latest:
                     raise ValueError("missing latest version")
-                if self.is_newer_version(latest, VERSION): self.root.after(0, lambda: self.show_update_dialog(latest))
-                elif not silent: self.root.after(0, lambda: messagebox.showinfo("Update", self.text['is_latest']))
+                if self.is_newer_version(latest, VERSION): self.post_to_ui(self.show_update_dialog, latest)
+                elif not silent: self.post_to_ui(messagebox.showinfo, "Update", self.text['is_latest'])
             except Exception as e:
                 if not silent:
                     message = self.text['update_failed'].format(error=e)
-                    self.root.after(0, self.show_download_error, message, "Update")
+                    self.post_to_ui(self.show_download_error, message, "Update")
         threading.Thread(target=_check, daemon=True).start()
 
     def make_update_ssl_context(self):
@@ -690,7 +710,7 @@ class YTDownloaderApp:
         self.pause_event.wait()
         
         if d['status'] == 'downloading':
-            self.root.after(0, self.set_download_phase, "downloading")
+            self.post_to_ui(self.set_download_phase, "downloading")
             # --- 修正點：直接用數值計算百分比，避開彩色字元 ---
             downloaded = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
@@ -702,11 +722,11 @@ class YTDownloaderApp:
             
             speed = self.format_bytes(d.get('speed')) + "/s" if d.get('speed') else "--"
             size = f"{self.format_bytes(downloaded)} / {self.format_bytes(total)}"
-            self.root.after(0, lambda: self.update_ui_data(round(p, 1), speed, size))
+            self.post_to_ui(self.update_ui_data, round(p, 1), speed, size)
             
         elif d['status'] == 'finished':
-            self.root.after(0, self.set_download_phase, "merging")
-            self.root.after(0, self.update_ui_data, 100, "0 B/s", self.text['merging'])
+            self.post_to_ui(self.set_download_phase, "merging")
+            self.post_to_ui(self.update_ui_data, 100, "0 B/s", self.text['merging'])
 
     def format_bytes(self, bytes):
         if not bytes: return "--"
