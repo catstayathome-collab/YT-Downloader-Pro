@@ -147,6 +147,45 @@ class ArtifactCleanupTests(unittest.TestCase):
         self.assertTrue(outside.exists())
 
 
+class AnalysisStateTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.analyzed_url = "https://youtu.be/first"
+        self.app.video_format_list = ["137"]
+        self.app.audio_format_list = ["140"]
+
+    def test_changed_url_invalidates_download_selection(self):
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/second", False)
+        )
+
+    def test_video_download_requires_video_and_audio_formats(self):
+        self.app.video_format_list = []
+
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/first", False)
+        )
+
+    def test_audio_only_requires_an_audio_format(self):
+        self.app.audio_format_list = []
+
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/first", True)
+        )
+
+    def test_download_request_is_immutable(self):
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="/tmp",
+            title="Title",
+        )
+
+        with self.assertRaises(AttributeError):
+            request.url = "https://youtu.be/second"
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)

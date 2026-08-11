@@ -14,6 +14,7 @@ import re
 import webbrowser
 import json
 import base64
+from dataclasses import dataclass
 from pathlib import Path
 
 # 解決 Mac 憑證問題
@@ -31,6 +32,16 @@ DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
 
 class ToolchainError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class DownloadRequest:
+    url: str
+    video_format_id: str | None
+    audio_format_id: str | None
+    audio_only: bool
+    output_directory: str
+    title: str
 
 
 class DownloadArtifactTracker:
@@ -185,6 +196,8 @@ class YTDownloaderApp:
         self.video_format_list = []
         self.audio_format_list = []
         self.current_video_title = ""
+        self.analyzed_url = ""
+        self.analysis_request_id = 0
         self.current_artifacts = None
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
         self.toolchain_error = None
@@ -209,6 +222,7 @@ class YTDownloaderApp:
         self.url_entry.pack(side="left", fill="x", expand=True, padx=5)
         
         self.url_entry.bind('<Return>', lambda e: self.start_analyze())
+        self.url_entry.bind('<KeyRelease>', self.handle_url_change)
         self.root.bind_all('<<Paste>>', lambda e: self.force_paste())
         self.url_entry.bind('<Button-3>', self.show_context_menu)
 
@@ -224,7 +238,12 @@ class YTDownloaderApp:
         self.combo_audio.pack(pady=5)
 
         self.audio_only_var = tk.BooleanVar()
-        tk.Checkbutton(root, text=self.text['audio_only'], variable=self.audio_only_var).pack(pady=5)
+        tk.Checkbutton(
+            root,
+            text=self.text['audio_only'],
+            variable=self.audio_only_var,
+            command=self.refresh_download_button,
+        ).pack(pady=5)
 
         tk.Button(root, text=self.text['change_path'], command=self.change_path).pack(pady=5)
         self.lbl_path = tk.Label(root, text=f"{self.text['save_to']} {self.download_path}", fg="gray", wraplength=480)
@@ -263,6 +282,7 @@ class YTDownloaderApp:
             content = self.root.clipboard_get()
             self.url_entry.delete(0, tk.END)
             self.url_entry.insert(0, content)
+            self.handle_url_change()
             return "break"
         except: pass
 
@@ -317,13 +337,12 @@ class YTDownloaderApp:
             if not os.path.exists(os.path.join(directory, new_name)): return new_name
             counter += 1
 
-    def download_video(self, url, v_fid, a_fid):
+    def download_video(self, request):
         self.is_cancelled, self.is_paused = False, False
         self.pause_event.set()
-        audio_only = self.audio_only_var.get()
-        ext = 'mp3' if audio_only else 'mp4'
-        safe_name = self.get_safe_filename(self.download_path, self.current_video_title, ext)
-        self.current_artifacts = DownloadArtifactTracker(self.download_path, safe_name)
+        ext = 'mp3' if request.audio_only else 'mp4'
+        safe_name = self.get_safe_filename(request.output_directory, request.title, ext)
+        self.current_artifacts = DownloadArtifactTracker(request.output_directory, safe_name)
         try:
             ffmpeg_dir = self.get_ffmpeg_path()
         except ToolchainError as e:
@@ -334,18 +353,22 @@ class YTDownloaderApp:
         ydl_opts = {
             'ffmpeg_location': ffmpeg_dir,
             'nocheckcertificate': True,
-            'outtmpl': os.path.join(self.download_path, safe_name),
+            'outtmpl': os.path.join(request.output_directory, safe_name),
             'progress_hooks': [self.progress_hook],
             'postprocessor_hooks': [self.track_download_artifacts],
-            'format': f"{v_fid}+{a_fid}" if not audio_only else a_fid if a_fid else 'bestaudio/best',
-            'merge_output_format': 'mp4' if not audio_only else None
+            'format': (
+                f"{request.video_format_id}+{request.audio_format_id}"
+                if not request.audio_only
+                else request.audio_format_id or 'bestaudio/best'
+            ),
+            'merge_output_format': 'mp4' if not request.audio_only else None
         }
         if self.browser_cookies:
             ydl_opts['cookiesfrombrowser'] = self.browser_cookies
-        if audio_only:
+        if request.audio_only:
             ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([request.url])
             messagebox.showinfo("OK", self.text['success'])
         except Exception as e:
             if self.is_cancelled:
@@ -354,15 +377,14 @@ class YTDownloaderApp:
             else: messagebox.showerror("Error", self.clean_download_error(e))
         finally: self.root.after(0, self.reset_ui)
 
-    def analyze_video(self, url):
+    def analyze_video(self, request_id, url):
         ydl_opts = {'nocheckcertificate': True, 'quiet': True}
         if self.browser_cookies:
             ydl_opts['cookiesfrombrowser'] = self.browser_cookies
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                self.current_video_title = info.get('title', 'Unknown Title')
-                self.root.after(0, lambda: self.lbl_video_title.config(text=f"{self.text['video_title']} {self.current_video_title}"))
+                title = info.get('title', 'Unknown Title')
                 formats = info.get('formats', [])
                 video_data, audio_data = [], []
                 for f in formats:
@@ -372,12 +394,17 @@ class YTDownloaderApp:
                         audio_data.append(self.make_audio_option(f))
                 video_data.sort(key=lambda x: x['priority'], reverse=True)
                 audio_data.sort(key=lambda x: x['priority'], reverse=True)
-                self.video_format_list = [i['id'] for i in video_data]
-                self.audio_format_list = [i['id'] for i in audio_data]
-                self.root.after(0, self.update_combos, [i['label'] for i in video_data], [i['label'] for i in audio_data])
+                self.root.after(
+                    0,
+                    self.apply_analysis_result,
+                    request_id,
+                    url,
+                    title,
+                    video_data,
+                    audio_data,
+                )
         except Exception as e:
-            self.root.after(0, lambda: self.btn_analyze.config(state="normal", text=self.text['analyze']))
-            self.root.after(0, lambda: messagebox.showerror(self.text['analyze_failed'], str(e)))
+            self.root.after(0, self.apply_analysis_error, request_id, str(e))
 
     def show_about(self):
         messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
@@ -607,14 +634,62 @@ class YTDownloaderApp:
         self.progress_bar['value'] = 0
         self.lbl_percent.config(text="0%")
 
+    def invalidate_analysis(self):
+        self.analysis_request_id += 1
+        self.analyzed_url = ""
+        self.current_video_title = ""
+        self.video_format_list = []
+        self.audio_format_list = []
+        if hasattr(self, "combo_quality"):
+            self.combo_quality["values"] = []
+            self.combo_quality.set("")
+        if hasattr(self, "combo_audio"):
+            self.combo_audio["values"] = []
+            self.combo_audio.set("")
+        if hasattr(self, "btn_download"):
+            self.btn_download.config(state="disabled")
+
+    def handle_url_change(self, _event=None):
+        current_url = self.clean_url(self.url_entry.get())
+        if current_url != self.analyzed_url:
+            self.invalidate_analysis()
+
+    def download_selection_is_valid(self, url, audio_only):
+        if self.clean_url(url) != self.analyzed_url:
+            return False
+        if audio_only:
+            return bool(self.audio_format_list)
+        return bool(self.video_format_list and self.audio_format_list)
+
+    def apply_analysis_result(self, request_id, url, title, video_data, audio_data):
+        if request_id != self.analysis_request_id:
+            return
+        self.analyzed_url = url
+        self.current_video_title = title
+        self.video_format_list = [item['id'] for item in video_data]
+        self.audio_format_list = [item['id'] for item in audio_data]
+        self.lbl_video_title.config(text=f"{self.text['video_title']} {title}")
+        self.update_combos(
+            [item['label'] for item in video_data],
+            [item['label'] for item in audio_data],
+        )
+
+    def apply_analysis_error(self, request_id, error):
+        if request_id != self.analysis_request_id:
+            return
+        self.btn_analyze.config(state="normal", text=self.text['analyze'])
+        messagebox.showerror(self.text['analyze_failed'], error)
+
     def start_analyze(self):
         url = self.clean_url(self.url_entry.get())
         if not url: return
         self.url_entry.delete(0, tk.END)
         self.url_entry.insert(0, url)
+        self.invalidate_analysis()
+        request_id = self.analysis_request_id
         self.btn_analyze.config(state="disabled", text=self.text['analyzing'])
         self.lbl_video_title.config(text="")
-        threading.Thread(target=self.analyze_video, args=(url,), daemon=True).start()
+        threading.Thread(target=self.analyze_video, args=(request_id, url), daemon=True).start()
 
     def clean_url(self, url):
         try:
@@ -629,18 +704,38 @@ class YTDownloaderApp:
         if v_opts: self.combo_quality.current(0)
         self.combo_audio['values'] = a_opts
         if a_opts: self.combo_audio.current(0)
-        self.btn_download.config(state="normal")
         self.btn_analyze.config(state="normal", text=self.text['analyze'])
 
+        self.refresh_download_button()
+
+    def refresh_download_button(self):
+        url = self.clean_url(self.url_entry.get())
+        audio_only = bool(self.audio_only_var.get())
+        state = "normal" if self.download_selection_is_valid(url, audio_only) else "disabled"
+        self.btn_download.config(state=state)
+
     def start_download(self):
-        url = self.url_entry.get()
+        url = self.clean_url(self.url_entry.get())
+        audio_only = bool(self.audio_only_var.get())
+        if not self.download_selection_is_valid(url, audio_only):
+            messagebox.showerror(self.text['analyze_failed'], self.text['format_unavailable'])
+            self.invalidate_analysis()
+            return
         v_idx, a_idx = self.combo_quality.current(), self.combo_audio.current()
         v_fid = self.video_format_list[v_idx] if v_idx != -1 else None
         a_fid = self.audio_format_list[a_idx] if a_idx != -1 else None
+        request = DownloadRequest(
+            url=url,
+            video_format_id=v_fid,
+            audio_format_id=a_fid,
+            audio_only=audio_only,
+            output_directory=self.download_path,
+            title=self.current_video_title,
+        )
         self.btn_download.config(state="disabled")
         self.btn_pause.config(state="normal")
         self.btn_cancel.config(state="normal")
-        threading.Thread(target=self.download_video, args=(url, v_fid, a_fid), daemon=True).start()
+        threading.Thread(target=self.download_video, args=(request,), daemon=True).start()
 
     def change_path(self):
         p = filedialog.askdirectory()
