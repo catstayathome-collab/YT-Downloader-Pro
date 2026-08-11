@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Preserve the cat, headphones, music note, white background, black line style, and exact `catstayathome` lettering.
-- Visible ink should occupy about 80% of the square canvas without clipping.
+- Visible ink should use the largest uncropped fit, about 65% width and 85% height.
 - Include standard 16, 32, 128, 256, 512, and 1024 pixel representations.
 - Do not add shadows, gradients, colors, objects, or typography.
 
@@ -37,7 +37,7 @@ Open the result at original resolution and reject it if the text changes, any fe
 
 - [ ] **Step 3: Measure subject coverage**
 
-Run a Pillow inspection that finds pixels darker than RGB 245 and report the ink bounding box. Accept approximately 75-85% horizontal coverage with clear edge padding.
+Run a Pillow inspection that finds pixels darker than RGB 245 and report the ink bounding box. Accept approximately 65% horizontal and 85% vertical coverage with clear edge padding.
 
 ### Task 2: Complete Iconset and ICNS
 
