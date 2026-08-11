@@ -8,6 +8,13 @@ This project bundles command-line tools used by YT Downloader Pro.
 - Bundled helper: `tools/yt-dlp_macos`
 - License details are provided by the upstream project.
 
+## yt-dlp-ejs
+
+- Source: https://github.com/yt-dlp/ejs
+- Bundled Python package: `yt-dlp-ejs==0.8.0`
+- License expression reported by the package: Unlicense AND MIT AND ISC
+- Purpose: provides the JavaScript challenge solver files used by yt-dlp.
+
 ## FFmpeg and FFprobe
 
 - Source package used for 1.8.4: `ffmpeg-ffprobe-static` from https://github.com/descriptinc/ffmpeg-ffprobe-static

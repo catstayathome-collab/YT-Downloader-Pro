@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import certifi
 import yt_dlp
+import ssl
 import sys
 import threading
 import os
@@ -496,7 +498,11 @@ class YTDownloaderApp:
 
         def _check():
             try:
-                with urllib.request.urlopen(urllib.request.Request(PUBLIC_UPDATE_MANIFEST_URL), timeout=5) as resp:
+                with urllib.request.urlopen(
+                    urllib.request.Request(PUBLIC_UPDATE_MANIFEST_URL),
+                    timeout=5,
+                    context=self.make_update_ssl_context(),
+                ) as resp:
                     latest = self.parse_update_manifest(resp.read().decode('utf-8'))
                 if not latest:
                     raise ValueError("missing latest version")
@@ -507,6 +513,9 @@ class YTDownloaderApp:
                     message = self.text['update_failed'].format(error=e)
                     self.root.after(0, self.show_download_error, message, "Update")
         threading.Thread(target=_check, daemon=True).start()
+
+    def make_update_ssl_context(self):
+        return ssl.create_default_context(cafile=certifi.where())
 
     def parse_update_manifest(self, content):
         content = (content or "").strip()

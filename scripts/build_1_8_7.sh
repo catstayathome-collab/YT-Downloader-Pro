@@ -18,6 +18,8 @@ python3 -m PyInstaller \
   --name "$APP_NAME" \
   --icon "$ROOT_DIR/AppIcon.icns" \
   --osx-bundle-identifier "com.tachouweng.ytdownloaderpro" \
+  --hidden-import yt_dlp_ejs \
+  --collect-data yt_dlp_ejs \
   "$ROOT_DIR/YT_downloader_187.py"
 
 INFO_PLIST="$APP_PATH/Contents/Info.plist"

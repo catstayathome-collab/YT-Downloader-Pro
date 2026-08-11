@@ -1,5 +1,6 @@
 import json
 import os
+import ssl
 import sys
 import tempfile
 import unittest
@@ -220,6 +221,12 @@ class NetworkSafetyTests(unittest.TestCase):
 
         self.assertIn("權限", message)
 
+    def test_update_context_keeps_hostname_and_certificate_verification(self):
+        context = self.app.make_update_ssl_context()
+
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
 
 class FakeButton:
     def __init__(self):
@@ -261,7 +268,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         self.assertEqual(
             requirements,
-            ["yt-dlp==2026.6.9", "pyinstaller==6.21.0"],
+            [
+                "yt-dlp==2026.3.17",
+                "pyinstaller==6.21.0",
+                "certifi==2026.1.4",
+                "yt-dlp-ejs==0.8.0",
+            ],
         )
 
     def test_build_script_targets_1_8_7_with_bundle_metadata(self):
@@ -274,6 +286,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("187", script)
         self.assertIn("LSMinimumSystemVersion", script)
         self.assertIn("11.0", script)
+        self.assertIn("--collect-data yt_dlp_ejs", script)
 
     def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
         checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
