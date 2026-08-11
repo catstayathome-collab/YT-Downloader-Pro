@@ -23,10 +23,12 @@ python3 -m PyInstaller \
   "$ROOT_DIR/YT_downloader_187.py"
 
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.7" "$INFO_PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 187" "$INFO_PLIST"
-/usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$INFO_PLIST" 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.7" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.8.7" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 187" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 187" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$INFO_PLIST"
 
 mkdir -p "$HELPERS_DIR"
 cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$HELPERS_DIR/"

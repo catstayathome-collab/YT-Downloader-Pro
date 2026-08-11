@@ -302,6 +302,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("1.8.7", script)
         self.assertIn("CFBundleVersion", script)
         self.assertIn("187", script)
+        self.assertIn("Add :CFBundleVersion string 187", script)
         self.assertIn("LSMinimumSystemVersion", script)
         self.assertIn("11.0", script)
         self.assertIn("--collect-data yt_dlp_ejs", script)
