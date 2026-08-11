@@ -9,7 +9,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_186 as app_module
+import YT_downloader_187 as app_module
+
+
+class ReleaseMetadataTests(unittest.TestCase):
+    def test_release_version_is_1_8_7(self):
+        self.assertEqual(app_module.VERSION, "1.8.7")
+
+    def test_update_page_uses_github_releases(self):
+        self.assertEqual(
+            app_module.DEFAULT_UPDATE_DOWNLOAD_URL,
+            "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/latest",
+        )
 
 
 class SettingsPersistenceTests(unittest.TestCase):
