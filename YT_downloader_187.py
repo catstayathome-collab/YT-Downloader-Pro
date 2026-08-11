@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import yt_dlp
-import ssl
 import sys
 import threading
 import os
@@ -16,9 +15,6 @@ import json
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-
-# 解決 Mac 憑證問題
-ssl._create_default_https_context = ssl._create_unverified_context
 
 VERSION = "1.8.7"
 APP_NAME = "YT Downloader Pro"
@@ -108,6 +104,11 @@ LANG_DATA = {
         "tool_unavailable": "內建轉檔工具無法在這台 Mac 上執行。\n\n工具：{tool}\n位置：{path}\n原因：{detail}\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
         "tool_ytdlp_error": "內建轉檔工具無法被下載核心使用，因此無法合併影音或轉換 MP3。\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
         "format_unavailable": "YouTube 回傳的格式已變動，或剛才選到的格式已不可用。\n\n請重新解析影片後再下載；若仍失敗，請改選另一個畫質或音訊選項。",
+        "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認 macOS 日期時間正確，並更新或重新安裝 App。",
+        "network_error": "目前無法連上 YouTube。請檢查網路連線後再試一次。",
+        "permission_error": "沒有權限寫入選擇的資料夾。請改選其他儲存位置，或在系統設定中允許 App 存取。",
+        "selection_invalid": "網址或可下載格式已變動，請重新解析影片後再下載。",
+        "merging": "正在合併影音，請稍候…",
         "analyze_failed": "影片解析失敗",
         "speed": "速度:",
         "size": "檔案大小:"
@@ -139,6 +140,11 @@ LANG_DATA = {
         "tool_unavailable": "The bundled converter cannot run on this Mac.\n\nTool: {tool}\nPath: {path}\nReason: {detail}\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
         "tool_ytdlp_error": "The bundled converter could not be used by the download engine, so video/audio merging or MP3 conversion cannot continue.\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
         "format_unavailable": "The YouTube format list changed, or the selected format is no longer available.\n\nAnalyze the video again before downloading. If it still fails, choose another video or audio format.",
+        "certificate_error": "The secure certificate check failed. Verify the Mac's date and time, then update or reinstall the app.",
+        "network_error": "YouTube cannot be reached right now. Check the network connection and try again.",
+        "permission_error": "The selected folder cannot be written. Choose another location or allow access in System Settings.",
+        "selection_invalid": "The URL or available formats changed. Analyze the video again before downloading.",
+        "merging": "Merging video and audio. Please wait…",
         "analyze_failed": "Video analysis failed",
         "speed": "Speed:",
         "size": "Size:"
@@ -170,6 +176,11 @@ LANG_DATA = {
         "tool_unavailable": "内蔵変換ツールをこの Mac で実行できません。\n\nツール: {tool}\n場所: {path}\n理由: {detail}\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
         "tool_ytdlp_error": "内蔵変換ツールをダウンロードエンジンが使用できないため、動画と音声の結合または MP3 変換を続行できません。\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
         "format_unavailable": "YouTube の形式リストが変更されたか、選択した形式を利用できなくなりました。\n\n動画を再解析してから再度ダウンロードしてください。まだ失敗する場合は、別の画質または音声を選択してください。",
+        "certificate_error": "安全な証明書を確認できませんでした。Mac の日付と時刻を確認し、App を更新または再インストールしてください。",
+        "network_error": "現在 YouTube に接続できません。ネットワーク接続を確認して、もう一度お試しください。",
+        "permission_error": "選択したフォルダに書き込む権限がありません。別の保存先を選ぶか、システム設定でアクセスを許可してください。",
+        "selection_invalid": "URL または利用可能な形式が変更されました。動画を再解析してからダウンロードしてください。",
+        "merging": "動画と音声を結合しています。しばらくお待ちください…",
         "analyze_failed": "動画の解析に失敗しました",
         "speed": "速度:",
         "size": "サイズ:"
@@ -337,22 +348,18 @@ class YTDownloaderApp:
             if not os.path.exists(os.path.join(directory, new_name)): return new_name
             counter += 1
 
-    def download_video(self, request):
-        self.is_cancelled, self.is_paused = False, False
-        self.pause_event.set()
+    def make_analysis_options(self):
+        options = {'quiet': True}
+        if self.browser_cookies:
+            options['cookiesfrombrowser'] = self.browser_cookies
+        return options
+
+    def make_download_options(self, request, ffmpeg_dir):
         ext = 'mp3' if request.audio_only else 'mp4'
         safe_name = self.get_safe_filename(request.output_directory, request.title, ext)
         self.current_artifacts = DownloadArtifactTracker(request.output_directory, safe_name)
-        try:
-            ffmpeg_dir = self.get_ffmpeg_path()
-        except ToolchainError as e:
-            self.toolchain_error = str(e)
-            self.root.after(0, lambda: messagebox.showerror(self.text['tool_unavailable_title'], str(e)))
-            self.root.after(0, self.reset_ui)
-            return
-        ydl_opts = {
+        options = {
             'ffmpeg_location': ffmpeg_dir,
-            'nocheckcertificate': True,
             'outtmpl': os.path.join(request.output_directory, safe_name),
             'progress_hooks': [self.progress_hook],
             'postprocessor_hooks': [self.track_download_artifacts],
@@ -361,26 +368,44 @@ class YTDownloaderApp:
                 if not request.audio_only
                 else request.audio_format_id or 'bestaudio/best'
             ),
-            'merge_output_format': 'mp4' if not request.audio_only else None
+            'merge_output_format': 'mp4' if not request.audio_only else None,
         }
         if self.browser_cookies:
-            ydl_opts['cookiesfrombrowser'] = self.browser_cookies
+            options['cookiesfrombrowser'] = self.browser_cookies
         if request.audio_only:
-            ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
+            options['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        return options
+
+    def download_video(self, request):
+        self.is_cancelled, self.is_paused = False, False
+        self.pause_event.set()
+        try:
+            ffmpeg_dir = self.get_ffmpeg_path()
+        except ToolchainError as e:
+            message = str(e)
+            self.toolchain_error = message
+            self.root.after(0, self.show_download_error, message, self.text['tool_unavailable_title'])
+            self.root.after(0, self.reset_ui)
+            return
+        ydl_opts = self.make_download_options(request, ffmpeg_dir)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([request.url])
-            messagebox.showinfo("OK", self.text['success'])
+            self.root.after(0, self.show_download_success)
         except Exception as e:
             if self.is_cancelled:
-                self.cleanup_current_artifacts()
-                messagebox.showwarning("!", self.text['cancelled'])
-            else: messagebox.showerror("Error", self.clean_download_error(e))
+                removed_paths = self.cleanup_current_artifacts()
+                self.root.after(0, self.show_cancelled, removed_paths)
+            else:
+                message = self.clean_download_error(e)
+                self.root.after(0, self.show_download_error, message)
         finally: self.root.after(0, self.reset_ui)
 
     def analyze_video(self, request_id, url):
-        ydl_opts = {'nocheckcertificate': True, 'quiet': True}
-        if self.browser_cookies:
-            ydl_opts['cookiesfrombrowser'] = self.browser_cookies
+        ydl_opts = self.make_analysis_options()
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -404,7 +429,17 @@ class YTDownloaderApp:
                     audio_data,
                 )
         except Exception as e:
-            self.root.after(0, self.apply_analysis_error, request_id, str(e))
+            message = self.clean_download_error(e)
+            self.root.after(0, self.apply_analysis_error, request_id, message)
+
+    def show_download_success(self):
+        messagebox.showinfo("OK", self.text['success'])
+
+    def show_download_error(self, message, title="Error"):
+        messagebox.showerror(title, message)
+
+    def show_cancelled(self, _removed_paths):
+        messagebox.showwarning("!", self.text['cancelled'])
 
     def show_about(self):
         messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
@@ -468,7 +503,8 @@ class YTDownloaderApp:
                 elif not silent: self.root.after(0, lambda: messagebox.showinfo("Update", self.text['is_latest']))
             except Exception as e:
                 if not silent:
-                    self.root.after(0, lambda: messagebox.showerror("Update", self.text['update_failed'].format(error=e)))
+                    message = self.text['update_failed'].format(error=e)
+                    self.root.after(0, self.show_download_error, message, "Update")
         threading.Thread(target=_check, daemon=True).start()
 
     def parse_update_manifest(self, content):
@@ -577,6 +613,19 @@ class YTDownloaderApp:
     def clean_download_error(self, error):
         message = str(error)
         lowered = message.lower()
+        if isinstance(error, PermissionError) or "permission denied" in lowered:
+            return self.text['permission_error']
+        if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
+            return self.text['certificate_error']
+        if any(value in lowered for value in (
+            "network is unreachable",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "timed out",
+            "connection reset",
+            "connection refused",
+        )):
+            return self.text['network_error']
         if "ffmpeg is not installed" in lowered or "requested merging of multiple formats" in lowered:
             return self.text['tool_ytdlp_error']
         if "requested format is not available" in lowered:
@@ -718,7 +767,7 @@ class YTDownloaderApp:
         url = self.clean_url(self.url_entry.get())
         audio_only = bool(self.audio_only_var.get())
         if not self.download_selection_is_valid(url, audio_only):
-            messagebox.showerror(self.text['analyze_failed'], self.text['format_unavailable'])
+            messagebox.showerror(self.text['analyze_failed'], self.text['selection_invalid'])
             self.invalidate_analysis()
             return
         v_idx, a_idx = self.combo_quality.current(), self.combo_audio.current()

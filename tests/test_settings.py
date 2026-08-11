@@ -186,6 +186,40 @@ class AnalysisStateTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             request.url = "https://youtu.be/second"
 
+
+class NetworkSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.browser_cookies = None
+
+    def test_analysis_options_keep_certificate_checks_enabled(self):
+        self.assertNotIn("nocheckcertificate", self.app.make_analysis_options())
+
+    def test_download_options_keep_certificate_checks_enabled(self):
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="/tmp",
+            title="Title",
+        )
+
+        options = self.app.make_download_options(request, "/tmp/helpers")
+
+        self.assertNotIn("nocheckcertificate", options)
+
+    def test_certificate_error_is_localized(self):
+        message = self.app.clean_download_error(Exception("CERTIFICATE_VERIFY_FAILED"))
+
+        self.assertIn("安全憑證", message)
+
+    def test_permission_error_is_localized(self):
+        message = self.app.clean_download_error(PermissionError("denied"))
+
+        self.assertIn("權限", message)
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)
