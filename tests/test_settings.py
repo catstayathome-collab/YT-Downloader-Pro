@@ -254,6 +254,36 @@ class DownloadPhaseTests(unittest.TestCase):
         self.assertEqual(self.app.btn_pause.values["state"], "disabled")
         self.assertEqual(self.app.btn_cancel.values["state"], "disabled")
 
+
+class ReleaseConfigurationTests(unittest.TestCase):
+    def test_dependencies_are_exactly_pinned(self):
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(
+            requirements,
+            ["yt-dlp==2026.6.9", "pyinstaller==6.21.0"],
+        )
+
+    def test_build_script_targets_1_8_7_with_bundle_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+
+        self.assertIn("YT_downloader_187.py", script)
+        self.assertIn("CFBundleShortVersionString", script)
+        self.assertIn("1.8.7", script)
+        self.assertIn("CFBundleVersion", script)
+        self.assertIn("187", script)
+        self.assertIn("LSMinimumSystemVersion", script)
+        self.assertIn("11.0", script)
+
+    def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
+        checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
+
+        self.assertIn("--enable-nonfree", checker)
+        self.assertIn("CFBundleShortVersionString", checker)
+        self.assertIn("CFBundleVersion", checker)
+        self.assertIn("LSMinimumSystemVersion", checker)
+        self.assertIn("codesign", checker)
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)
