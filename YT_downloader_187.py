@@ -109,6 +109,7 @@ LANG_DATA = {
         "format_unavailable": "YouTube 回傳的格式已變動，或剛才選到的格式已不可用。\n\n請重新解析影片後再下載；若仍失敗，請改選另一個畫質或音訊選項。",
         "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認 macOS 日期時間正確，並更新或重新安裝 App。",
         "network_error": "目前無法連上 YouTube。請檢查網路連線後再試一次。",
+        "youtube_bot_check": "YouTube 暫時要求登入驗證，這不是影片網址或轉檔工具故障。請先在瀏覽器登入 YouTube，稍後重新解析；若持續出現，請重新啟動 App 或聯絡開發者。",
         "permission_error": "沒有權限寫入選擇的資料夾。請改選其他儲存位置，或在系統設定中允許 App 存取。",
         "selection_invalid": "網址或可下載格式已變動，請重新解析影片後再下載。",
         "merging": "正在合併影音，請稍候…",
@@ -145,6 +146,7 @@ LANG_DATA = {
         "format_unavailable": "The YouTube format list changed, or the selected format is no longer available.\n\nAnalyze the video again before downloading. If it still fails, choose another video or audio format.",
         "certificate_error": "The secure certificate check failed. Verify the Mac's date and time, then update or reinstall the app.",
         "network_error": "YouTube cannot be reached right now. Check the network connection and try again.",
+        "youtube_bot_check": "YouTube temporarily requires a sign-in verification. The video URL and converter are not at fault. Sign in to YouTube in your browser and analyze again later. If this continues, restart the app or contact the developer.",
         "permission_error": "The selected folder cannot be written. Choose another location or allow access in System Settings.",
         "selection_invalid": "The URL or available formats changed. Analyze the video again before downloading.",
         "merging": "Merging video and audio. Please wait…",
@@ -181,6 +183,7 @@ LANG_DATA = {
         "format_unavailable": "YouTube の形式リストが変更されたか、選択した形式を利用できなくなりました。\n\n動画を再解析してから再度ダウンロードしてください。まだ失敗する場合は、別の画質または音声を選択してください。",
         "certificate_error": "安全な証明書を確認できませんでした。Mac の日付と時刻を確認し、App を更新または再インストールしてください。",
         "network_error": "現在 YouTube に接続できません。ネットワーク接続を確認して、もう一度お試しください。",
+        "youtube_bot_check": "YouTube が一時的にログイン確認を求めています。動画 URL や変換ツールの故障ではありません。ブラウザで YouTube にログインし、しばらくしてから再解析してください。続く場合は App を再起動するか、開発者に連絡してください。",
         "permission_error": "選択したフォルダに書き込む権限がありません。別の保存先を選ぶか、システム設定でアクセスを許可してください。",
         "selection_invalid": "URL または利用可能な形式が変更されました。動画を再解析してからダウンロードしてください。",
         "merging": "動画と音声を結合しています。しばらくお待ちください…",
@@ -688,6 +691,8 @@ class YTDownloaderApp:
         lowered = message.lower()
         if isinstance(error, PermissionError) or "permission denied" in lowered:
             return self.text['permission_error']
+        if "sign in to confirm you" in lowered and "not a bot" in lowered:
+            return self.text['youtube_bot_check']
         if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
             return self.text['certificate_error']
         if any(value in lowered for value in (

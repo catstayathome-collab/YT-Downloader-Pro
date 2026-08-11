@@ -304,6 +304,14 @@ class NetworkSafetyTests(unittest.TestCase):
 
         self.assertIn("權限", message)
 
+    def test_youtube_bot_check_is_localized(self):
+        message = self.app.clean_download_error(
+            Exception("Sign in to confirm you’re not a bot. Use --cookies-from-browser")
+        )
+
+        self.assertIn("登入驗證", message)
+        self.assertNotIn("--cookies-from-browser", message)
+
     def test_update_context_keeps_hostname_and_certificate_verification(self):
         context = self.app.make_update_ssl_context()
 
