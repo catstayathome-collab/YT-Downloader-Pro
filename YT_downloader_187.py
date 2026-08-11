@@ -361,9 +361,12 @@ class YTDownloaderApp:
         ext = 'mp3' if request.audio_only else 'mp4'
         safe_name = self.get_safe_filename(request.output_directory, request.title, ext)
         self.current_artifacts = DownloadArtifactTracker(request.output_directory, safe_name)
+        output_template = safe_name
+        if request.audio_only:
+            output_template = f"{Path(safe_name).stem}.%(ext)s"
         options = {
             'ffmpeg_location': ffmpeg_dir,
-            'outtmpl': os.path.join(request.output_directory, safe_name),
+            'outtmpl': os.path.join(request.output_directory, output_template),
             'progress_hooks': [self.progress_hook],
             'postprocessor_hooks': [self.track_download_artifacts],
             'format': (

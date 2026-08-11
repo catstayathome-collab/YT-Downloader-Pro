@@ -211,6 +211,24 @@ class NetworkSafetyTests(unittest.TestCase):
 
         self.assertNotIn("nocheckcertificate", options)
 
+    def test_audio_output_template_does_not_duplicate_mp3_extension(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/first",
+                video_format_id=None,
+                audio_format_id="140",
+                audio_only=True,
+                output_directory=directory,
+                title="Audio Title",
+            )
+
+            options = self.app.make_download_options(request, "/tmp/helpers")
+
+            self.assertEqual(
+                options["outtmpl"],
+                str(Path(directory) / "Audio Title.%(ext)s"),
+            )
+
     def test_certificate_error_is_localized(self):
         message = self.app.clean_download_error(Exception("CERTIFICATE_VERIFY_FAILED"))
 
