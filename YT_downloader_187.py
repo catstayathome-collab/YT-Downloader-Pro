@@ -196,6 +196,7 @@ class YTDownloaderApp:
         # 狀態控制變數
         self.is_paused = False
         self.is_cancelled = False
+        self.download_phase = "idle"
         self.pause_event = threading.Event()
         self.pause_event.set()
         
@@ -638,6 +639,7 @@ class YTDownloaderApp:
         self.pause_event.wait()
         
         if d['status'] == 'downloading':
+            self.root.after(0, self.set_download_phase, "downloading")
             # --- 修正點：直接用數值計算百分比，避開彩色字元 ---
             downloaded = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
@@ -652,7 +654,8 @@ class YTDownloaderApp:
             self.root.after(0, lambda: self.update_ui_data(round(p, 1), speed, size))
             
         elif d['status'] == 'finished':
-            self.root.after(0, lambda: self.update_ui_data(100, "0 B/s", "Merging..."))
+            self.root.after(0, self.set_download_phase, "merging")
+            self.root.after(0, self.update_ui_data, 100, "0 B/s", self.text['merging'])
 
     def format_bytes(self, bytes):
         if not bytes: return "--"
@@ -662,13 +665,29 @@ class YTDownloaderApp:
         return "--"
 
     def toggle_pause(self):
+        if self.download_phase not in ("downloading", "paused"):
+            return
         self.is_paused = not self.is_paused
         self.pause_event.clear() if self.is_paused else self.pause_event.set()
-        self.btn_pause.config(text=self.text['resume'] if self.is_paused else self.text['pause'])
+        self.set_download_phase("paused" if self.is_paused else "downloading")
 
     def cancel_download(self):
+        if self.download_phase not in ("downloading", "paused"):
+            return
         self.is_cancelled = True
         self.pause_event.set()
+
+    def set_download_phase(self, phase):
+        self.download_phase = phase
+        if phase == "downloading":
+            self.btn_pause.config(state="normal", text=self.text['pause'])
+            self.btn_cancel.config(state="normal")
+        elif phase == "paused":
+            self.btn_pause.config(state="normal", text=self.text['resume'])
+            self.btn_cancel.config(state="normal")
+        else:
+            self.btn_pause.config(state="disabled", text=self.text['pause'])
+            self.btn_cancel.config(state="disabled")
 
     def update_ui_data(self, p, speed, size):
         self.progress_bar['value'] = p
@@ -677,9 +696,8 @@ class YTDownloaderApp:
         self.lbl_size.config(text=f"{self.text['size']} {size}")
 
     def reset_ui(self):
-        self.btn_download.config(state="normal")
-        self.btn_pause.config(state="disabled", text=self.text['pause'])
-        self.btn_cancel.config(state="disabled")
+        self.set_download_phase("idle")
+        self.refresh_download_button()
         self.progress_bar['value'] = 0
         self.lbl_percent.config(text="0%")
 
@@ -782,8 +800,7 @@ class YTDownloaderApp:
             title=self.current_video_title,
         )
         self.btn_download.config(state="disabled")
-        self.btn_pause.config(state="normal")
-        self.btn_cancel.config(state="normal")
+        self.set_download_phase("downloading")
         threading.Thread(target=self.download_video, args=(request,), daemon=True).start()
 
     def change_path(self):

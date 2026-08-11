@@ -220,6 +220,40 @@ class NetworkSafetyTests(unittest.TestCase):
 
         self.assertIn("權限", message)
 
+
+class FakeButton:
+    def __init__(self):
+        self.values = {}
+
+    def config(self, **kwargs):
+        self.values.update(kwargs)
+
+
+class DownloadPhaseTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.btn_pause = FakeButton()
+        self.app.btn_cancel = FakeButton()
+
+    def test_downloading_enables_pause_and_cancel(self):
+        self.app.set_download_phase("downloading")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "normal")
+        self.assertEqual(self.app.btn_cancel.values["state"], "normal")
+
+    def test_merging_disables_pause_and_cancel(self):
+        self.app.set_download_phase("merging")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "disabled")
+        self.assertEqual(self.app.btn_cancel.values["state"], "disabled")
+
+    def test_idle_disables_pause_and_cancel(self):
+        self.app.set_download_phase("idle")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "disabled")
+        self.assertEqual(self.app.btn_cancel.values["state"], "disabled")
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)
