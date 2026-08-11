@@ -788,6 +788,8 @@ class YTDownloaderApp:
             self.btn_download.config(state="disabled")
 
     def handle_url_change(self, _event=None):
+        if _event is not None and getattr(_event, "keysym", "") in ("Return", "KP_Enter"):
+            return
         current_url = self.clean_url(self.url_entry.get())
         if current_url != self.analyzed_url:
             self.invalidate_analysis()

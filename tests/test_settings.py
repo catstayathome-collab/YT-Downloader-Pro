@@ -188,6 +188,16 @@ class AnalysisStateTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             request.url = "https://youtu.be/second"
 
+    def test_return_key_release_does_not_invalidate_active_analysis(self):
+        self.app.analyzed_url = ""
+        self.app.analysis_request_id = 7
+        self.app.url_entry = type("Entry", (), {"get": lambda _self: "https://youtu.be/first"})()
+        event = type("Event", (), {"keysym": "Return"})()
+
+        self.app.handle_url_change(event)
+
+        self.assertEqual(self.app.analysis_request_id, 7)
+
 
 class FakeRoot:
     def __init__(self):
