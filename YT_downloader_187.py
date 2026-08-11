@@ -12,9 +12,9 @@ import locale
 import platform
 import re
 import webbrowser
-import glob
 import json
 import base64
+from pathlib import Path
 
 # 解決 Mac 憑證問題
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -31,6 +31,42 @@ DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
 
 class ToolchainError(RuntimeError):
     pass
+
+
+class DownloadArtifactTracker:
+    def __init__(self, directory, output_filename):
+        self.directory = Path(directory).resolve()
+        self.output_path = (self.directory / output_filename).absolute()
+        self.preexisting = {path.absolute() for path in self.directory.iterdir()}
+        self.preexisting_resolved = {path.resolve(strict=False) for path in self.preexisting}
+        self.tracked = set()
+        self.track(str(self.output_path))
+
+    def track(self, path):
+        if not path:
+            return
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = self.directory / candidate
+        candidate = candidate.absolute()
+        resolved = candidate.resolve(strict=False)
+        if resolved != self.directory and self.directory not in resolved.parents:
+            return
+        if candidate not in self.preexisting and resolved not in self.preexisting_resolved:
+            self.tracked.add(candidate)
+
+    def cleanup(self):
+        removed = []
+        for path in sorted(self.tracked, key=lambda item: len(str(item)), reverse=True):
+            resolved = path.resolve(strict=False)
+            if path in self.preexisting or resolved in self.preexisting_resolved:
+                continue
+            if resolved != self.directory and self.directory not in resolved.parents:
+                continue
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+                removed.append(str(path))
+        return sorted(removed)
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -149,7 +185,7 @@ class YTDownloaderApp:
         self.video_format_list = []
         self.audio_format_list = []
         self.current_video_title = ""
-        self.safe_title_for_cleanup = ""
+        self.current_artifacts = None
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
         self.toolchain_error = None
 
@@ -230,14 +266,20 @@ class YTDownloaderApp:
             return "break"
         except: pass
 
-    def cleanup_incomplete_files(self):
-        if not self.safe_title_for_cleanup: return
-        try:
-            search_pattern = os.path.join(self.download_path, f"{self.safe_title_for_cleanup}*")
-            for file_path in glob.glob(search_pattern):
-                if any(ext in file_path for ext in ['.part', '.ytdl', '.temp', '.mp4', '.m4a', '.webm', '.mp3']):
-                    os.remove(file_path)
-        except: pass
+    def cleanup_current_artifacts(self):
+        if self.current_artifacts:
+            return self.current_artifacts.cleanup()
+        return []
+
+    def track_download_artifacts(self, data):
+        if not self.current_artifacts or not isinstance(data, dict):
+            return
+        for key in ("filename", "tmpfilename", "filepath"):
+            self.current_artifacts.track(data.get(key))
+        info = data.get("info_dict")
+        if isinstance(info, dict):
+            for key in ("filename", "tmpfilename", "filepath"):
+                self.current_artifacts.track(info.get(key))
 
     def get_settings_path(self):
         support_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_NAME)
@@ -267,7 +309,6 @@ class YTDownloaderApp:
 
     def get_safe_filename(self, directory, title, ext):
         safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-        self.safe_title_for_cleanup = safe_title
         base_name = f"{safe_title}.{ext}"
         if not os.path.exists(os.path.join(directory, base_name)): return base_name
         counter = 1
@@ -282,6 +323,7 @@ class YTDownloaderApp:
         audio_only = self.audio_only_var.get()
         ext = 'mp3' if audio_only else 'mp4'
         safe_name = self.get_safe_filename(self.download_path, self.current_video_title, ext)
+        self.current_artifacts = DownloadArtifactTracker(self.download_path, safe_name)
         try:
             ffmpeg_dir = self.get_ffmpeg_path()
         except ToolchainError as e:
@@ -294,6 +336,7 @@ class YTDownloaderApp:
             'nocheckcertificate': True,
             'outtmpl': os.path.join(self.download_path, safe_name),
             'progress_hooks': [self.progress_hook],
+            'postprocessor_hooks': [self.track_download_artifacts],
             'format': f"{v_fid}+{a_fid}" if not audio_only else a_fid if a_fid else 'bestaudio/best',
             'merge_output_format': 'mp4' if not audio_only else None
         }
@@ -305,8 +348,8 @@ class YTDownloaderApp:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
             messagebox.showinfo("OK", self.text['success'])
         except Exception as e:
-            if str(e) == "USER_CANCEL":
-                self.cleanup_incomplete_files()
+            if self.is_cancelled:
+                self.cleanup_current_artifacts()
                 messagebox.showwarning("!", self.text['cancelled'])
             else: messagebox.showerror("Error", self.clean_download_error(e))
         finally: self.root.after(0, self.reset_ui)
@@ -514,6 +557,7 @@ class YTDownloaderApp:
         return message
 
     def progress_hook(self, d):
+        self.track_download_artifacts(d)
         if self.is_cancelled: raise Exception("USER_CANCEL")
         self.pause_event.wait()
         

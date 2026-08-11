@@ -87,6 +87,66 @@ class FormatSelectionTests(unittest.TestCase):
         self.assertIn("格式已變動", message)
 
 
+class ArtifactCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.other_tempdir = tempfile.TemporaryDirectory()
+        self.tmpdir = self.tempdir.name
+        self.otherdir = self.other_tempdir.name
+
+    def tearDown(self):
+        self.other_tempdir.cleanup()
+        self.tempdir.cleanup()
+
+    def test_cleanup_preserves_preexisting_same_title_files(self):
+        existing = Path(self.tmpdir) / "Same Title.mp4"
+        existing.write_text("keep", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title (1).mp4")
+        partial = Path(self.tmpdir) / "Same Title (1).mp4.part"
+        partial.write_text("partial", encoding="utf-8")
+        tracker.track(str(partial))
+
+        removed = tracker.cleanup()
+
+        self.assertTrue(existing.exists())
+        self.assertFalse(partial.exists())
+        self.assertEqual(removed, [str(partial)])
+
+    def test_cleanup_preserves_preexisting_tracked_path(self):
+        partial = Path(self.tmpdir) / "Same Title.mp4.part"
+        partial.write_text("old", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(partial))
+
+        tracker.cleanup()
+
+        self.assertTrue(partial.exists())
+
+    def test_cleanup_rejects_path_outside_output_directory(self):
+        outside = Path(self.otherdir) / "outside.part"
+        outside.write_text("keep", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(outside))
+
+        tracker.cleanup()
+
+        self.assertTrue(outside.exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks unavailable")
+    def test_cleanup_preserves_symlink_resolving_outside_directory(self):
+        outside = Path(self.otherdir) / "outside.part"
+        outside.write_text("keep", encoding="utf-8")
+        link = Path(self.tmpdir) / "linked.part"
+        link.symlink_to(outside)
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(link))
+
+        tracker.cleanup()
+
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(outside.exists())
+
+
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
         app = object.__new__(app_module.YTDownloaderApp)
