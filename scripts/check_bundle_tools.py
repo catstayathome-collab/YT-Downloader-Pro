@@ -44,7 +44,7 @@ def main() -> int:
             return 1
 
     helpers = app / "Contents" / "Helpers"
-    expected = [helpers / "ffmpeg", helpers / "ffprobe"]
+    expected = [helpers / "ffmpeg", helpers / "ffprobe", helpers / "qjs"]
     missing = [str(path) for path in expected if not path.is_file()]
     if missing:
         print("Missing bundled tools:", ", ".join(missing), file=sys.stderr)
@@ -54,7 +54,7 @@ def main() -> int:
         print("Bundled tools are not executable:", ", ".join(not_executable), file=sys.stderr)
         return 1
     versions = {}
-    for path in expected:
+    for path in expected[:2]:
         version = subprocess.run([str(path), "-version"], capture_output=True, text=True, timeout=8)
         if version.returncode != 0:
             print(f"{path} failed to run -version:", file=sys.stderr)
@@ -71,6 +71,15 @@ def main() -> int:
         print(f"FFmpeg and FFprobe versions do not match: {versions}", file=sys.stderr)
         return 1
 
+    qjs = helpers / "qjs"
+    qjs_version = subprocess.run(
+        [str(qjs), "--help"], capture_output=True, text=True, timeout=8
+    )
+    qjs_output = f"{qjs_version.stdout}\n{qjs_version.stderr}"
+    if qjs_version.returncode not in (0, 1) or "QuickJS version" not in qjs_output:
+        print(f"{qjs} failed its QuickJS version check", file=sys.stderr)
+        return 1
+
     app_executable = app / "Contents" / "MacOS" / "YT Downloader Pro"
     for path in [app_executable, *expected]:
         arches = subprocess.run(
@@ -84,7 +93,7 @@ def main() -> int:
             print(f"{path} is not Apple Silicon compatible: {detail}", file=sys.stderr)
             return 1
 
-    for tool in ("ffmpeg", "ffprobe"):
+    for tool in ("ffmpeg", "ffprobe", "qjs"):
         real_files = physical_files((app / "Contents").rglob(tool))
         if len(real_files) != 1:
             print(f"Expected one physical {tool} file, found:", file=sys.stderr)

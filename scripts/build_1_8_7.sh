@@ -31,19 +31,21 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$INFO_PLIST"
 
 mkdir -p "$HELPERS_DIR"
-cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$HELPERS_DIR/"
-chmod 755 "$HELPERS_DIR/ffmpeg" "$HELPERS_DIR/ffprobe"
+cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ROOT_DIR/tools/qjs" "$HELPERS_DIR/"
+chmod 755 "$HELPERS_DIR/ffmpeg" "$HELPERS_DIR/ffprobe" "$HELPERS_DIR/qjs"
 xattr -cr "$HELPERS_DIR" || true
 
 mkdir -p "$ONEDIR_HELPERS_DIR"
-cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ONEDIR_HELPERS_DIR/"
-chmod 755 "$ONEDIR_HELPERS_DIR/ffmpeg" "$ONEDIR_HELPERS_DIR/ffprobe"
+cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ROOT_DIR/tools/qjs" "$ONEDIR_HELPERS_DIR/"
+chmod 755 "$ONEDIR_HELPERS_DIR/ffmpeg" "$ONEDIR_HELPERS_DIR/ffprobe" "$ONEDIR_HELPERS_DIR/qjs"
 xattr -cr "$ONEDIR_HELPERS_DIR" || true
 
 codesign --force --sign - "$HELPERS_DIR/ffmpeg"
 codesign --force --sign - "$HELPERS_DIR/ffprobe"
+codesign --force --sign - "$HELPERS_DIR/qjs"
 codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffmpeg"
 codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffprobe"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/qjs"
 codesign --force --deep --sign - "$APP_PATH"
 
 "$ROOT_DIR/scripts/check_bundle_tools.py" "$APP_PATH"

@@ -15,6 +15,15 @@ This project bundles command-line tools used by YT Downloader Pro.
 - License expression reported by the package: Unlicense AND MIT AND ISC
 - Purpose: provides the JavaScript challenge solver files used by yt-dlp.
 
+## QuickJS
+
+- Source: https://bellard.org/quickjs/quickjs-2026-06-04.tar.xz
+- Bundled helper: `tools/qjs`
+- Version: 2026-06-04
+- License: MIT
+- Purpose: executes the bundled yt-dlp EJS challenge solver without requiring Homebrew or Deno.
+- Build and checksum details: `tools/QUICKJS_BUILD_INFO.md`
+
 ## FFmpeg and FFprobe
 
 - Source package used for 1.8.4: `ffmpeg-ffprobe-static` from https://github.com/descriptinc/ffmpeg-ffprobe-static

@@ -351,13 +351,15 @@ class YTDownloaderApp:
             if not os.path.exists(os.path.join(directory, new_name)): return new_name
             counter += 1
 
-    def make_analysis_options(self):
+    def make_analysis_options(self, js_runtime_path=None):
         options = {'quiet': True}
+        if js_runtime_path:
+            options['js_runtimes'] = {'quickjs': {'path': js_runtime_path}}
         if self.browser_cookies:
             options['cookiesfrombrowser'] = self.browser_cookies
         return options
 
-    def make_download_options(self, request, ffmpeg_dir):
+    def make_download_options(self, request, ffmpeg_dir, js_runtime_path=None):
         ext = 'mp3' if request.audio_only else 'mp4'
         safe_name = self.get_safe_filename(request.output_directory, request.title, ext)
         self.current_artifacts = DownloadArtifactTracker(request.output_directory, safe_name)
@@ -376,6 +378,8 @@ class YTDownloaderApp:
             ),
             'merge_output_format': 'mp4' if not request.audio_only else None,
         }
+        if js_runtime_path:
+            options['js_runtimes'] = {'quickjs': {'path': js_runtime_path}}
         if self.browser_cookies:
             options['cookiesfrombrowser'] = self.browser_cookies
         if request.audio_only:
@@ -391,13 +395,14 @@ class YTDownloaderApp:
         self.pause_event.set()
         try:
             ffmpeg_dir = self.get_ffmpeg_path()
+            js_runtime_path = self.get_qjs_path()
         except ToolchainError as e:
             message = str(e)
             self.toolchain_error = message
             self.root.after(0, self.show_download_error, message, self.text['tool_unavailable_title'])
             self.root.after(0, self.reset_ui)
             return
-        ydl_opts = self.make_download_options(request, ffmpeg_dir)
+        ydl_opts = self.make_download_options(request, ffmpeg_dir, js_runtime_path)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([request.url])
             self.root.after(0, self.show_download_success)
@@ -411,7 +416,12 @@ class YTDownloaderApp:
         finally: self.root.after(0, self.reset_ui)
 
     def analyze_video(self, request_id, url):
-        ydl_opts = self.make_analysis_options()
+        try:
+            js_runtime_path = self.get_qjs_path()
+        except ToolchainError as e:
+            self.root.after(0, self.apply_analysis_error, request_id, str(e))
+            return
+        ydl_opts = self.make_analysis_options(js_runtime_path)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -579,6 +589,34 @@ class YTDownloaderApp:
         self.validate_tool("ffprobe")
         return self.get_tool_dir()
 
+    def get_qjs_path(self):
+        path = self.get_tool_path("qjs")
+        if platform.machine() == "arm64":
+            arches = self.get_tool_arches(path)
+            if arches and "arm64" not in arches.split():
+                raise ToolchainError(self.text['tool_unavailable'].format(
+                    tool="qjs",
+                    path=path,
+                    detail=f"architecture is {arches}, not arm64",
+                ))
+        try:
+            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=8)
+        except Exception as e:
+            raise ToolchainError(self.text['tool_unavailable'].format(
+                tool="qjs",
+                path=path,
+                detail=str(e),
+            )) from e
+        output = f"{result.stdout}\n{result.stderr}"
+        if result.returncode not in (0, 1) or "QuickJS version" not in output:
+            detail = output.strip() or f"exit code {result.returncode}"
+            raise ToolchainError(self.text['tool_unavailable'].format(
+                tool="qjs",
+                path=path,
+                detail=detail,
+            ))
+        return path
+
     def validate_tool(self, tool):
         path = self.get_tool_path(tool)
         if platform.machine() == "arm64":
@@ -618,6 +656,7 @@ class YTDownloaderApp:
     def check_toolchain_on_startup(self):
         try:
             self.get_ffmpeg_path()
+            self.get_qjs_path()
             self.toolchain_error = None
         except ToolchainError as e:
             self.toolchain_error = str(e)

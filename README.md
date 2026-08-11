@@ -11,7 +11,7 @@ YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，�
 - 記住上次選擇的下載資料夾。
 - 下載期間顯示進度、速度與檔案大小。
 - 下載階段可暫停、繼續或取消；取消只清理該次任務新建立的檔案。
-- 內建 FFmpeg/FFprobe 啟動檢查與 GitHub 新版本提示。
+- 內建 FFmpeg/FFprobe/QuickJS 啟動檢查與 GitHub 新版本提示。
 
 ## 系統需求
 
@@ -82,6 +82,6 @@ PATH="$PWD/.venv-1.8.7/bin:$PATH" ./scripts/build_1_8_7.sh
 
 ## 第三方工具與授權
 
-下載核心使用 [yt-dlp](https://github.com/yt-dlp/yt-dlp)，影音合併與 MP3 轉換使用 [FFmpeg](https://ffmpeg.org/)。完整來源與建置資訊記錄於 `THIRD_PARTY_NOTICES.md` 及對應工具說明。
+下載核心使用 [yt-dlp](https://github.com/yt-dlp/yt-dlp)，影音合併與 MP3 轉換使用 [FFmpeg](https://ffmpeg.org/)，YouTube JavaScript challenge 使用 [QuickJS](https://bellard.org/quickjs/)。完整來源與建置資訊記錄於 `THIRD_PARTY_NOTICES.md` 及對應工具說明。
 
 本專案不授予下載第三方影音內容的權利。請只下載自己擁有、已獲授權，或法律允許保存的內容。

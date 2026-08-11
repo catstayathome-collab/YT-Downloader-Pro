@@ -197,6 +197,14 @@ class NetworkSafetyTests(unittest.TestCase):
     def test_analysis_options_keep_certificate_checks_enabled(self):
         self.assertNotIn("nocheckcertificate", self.app.make_analysis_options())
 
+    def test_analysis_options_use_bundled_quickjs(self):
+        options = self.app.make_analysis_options("/app/Contents/Helpers/qjs")
+
+        self.assertEqual(
+            options["js_runtimes"],
+            {"quickjs": {"path": "/app/Contents/Helpers/qjs"}},
+        )
+
     def test_download_options_keep_certificate_checks_enabled(self):
         request = app_module.DownloadRequest(
             url="https://youtu.be/first",
@@ -207,9 +215,17 @@ class NetworkSafetyTests(unittest.TestCase):
             title="Title",
         )
 
-        options = self.app.make_download_options(request, "/tmp/helpers")
+        options = self.app.make_download_options(
+            request,
+            "/tmp/helpers",
+            "/app/Contents/Helpers/qjs",
+        )
 
         self.assertNotIn("nocheckcertificate", options)
+        self.assertEqual(
+            options["js_runtimes"],
+            {"quickjs": {"path": "/app/Contents/Helpers/qjs"}},
+        )
 
     def test_audio_output_template_does_not_duplicate_mp3_extension(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -306,6 +322,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("LSMinimumSystemVersion", script)
         self.assertIn("11.0", script)
         self.assertIn("--collect-data yt_dlp_ejs", script)
+        self.assertIn('tools/qjs', script)
 
     def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
         checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
@@ -315,6 +332,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("CFBundleVersion", checker)
         self.assertIn("LSMinimumSystemVersion", checker)
         self.assertIn("codesign", checker)
+        self.assertIn('"qjs"', checker)
 
 
 class ReadmeTests(unittest.TestCase):
