@@ -303,7 +303,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual(
             requirements,
             [
-                "yt-dlp==2026.3.17",
+                "yt-dlp==2026.6.9",
                 "pyinstaller==6.21.0",
                 "certifi==2026.1.4",
                 "yt-dlp-ejs==0.8.0",
@@ -333,6 +333,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("LSMinimumSystemVersion", checker)
         self.assertIn("codesign", checker)
         self.assertIn('"qjs"', checker)
+        self.assertIn("unexpected_dependencies", checker)
+        self.assertIn("MAXIMUM_DEPLOYMENT_TARGET", checker)
 
 
 class ReadmeTests(unittest.TestCase):

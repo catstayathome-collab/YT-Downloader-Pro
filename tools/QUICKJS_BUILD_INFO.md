@@ -5,11 +5,12 @@
 - Source archive SHA-256: `b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a`
 - Build date: `2026-08-12`
 - Build host: Apple Silicon macOS
-- Build command: `make -j 10 qjs`
+- Build command: `MACOSX_DEPLOYMENT_TARGET=11.0 make -j 10 qjs`
 - Bundled binary: `tools/qjs`
-- Bundled binary SHA-256 before ad-hoc signing: `61cdcaa2f2ca66bdd86dbe114aad8e9dde0132f92338adda6b46191aedb31982`
-- Bundled binary SHA-256 after ad-hoc signing: `233fba492335cff4e33ac9ac667f28afb9f9388f76773e1839c0bf6f90c7b000`
+- Bundled binary SHA-256 before ad-hoc signing: `4aa2bb4684e0038d66af835d39890d7c38351c2e493da15454ae96be0017810c`
+- Bundled binary SHA-256 after ad-hoc signing: `5851ca28fd6aec806474c233ea74865cac492d1f305c73d44e45a05b45d3f82f`
 - Architecture: `arm64`
+- Deployment target: `macOS 11.0`
 - Dynamic dependencies: `/usr/lib/libSystem.B.dylib` only
 - License: MIT
 - Upstream project and license: https://bellard.org/quickjs/

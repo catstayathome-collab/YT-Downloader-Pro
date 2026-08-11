@@ -13,6 +13,9 @@ EXPECTED_METADATA = {
     "LSMinimumSystemVersion": "11.0",
 }
 
+ALLOWED_DYLIB_PREFIXES = ("/System/Library/", "/usr/lib/")
+MAXIMUM_DEPLOYMENT_TARGET = (11, 0)
+
 
 def physical_files(paths):
     files = {}
@@ -23,6 +26,34 @@ def physical_files(paths):
             continue
         files[(stat.st_dev, stat.st_ino)] = path.resolve()
     return files
+
+
+def unexpected_dependencies(path):
+    result = subprocess.run(
+        ["/usr/bin/otool", "-L", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+    if result.returncode != 0:
+        return [f"otool failed: {(result.stderr or result.stdout).strip()}"]
+    dependencies = [line.strip().split(" (", 1)[0] for line in result.stdout.splitlines()[1:]]
+    return [dependency for dependency in dependencies if not dependency.startswith(ALLOWED_DYLIB_PREFIXES)]
+
+
+def deployment_target(path):
+    result = subprocess.run(
+        ["/usr/bin/otool", "-l", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+    if result.returncode != 0:
+        return None
+    match = re.search(r"^\s+(?:minos|version)\s+(\d+(?:\.\d+)*)\s*$", result.stdout, re.MULTILINE)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
 
 
 def main() -> int:
@@ -91,6 +122,19 @@ def main() -> int:
         if arches.returncode != 0 or "arm64" not in arches.stdout.split():
             detail = (arches.stderr or arches.stdout).strip()
             print(f"{path} is not Apple Silicon compatible: {detail}", file=sys.stderr)
+            return 1
+        target = deployment_target(path)
+        if target is None or target > MAXIMUM_DEPLOYMENT_TARGET:
+            detail = ".".join(str(part) for part in target) if target else "unknown"
+            print(f"{path} requires macOS {detail}; expected macOS 11.0 or earlier", file=sys.stderr)
+            return 1
+
+    for path in expected:
+        dependencies = unexpected_dependencies(path)
+        if dependencies:
+            print(f"{path} has unexpected dynamic dependencies:", file=sys.stderr)
+            for dependency in dependencies:
+                print(f"  {dependency}", file=sys.stderr)
             return 1
 
     for tool in ("ffmpeg", "ffprobe", "qjs"):
