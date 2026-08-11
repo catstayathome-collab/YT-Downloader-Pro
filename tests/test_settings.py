@@ -191,12 +191,24 @@ class AnalysisStateTests(unittest.TestCase):
     def test_return_key_release_does_not_invalidate_active_analysis(self):
         self.app.analyzed_url = ""
         self.app.analysis_request_id = 7
+        self.app.pending_analysis_url = "https://youtu.be/first"
         self.app.url_entry = type("Entry", (), {"get": lambda _self: "https://youtu.be/first"})()
-        event = type("Event", (), {"keysym": "Return"})()
+        event = type("Event", (), {"keysym": ""})()
 
         self.app.handle_url_change(event)
 
         self.assertEqual(self.app.analysis_request_id, 7)
+
+    def test_editing_pending_url_invalidates_active_analysis(self):
+        self.app.analyzed_url = ""
+        self.app.analysis_request_id = 7
+        self.app.pending_analysis_url = "https://youtu.be/first"
+        self.app.url_entry = type("Entry", (), {"get": lambda _self: "https://youtu.be/second"})()
+
+        self.app.handle_url_change()
+
+        self.assertEqual(self.app.analysis_request_id, 8)
+        self.assertEqual(self.app.pending_analysis_url, "")
 
 
 class FakeRoot:

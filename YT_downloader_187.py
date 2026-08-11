@@ -212,6 +212,7 @@ class YTDownloaderApp:
         self.audio_format_list = []
         self.current_video_title = ""
         self.analyzed_url = ""
+        self.pending_analysis_url = ""
         self.analysis_request_id = 0
         self.current_artifacts = None
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
@@ -775,6 +776,7 @@ class YTDownloaderApp:
     def invalidate_analysis(self):
         self.analysis_request_id += 1
         self.analyzed_url = ""
+        self.pending_analysis_url = ""
         self.current_video_title = ""
         self.video_format_list = []
         self.audio_format_list = []
@@ -788,9 +790,9 @@ class YTDownloaderApp:
             self.btn_download.config(state="disabled")
 
     def handle_url_change(self, _event=None):
-        if _event is not None and getattr(_event, "keysym", "") in ("Return", "KP_Enter"):
-            return
         current_url = self.clean_url(self.url_entry.get())
+        if current_url == self.pending_analysis_url:
+            return
         if current_url != self.analyzed_url:
             self.invalidate_analysis()
 
@@ -804,6 +806,7 @@ class YTDownloaderApp:
     def apply_analysis_result(self, request_id, url, title, video_data, audio_data):
         if request_id != self.analysis_request_id:
             return
+        self.pending_analysis_url = ""
         self.analyzed_url = url
         self.current_video_title = title
         self.video_format_list = [item['id'] for item in video_data]
@@ -817,6 +820,7 @@ class YTDownloaderApp:
     def apply_analysis_error(self, request_id, error):
         if request_id != self.analysis_request_id:
             return
+        self.pending_analysis_url = ""
         self.btn_analyze.config(state="normal", text=self.text['analyze'])
         messagebox.showerror(self.text['analyze_failed'], error)
 
@@ -827,6 +831,7 @@ class YTDownloaderApp:
         self.url_entry.insert(0, url)
         self.invalidate_analysis()
         request_id = self.analysis_request_id
+        self.pending_analysis_url = url
         self.btn_analyze.config(state="disabled", text=self.text['analyzing'])
         self.lbl_video_title.config(text="")
         threading.Thread(target=self.analyze_video, args=(request_id, url), daemon=True).start()
