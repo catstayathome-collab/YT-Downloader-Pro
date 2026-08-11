@@ -11,3 +11,4 @@ __pycache__/
 swift-2.0/.build/
 .pyinstaller-cache/
 DerivedData/
+.worktrees/
