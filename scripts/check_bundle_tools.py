@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import os
 import plistlib
 import re
@@ -15,6 +16,14 @@ EXPECTED_METADATA = {
 
 ALLOWED_DYLIB_PREFIXES = ("/System/Library/", "/usr/lib/")
 MAXIMUM_DEPLOYMENT_TARGET = (11, 0)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def physical_files(paths):
@@ -73,6 +82,15 @@ def main() -> int:
         if actual_value != expected_value:
             print(f"Unexpected {key}: {actual_value!r} (expected {expected_value!r})", file=sys.stderr)
             return 1
+
+    source_icon = Path(__file__).resolve().parent.parent / "AppIcon.icns"
+    bundled_icon = app / "Contents" / "Resources" / metadata.get("CFBundleIconFile", "")
+    if not source_icon.is_file() or not bundled_icon.is_file():
+        print("Source or bundled app icon is missing", file=sys.stderr)
+        return 1
+    if sha256(source_icon) != sha256(bundled_icon):
+        print("Bundled app icon does not match AppIcon.icns", file=sys.stderr)
+        return 1
 
     helpers = app / "Contents" / "Helpers"
     expected = [helpers / "ffmpeg", helpers / "ffprobe", helpers / "qjs"]

@@ -335,6 +335,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn('"qjs"', checker)
         self.assertIn("unexpected_dependencies", checker)
         self.assertIn("MAXIMUM_DEPLOYMENT_TARGET", checker)
+        self.assertIn("Bundled app icon does not match AppIcon.icns", checker)
 
 
 class ReadmeTests(unittest.TestCase):
