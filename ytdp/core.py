@@ -17,7 +17,7 @@ WINDOWS_RESERVED_NAMES = {
 def sanitize_filename_stem(title, platform_name):
     """Return a filesystem-safe title stem for the requested platform."""
     if platform_name.lower() == "windows":
-        stem = re.sub(r'[<>:"/\\|?*]', "_", title).rstrip(". ")
+        stem = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", title).rstrip(". ")
         if not stem:
             stem = "download"
         if stem.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
@@ -39,7 +39,8 @@ def reserve_output_stem(directory, title, extension, platform_name):
             return stem
         counter = 1
         while True:
-            candidate_stem = f"{stem} ({counter})"
+            suffix = f" ({counter})"
+            candidate_stem = f"{stem[:180 - len(suffix)]}{suffix}"
             candidate = f"{candidate_stem}{extension}"
             if candidate.casefold() not in occupied:
                 return candidate_stem

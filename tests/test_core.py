@@ -28,6 +28,12 @@ class FilenameTests(unittest.TestCase):
             "A_B_C_D_E_F_G_H_I_J",
         )
 
+    def test_windows_control_characters_are_replaced(self):
+        self.assertEqual(
+            sanitize_filename_stem("A\x00B\x1fC", "windows"),
+            "A_B_C",
+        )
+
     def test_windows_trailing_spaces_and_periods_are_removed(self):
         self.assertEqual(sanitize_filename_stem("Video.  ", "windows"), "Video")
 
@@ -55,6 +61,16 @@ class FilenameTests(unittest.TestCase):
             )
 
             self.assertEqual(result, "movie (1)")
+
+    def test_windows_duplicate_stem_stays_within_180_characters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            title = "a" * 180
+            Path(directory, f"{title}.mp4").write_bytes(b"existing")
+
+            result = reserve_output_stem(directory, title, ".mp4", "windows")
+
+            self.assertEqual(len(result), 180)
+            self.assertTrue(result.endswith(" (1)"))
 
     def test_macos_duplicate_allocation_preserves_existing_behavior(self):
         with tempfile.TemporaryDirectory() as directory:
