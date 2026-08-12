@@ -1,6 +1,6 @@
 # YT Downloader Pro
 
-YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，由 Ta-Chou Weng 維護。目前開發中的 `1.8.7` 是 Python/Tkinter 安全修補版，主要支援 Apple Silicon Mac。
+YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，由 Ta-Chou Weng 維護。目前正式版本 `1.8.7` 是 Python/Tkinter 安全修補版，主要支援 Apple Silicon Mac。
 
 ## 功能
 
@@ -29,7 +29,7 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 3. 第一次開啟若 macOS 顯示安全提示，請在 Finder 對 App 按右鍵並選擇「打開」，再確認一次。
 4. 貼上影片網址、按 Enter 或「解析影片」，選擇格式及儲存位置後開始下載。
 
-請只從本專案的 Releases 頁取得安裝檔。`1.8.7` 的公開安裝檔會在完整測試及工具授權審核完成後才發布。
+請只從本專案的 Releases 頁取得安裝檔。目前最新公開版本為 `1.8.7`。
 
 ## 已知限制
 
@@ -64,7 +64,8 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 - `v1.8.4`：加入 Apple Silicon 工具與啟動檢查。
 - `v1.8.5`：修正不可合併的 HLS 格式選擇。
 - `v1.8.6`：加入 GitHub Contents API 更新檢查。
-- `YT_downloader_187.py`：開發中的 `1.8.7` 安全修補版。
+- `v1.8.7`：改善 Apple Silicon 相容性、下載安全性、錯誤訊息與完整尺寸 App 圖示。
+- `YT_downloader_187.py`：`1.8.7` 對應的版本化原始碼。
 - `develop/v2.0-swift`：原生 SwiftUI 下載中心開發線。
 
 每個 Python 版本保留獨立檔名，方便比較與回復。公開發布時才會同步更新 `version.txt` 並建立相同版本的 Git tag。
