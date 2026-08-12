@@ -8,7 +8,7 @@ import re
 from ytdp.localization import _redact_diagnostic_details
 
 
-_SENSITIVE_PARTS = {
+_SENSITIVE_TERMINALS = {
     "authorization",
     "cookie",
     "cookies",
@@ -19,37 +19,33 @@ _SENSITIVE_PARTS = {
     "signature",
     "token",
 }
-_SENSITIVE_COMPOUNDS = {"access-token", "api-key", "session-token"}
-_SENSITIVE_COMPACT_PREFIXES = {
-    "accesstoken",
-    "apikey",
-    "authorization",
-    "cookie",
-    "cookies",
-    "credential",
-    "password",
-    "secret",
-    "sessiontoken",
-    "signature",
-    "token",
+_SENSITIVE_COMPOUNDS = {
+    ("api", "key"),
+    ("cookie", "from", "browser"),
+    ("cookies", "from", "browser"),
+    ("password", "file"),
 }
+_CAMEL_CASE_BOUNDARY = re.compile(
+    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"
+)
 
 
-def _normalize_key(value):
-    return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
+def _canonical_key_parts(value):
+    separated = _CAMEL_CASE_BOUNDARY.sub("-", str(value))
+    return tuple(
+        part.lower()
+        for part in re.split(r"[^A-Za-z0-9]+", separated)
+        if part
+    )
 
 
 def _is_sensitive_key(value):
-    normalized = _normalize_key(value)
-    compact = normalized.replace("-", "")
-    if any(compact.startswith(prefix) for prefix in _SENSITIVE_COMPACT_PREFIXES):
+    parts = _canonical_key_parts(value)
+    if not parts:
+        return False
+    if parts[-1] in _SENSITIVE_TERMINALS:
         return True
-    if any(
-        normalized == compound or normalized.startswith(f"{compound}-")
-        for compound in _SENSITIVE_COMPOUNDS
-    ):
-        return True
-    return bool(set(normalized.split("-")) & _SENSITIVE_PARTS)
+    return parts in _SENSITIVE_COMPOUNDS
 
 
 def _redact_structured(value, key=None):
@@ -78,6 +74,9 @@ def sanitize_command(command):
         if redact_next:
             sanitized.append("[REDACTED]")
             redact_next = False
+            continue
+        if not argument.startswith("-") or argument in {"-", "--"}:
+            sanitized.append(_redact_diagnostic_details(argument))
             continue
         option = argument.lstrip("-")
         key, separator, _value = option.partition("=")

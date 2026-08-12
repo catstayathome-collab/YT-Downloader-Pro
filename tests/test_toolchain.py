@@ -316,6 +316,57 @@ class DiagnosticLoggerTests(unittest.TestCase):
         ):
             self.assertNotIn(secret, rendered)
 
+    def test_logger_redacts_camelcase_suffix_keys_without_substring_false_positives(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "diagnostics.jsonl"
+            logger = DiagnosticLogger(path=path)
+            logger.log(
+                "helper failed",
+                command=[
+                    "helper.exe",
+                    "--refreshToken", "cli-refresh-secret",
+                    "--clientSecret=cli-client-secret",
+                    "--tokenizer", "wordpiece",
+                    "--signatureAlgorithm=sha256",
+                    "refreshToken", "positional-safe",
+                ],
+                metadata={
+                    "nested": [
+                        {
+                            "refreshToken": "nested-refresh-secret",
+                            "authToken": "nested-auth-secret",
+                        },
+                        {
+                            "idToken": "nested-id-secret",
+                            "clientSecret": "nested-client-secret",
+                            "tokenizer": "bert-tokenizer",
+                            "signatureAlgorithm": "sha256",
+                        },
+                    ],
+                },
+            )
+
+            entry = json.loads(path.read_text(encoding="utf-8"))
+
+        nested = entry["metadata"]["nested"]
+        self.assertEqual(nested[0]["refreshToken"], "[REDACTED]")
+        self.assertEqual(nested[0]["authToken"], "[REDACTED]")
+        self.assertEqual(nested[1]["idToken"], "[REDACTED]")
+        self.assertEqual(nested[1]["clientSecret"], "[REDACTED]")
+        self.assertEqual(nested[1]["tokenizer"], "bert-tokenizer")
+        self.assertEqual(nested[1]["signatureAlgorithm"], "sha256")
+        self.assertEqual(
+            entry["command"],
+            [
+                "helper.exe",
+                "--refreshToken", "[REDACTED]",
+                "--clientSecret=[REDACTED]",
+                "--tokenizer", "wordpiece",
+                "--signatureAlgorithm=sha256",
+                "refreshToken", "positional-safe",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
