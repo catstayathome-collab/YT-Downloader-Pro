@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_NAME="YT Downloader Pro"
+APP_PATH="$ROOT_DIR/dist/$APP_NAME.app"
+HELPERS_DIR="$APP_PATH/Contents/Helpers"
+ONEDIR_HELPERS_DIR="$ROOT_DIR/dist/$APP_NAME/Helpers"
+
+cd "$ROOT_DIR"
+export PYINSTALLER_CONFIG_DIR="$ROOT_DIR/.pyinstaller-cache"
+
+python3 -m PyInstaller \
+  --noconfirm \
+  --clean \
+  --windowed \
+  --onedir \
+  --name "$APP_NAME" \
+  --icon "$ROOT_DIR/AppIcon.icns" \
+  --osx-bundle-identifier "com.tachouweng.ytdownloaderpro" \
+  --hidden-import yt_dlp_ejs \
+  --collect-data yt_dlp_ejs \
+  "$ROOT_DIR/YT_downloader_187.py"
+
+INFO_PLIST="$APP_PATH/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.7" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.8.7" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 187" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 187" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$INFO_PLIST"
+
+mkdir -p "$HELPERS_DIR"
+cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ROOT_DIR/tools/qjs" "$HELPERS_DIR/"
+chmod 755 "$HELPERS_DIR/ffmpeg" "$HELPERS_DIR/ffprobe" "$HELPERS_DIR/qjs"
+xattr -cr "$HELPERS_DIR" || true
+
+mkdir -p "$ONEDIR_HELPERS_DIR"
+cp "$ROOT_DIR/tools/ffmpeg" "$ROOT_DIR/tools/ffprobe" "$ROOT_DIR/tools/qjs" "$ONEDIR_HELPERS_DIR/"
+chmod 755 "$ONEDIR_HELPERS_DIR/ffmpeg" "$ONEDIR_HELPERS_DIR/ffprobe" "$ONEDIR_HELPERS_DIR/qjs"
+xattr -cr "$ONEDIR_HELPERS_DIR" || true
+
+codesign --force --sign - "$HELPERS_DIR/ffmpeg"
+codesign --force --sign - "$HELPERS_DIR/ffprobe"
+codesign --force --sign - "$HELPERS_DIR/qjs"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffmpeg"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/ffprobe"
+codesign --force --sign - "$ONEDIR_HELPERS_DIR/qjs"
+codesign --force --deep --sign - "$APP_PATH"
+
+"$ROOT_DIR/scripts/check_bundle_tools.py" "$APP_PATH"

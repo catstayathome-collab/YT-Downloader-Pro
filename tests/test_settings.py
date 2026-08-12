@@ -1,5 +1,7 @@
 import json
 import os
+import queue
+import ssl
 import sys
 import tempfile
 import unittest
@@ -9,7 +11,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_186 as app_module
+import YT_downloader_187 as app_module
+
+
+class ReleaseMetadataTests(unittest.TestCase):
+    def test_release_version_is_1_8_7(self):
+        self.assertEqual(app_module.VERSION, "1.8.7")
+
+    def test_public_update_manifest_matches_release_version(self):
+        manifest_version = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
+
+        self.assertEqual(manifest_version, app_module.VERSION)
+
+    def test_update_page_uses_github_releases(self):
+        self.assertEqual(
+            app_module.DEFAULT_UPDATE_DOWNLOAD_URL,
+            "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/latest",
+        )
 
 
 class SettingsPersistenceTests(unittest.TestCase):
@@ -75,6 +93,334 @@ class FormatSelectionTests(unittest.TestCase):
 
         self.assertIn("格式已變動", message)
 
+
+class ArtifactCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.other_tempdir = tempfile.TemporaryDirectory()
+        self.tmpdir = self.tempdir.name
+        self.otherdir = self.other_tempdir.name
+
+    def tearDown(self):
+        self.other_tempdir.cleanup()
+        self.tempdir.cleanup()
+
+    def test_cleanup_preserves_preexisting_same_title_files(self):
+        existing = Path(self.tmpdir) / "Same Title.mp4"
+        existing.write_text("keep", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title (1).mp4")
+        partial = Path(self.tmpdir) / "Same Title (1).mp4.part"
+        partial.write_text("partial", encoding="utf-8")
+        tracker.track(str(partial))
+
+        removed = tracker.cleanup()
+
+        self.assertTrue(existing.exists())
+        self.assertFalse(partial.exists())
+        self.assertEqual(removed, [str(partial)])
+
+    def test_cleanup_preserves_preexisting_tracked_path(self):
+        partial = Path(self.tmpdir) / "Same Title.mp4.part"
+        partial.write_text("old", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(partial))
+
+        tracker.cleanup()
+
+        self.assertTrue(partial.exists())
+
+    def test_cleanup_rejects_path_outside_output_directory(self):
+        outside = Path(self.otherdir) / "outside.part"
+        outside.write_text("keep", encoding="utf-8")
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(outside))
+
+        tracker.cleanup()
+
+        self.assertTrue(outside.exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks unavailable")
+    def test_cleanup_preserves_symlink_resolving_outside_directory(self):
+        outside = Path(self.otherdir) / "outside.part"
+        outside.write_text("keep", encoding="utf-8")
+        link = Path(self.tmpdir) / "linked.part"
+        link.symlink_to(outside)
+        tracker = app_module.DownloadArtifactTracker(self.tmpdir, "Same Title.mp4")
+        tracker.track(str(link))
+
+        tracker.cleanup()
+
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(outside.exists())
+
+
+class AnalysisStateTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.analyzed_url = "https://youtu.be/first"
+        self.app.video_format_list = ["137"]
+        self.app.audio_format_list = ["140"]
+
+    def test_changed_url_invalidates_download_selection(self):
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/second", False)
+        )
+
+    def test_video_download_requires_video_and_audio_formats(self):
+        self.app.video_format_list = []
+
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/first", False)
+        )
+
+    def test_audio_only_requires_an_audio_format(self):
+        self.app.audio_format_list = []
+
+        self.assertFalse(
+            self.app.download_selection_is_valid("https://youtu.be/first", True)
+        )
+
+    def test_download_request_is_immutable(self):
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="/tmp",
+            title="Title",
+        )
+
+        with self.assertRaises(AttributeError):
+            request.url = "https://youtu.be/second"
+
+    def test_return_key_release_does_not_invalidate_active_analysis(self):
+        self.app.analyzed_url = ""
+        self.app.analysis_request_id = 7
+        self.app.pending_analysis_url = "https://youtu.be/first"
+        self.app.url_entry = type("Entry", (), {"get": lambda _self: "https://youtu.be/first"})()
+        event = type("Event", (), {"keysym": ""})()
+
+        self.app.handle_url_change(event)
+
+        self.assertEqual(self.app.analysis_request_id, 7)
+
+    def test_editing_pending_url_invalidates_active_analysis(self):
+        self.app.analyzed_url = ""
+        self.app.analysis_request_id = 7
+        self.app.pending_analysis_url = "https://youtu.be/first"
+        self.app.url_entry = type("Entry", (), {"get": lambda _self: "https://youtu.be/second"})()
+
+        self.app.handle_url_change()
+
+        self.assertEqual(self.app.analysis_request_id, 8)
+        self.assertEqual(self.app.pending_analysis_url, "")
+
+
+class FakeRoot:
+    def __init__(self):
+        self.after_calls = []
+
+    def after(self, delay, callback):
+        self.after_calls.append((delay, callback))
+
+    def report_callback_exception(self, *_args):
+        raise AssertionError("UI callback unexpectedly failed")
+
+
+class UIQueueTests(unittest.TestCase):
+    def test_worker_result_runs_only_when_main_queue_is_drained(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+        app.root = FakeRoot()
+        app.ui_queue = queue.Queue()
+        received = []
+
+        app.post_to_ui(received.append, "done")
+
+        self.assertEqual(received, [])
+        app.process_ui_queue()
+        self.assertEqual(received, ["done"])
+        self.assertEqual(app.root.after_calls[0][0], 50)
+
+
+class NetworkSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.browser_cookies = None
+
+    def test_analysis_options_keep_certificate_checks_enabled(self):
+        self.assertNotIn("nocheckcertificate", self.app.make_analysis_options())
+
+    def test_analysis_options_use_bundled_quickjs(self):
+        options = self.app.make_analysis_options("/app/Contents/Helpers/qjs")
+
+        self.assertEqual(
+            options["js_runtimes"],
+            {"quickjs": {"path": "/app/Contents/Helpers/qjs"}},
+        )
+
+    def test_download_options_keep_certificate_checks_enabled(self):
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="/tmp",
+            title="Title",
+        )
+
+        options = self.app.make_download_options(
+            request,
+            "/tmp/helpers",
+            "/app/Contents/Helpers/qjs",
+        )
+
+        self.assertNotIn("nocheckcertificate", options)
+        self.assertEqual(
+            options["js_runtimes"],
+            {"quickjs": {"path": "/app/Contents/Helpers/qjs"}},
+        )
+
+    def test_audio_output_template_does_not_duplicate_mp3_extension(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/first",
+                video_format_id=None,
+                audio_format_id="140",
+                audio_only=True,
+                output_directory=directory,
+                title="Audio Title",
+            )
+
+            options = self.app.make_download_options(request, "/tmp/helpers")
+
+            self.assertEqual(
+                options["outtmpl"],
+                str(Path(directory) / "Audio Title.%(ext)s"),
+            )
+
+    def test_certificate_error_is_localized(self):
+        message = self.app.clean_download_error(Exception("CERTIFICATE_VERIFY_FAILED"))
+
+        self.assertIn("安全憑證", message)
+
+    def test_permission_error_is_localized(self):
+        message = self.app.clean_download_error(PermissionError("denied"))
+
+        self.assertIn("權限", message)
+
+    def test_youtube_bot_check_is_localized(self):
+        message = self.app.clean_download_error(
+            Exception("Sign in to confirm you’re not a bot. Use --cookies-from-browser")
+        )
+
+        self.assertIn("登入驗證", message)
+        self.assertNotIn("--cookies-from-browser", message)
+
+    def test_update_context_keeps_hostname_and_certificate_verification(self):
+        context = self.app.make_update_ssl_context()
+
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+
+class FakeButton:
+    def __init__(self):
+        self.values = {}
+
+    def config(self, **kwargs):
+        self.values.update(kwargs)
+
+
+class DownloadPhaseTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.btn_pause = FakeButton()
+        self.app.btn_cancel = FakeButton()
+
+    def test_downloading_enables_pause_and_cancel(self):
+        self.app.set_download_phase("downloading")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "normal")
+        self.assertEqual(self.app.btn_cancel.values["state"], "normal")
+
+    def test_merging_disables_pause_and_cancel(self):
+        self.app.set_download_phase("merging")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "disabled")
+        self.assertEqual(self.app.btn_cancel.values["state"], "disabled")
+
+    def test_idle_disables_pause_and_cancel(self):
+        self.app.set_download_phase("idle")
+
+        self.assertEqual(self.app.btn_pause.values["state"], "disabled")
+        self.assertEqual(self.app.btn_cancel.values["state"], "disabled")
+
+
+class ReleaseConfigurationTests(unittest.TestCase):
+    def test_dependencies_are_exactly_pinned(self):
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(
+            requirements,
+            [
+                "yt-dlp==2026.6.9",
+                "pyinstaller==6.21.0",
+                "certifi==2026.1.4",
+                "yt-dlp-ejs==0.8.0",
+            ],
+        )
+
+    def test_build_script_targets_1_8_7_with_bundle_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+
+        self.assertIn("YT_downloader_187.py", script)
+        self.assertIn("CFBundleShortVersionString", script)
+        self.assertIn("1.8.7", script)
+        self.assertIn("CFBundleVersion", script)
+        self.assertIn("187", script)
+        self.assertIn("Add :CFBundleVersion string 187", script)
+        self.assertIn("LSMinimumSystemVersion", script)
+        self.assertIn("11.0", script)
+        self.assertIn("--collect-data yt_dlp_ejs", script)
+        self.assertIn('tools/qjs', script)
+
+    def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
+        checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
+
+        self.assertIn("--enable-nonfree", checker)
+        self.assertIn("CFBundleShortVersionString", checker)
+        self.assertIn("CFBundleVersion", checker)
+        self.assertIn("LSMinimumSystemVersion", checker)
+        self.assertIn("codesign", checker)
+        self.assertIn('"qjs"', checker)
+        self.assertIn("unexpected_dependencies", checker)
+        self.assertIn("MAXIMUM_DEPLOYMENT_TARGET", checker)
+        self.assertIn("Bundled app icon does not match AppIcon.icns", checker)
+
+
+class ReadmeTests(unittest.TestCase):
+    def test_readme_documents_user_release(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        for expected in (
+            "1.8.7",
+            "Apple Silicon",
+            "MP4",
+            "MP3",
+            "已知限制",
+            "問題回報",
+            "/releases/latest",
+        ):
+            self.assertIn(expected, readme)
+
+    def test_readme_marks_1_8_7_as_released(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("`v1.8.7`", readme)
+        self.assertNotIn("開發中的 `1.8.7`", readme)
+        self.assertNotIn("公開安裝檔會在", readme)
 
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):
