@@ -160,6 +160,23 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(valid_output_directory(saved, fallback), saved)
             self.assertEqual(valid_output_directory(root / "missing", fallback), fallback)
 
+    def test_valid_output_directory_falls_back_for_invalid_os_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fallback = Path(tmpdir) / "fallback"
+
+            with mock.patch("ytdp.settings.Path.is_dir", side_effect=OSError("bad path")):
+                self.assertEqual(valid_output_directory("\0invalid", fallback), fallback)
+
+    def test_valid_output_directory_falls_back_when_saved_path_is_not_writable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            saved = root / "saved"
+            fallback = root / "fallback"
+            saved.mkdir()
+
+            with mock.patch("os.access", return_value=False):
+                self.assertEqual(valid_output_directory(saved, fallback), fallback)
+
 
 if __name__ == "__main__":
     unittest.main()

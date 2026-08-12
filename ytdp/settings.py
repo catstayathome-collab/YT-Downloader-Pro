@@ -1,6 +1,7 @@
 """Resilient, minimal application settings persistence."""
 
 import json
+import os
 from pathlib import Path
 import tempfile
 
@@ -59,8 +60,8 @@ def valid_output_directory(saved, fallback):
     """Return an existing saved directory, or the supplied safe fallback."""
     try:
         saved_path = Path(saved)
-    except TypeError:
+        if saved_path.is_dir() and os.access(saved_path, os.W_OK):
+            return saved_path
+    except (OSError, TypeError, ValueError):
         saved_path = None
-    if saved_path is not None and saved_path.is_dir():
-        return saved_path
     return Path(fallback)
