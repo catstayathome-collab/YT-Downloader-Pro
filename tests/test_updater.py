@@ -144,6 +144,37 @@ class DownloadErrorLocalizationTests(unittest.TestCase):
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, diagnostic)
 
+    def test_diagnostic_log_redacts_extended_key_variants_without_dropping_context(self):
+        secrets = (
+            "abc",
+            "xyz",
+            "hyphen-key",
+            "sigvalue",
+            "credential-value",
+            "secret-value",
+            "session-value",
+            "hyphen-session",
+            "bearer-value",
+        )
+        error = Exception(
+            "HTTP 403 GET https://api.example.test/download?access_token=abc&mode=diagnostic\n"
+            'api_key: "xyz"; api-key=hyphen-key\n'
+            "signature=sigvalue; credential='credential-value'; SeCrEt: \"secret-value\"\n"
+            "session_token='session-value'; session-token=hyphen-session\n"
+            "upstream rejected Bearer bearer-value"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "logs" / "download.log"
+            clean_download_error(error, "en", log_path)
+            diagnostic = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("HTTP 403", diagnostic)
+        self.assertIn("mode=diagnostic", diagnostic)
+        self.assertIn("[REDACTED]", diagnostic)
+        for secret in secrets:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -85,19 +85,27 @@ LANG_DATA = {
 }
 
 
+_SENSITIVE_KEY = (
+    r"cookies?|authorization|access[-_]?token|api[-_]?key|signature|"
+    r"credential|secret|session[-_]?token|token|password"
+)
+_SENSITIVE_HEADER_VALUE = re.compile(
+    r"(?im)^(\s*(?:cookies?|authorization)\s*[:=]\s*)([^\r\n]*)"
+)
+_SENSITIVE_KEY_VALUE = re.compile(
+    rf"(?i)(\b(?:{_SENSITIVE_KEY})\b\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;&]+)"
+)
+_BEARER_VALUE = re.compile(
+    r"(?i)\bbearer\s+(?:\"[^\"]*\"|'[^']*'|[^\s,;&]+)"
+)
+
+
 def _redact_diagnostic_details(error):
     value = str(error)
-    value = re.sub(
-        r"(?im)^(\s*(?:cookies?|authorization)\s*[:=]\s*)([^\r\n]*)",
-        r"\1[REDACTED]",
-        value,
-    )
-    value = re.sub(
-        r"(?i)\b(cookies?|authorization|token|password)\b(\s*[:=]\s*)([^\s,;&]+)",
-        r"\1\2[REDACTED]",
-        value,
-    )
-    return re.sub(r"(?i)\bbearer\s+([^\s,;&]+)", "Bearer [REDACTED]", value)
+    value = _SENSITIVE_HEADER_VALUE.sub(r"\1[REDACTED]", value)
+    value = _SENSITIVE_KEY_VALUE.sub(r"\1[REDACTED]", value)
+    return _BEARER_VALUE.sub("Bearer [REDACTED]", value)
 
 
 def _write_diagnostic(error, log_path):
