@@ -20,7 +20,7 @@ YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，�
 - 可連線至 YouTube 的網路環境。
 - 不需要另外安裝 Homebrew、FFmpeg 或 Python。
 
-Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Windows 版本會另外開發，不會共用這個 macOS 安裝檔。
+Intel Mac 與 Linux 不屬於目前 `1.8.x` macOS App 的支援範圍。Windows 測試版另列於下方，不會共用這個 macOS 安裝檔。
 
 ## 安裝與開啟
 
@@ -30,6 +30,12 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 4. 貼上影片網址、按 Enter 或「解析影片」，選擇格式及儲存位置後開始下載。
 
 請只從本專案的 Releases 頁取得安裝檔。目前最新公開版本為 `1.8.7`。
+
+## Windows 測試版
+
+macOS 版仍是目前公開 `v1.8.7` Release 的安裝檔。Windows 10 22H2/Windows 11 Intel/AMD x64 版本正在以未簽署測試版驗證，交付檔名為 `YT-Downloader-Pro-v1.8.7-Windows-x64.zip`；它只會先作為 GitHub Actions artifact 供測試，尚未附加到公開 `v1.8.7` Release。
+
+Windows 測試者應從成功的 Actions 執行頁下載 artifact、比對隨附 SHA-256、完整解壓後啟動 `YT Downloader Pro.exe`，並依包內 `README-Windows.txt` 完成 SmartScreen 與手動驗收流程。Windows ARM、32 位元 Windows、安裝程式與自動更新內建工具均不屬於此測試版範圍。
 
 ## 已知限制
 
@@ -66,6 +72,7 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 - `v1.8.6`：加入 GitHub Contents API 更新檢查。
 - `v1.8.7`：改善 Apple Silicon 相容性、下載安全性、錯誤訊息與完整尺寸 App 圖示。
 - `YT_downloader_187.py`：`1.8.7` 對應的版本化原始碼。
+- `YT_downloader_187_windows.py`：Windows 1.8.7 x64 未簽署測試版的版本化入口。
 - `develop/v2.0-swift`：原生 SwiftUI 下載中心開發線。
 
 每個 Python 版本保留獨立檔名，方便比較與回復。公開發布時才會同步更新 `version.txt` 並建立相同版本的 Git tag。
