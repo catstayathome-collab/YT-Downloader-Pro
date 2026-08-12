@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+class ToolchainError(RuntimeError):
+    """Raised when a bundled helper cannot be used safely."""
+
+
 @dataclass(frozen=True)
 class DownloadRequest:
     url: str

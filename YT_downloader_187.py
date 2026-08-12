@@ -21,9 +21,12 @@ from pathlib import Path
 from ytdp import (
     DownloadArtifactTracker,
     DownloadRequest,
+    ToolchainError,
     format_bytes,
     reserve_output_stem,
 )
+from ytdp.platforms import MacOSPlatform
+from ytdp.settings import load_settings, save_settings, valid_output_directory
 
 VERSION = "1.8.7"
 APP_NAME = "YT Downloader Pro"
@@ -33,10 +36,6 @@ PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", DEFAULT_
 UPDATE_DOWNLOAD_URL = os.environ.get("YTDP_UPDATE_DOWNLOAD_URL", DEFAULT_UPDATE_DOWNLOAD_URL).strip()
 COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
 DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
-
-
-class ToolchainError(RuntimeError):
-    pass
 
 
 # --- 國際化字典包 ---
@@ -157,7 +156,11 @@ LANG_DATA = {
 class YTDownloaderApp:
     def __init__(self, root):
         self.root = root
-        self.lang = self.get_system_language()
+        self.platform = MacOSPlatform(
+            frozen_dir=Path(self.get_app_contents_dir()),
+            frozen=getattr(sys, "frozen", False),
+        )
+        self.lang = self.platform.language()
         self.text = LANG_DATA[self.lang]
         
         # 狀態控制變數
@@ -302,30 +305,22 @@ class YTDownloaderApp:
                 self.current_artifacts.track(info.get(key))
 
     def get_settings_path(self):
-        support_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_NAME)
-        return os.path.join(support_dir, "settings.json")
+        return str(self.platform.settings_dir() / "settings.json")
 
     def load_settings(self):
-        try:
-            with open(self.settings_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+        return load_settings(self.settings_path)
 
     def save_settings(self):
-        try:
-            os.makedirs(os.path.dirname(self.settings_path), exist_ok=True)
-            with open(self.settings_path, "w", encoding="utf-8") as f:
-                json.dump(self.settings, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        save_settings(self.settings_path, self.settings)
 
     def get_saved_download_path(self):
         saved_path = self.settings.get("download_path")
-        if saved_path and os.path.isdir(saved_path):
-            return saved_path
-        return DEFAULT_DOWNLOAD_PATH
+        fallback = (
+            self.platform.default_download_dir()
+            if hasattr(self, "platform")
+            else Path(DEFAULT_DOWNLOAD_PATH)
+        )
+        return str(valid_output_directory(saved_path, fallback))
 
     def get_safe_filename(self, directory, title, ext):
         stem = reserve_output_stem(directory, title, f".{ext}", "macos")
@@ -543,23 +538,16 @@ class YTDownloaderApp:
         return os.path.dirname(os.path.abspath(__file__))
 
     def get_tool_dir(self):
-        base = self.get_app_contents_dir()
-        if getattr(sys, 'frozen', False):
-            candidates = [os.path.join(base, "Helpers"), os.path.join(base, "_internal", "Helpers")]
-        else:
-            candidates = [os.path.join(base, "tools")]
-        for candidate in candidates:
-            if os.path.isdir(candidate):
-                return candidate
-        return candidates[0]
+        return str(self.platform.helper_dir())
 
     def get_tool_path(self, tool):
-        path = os.path.realpath(os.path.join(self.get_tool_dir(), tool))
+        helper_name = self.platform.helper_name(tool)
+        path = os.path.realpath(os.path.join(self.get_tool_dir(), helper_name))
         if not os.path.isfile(path) or not os.access(path, os.X_OK):
             raise ToolchainError(self.text['tool_unavailable'].format(
-                tool=tool,
+                tool=helper_name,
                 path=path,
-                detail=self.text['tool_missing'].format(tool=tool)
+                detail=self.text['tool_missing'].format(tool=helper_name)
             ))
         return path
 
@@ -579,7 +567,13 @@ class YTDownloaderApp:
                     detail=f"architecture is {arches}, not arm64",
                 ))
         try:
-            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=8)
+            result = subprocess.run(
+                [path, "--help"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                **self.platform.subprocess_kwargs(),
+            )
         except Exception as e:
             raise ToolchainError(self.text['tool_unavailable'].format(
                 tool="qjs",
@@ -607,7 +601,13 @@ class YTDownloaderApp:
                     detail=f"architecture is {arches}, not arm64"
                 ))
         try:
-            result = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=8)
+            result = subprocess.run(
+                [path, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                **self.platform.subprocess_kwargs(),
+            )
         except Exception as e:
             raise ToolchainError(self.text['tool_unavailable'].format(
                 tool=tool,
@@ -625,7 +625,13 @@ class YTDownloaderApp:
 
     def get_tool_arches(self, path):
         try:
-            result = subprocess.run(["/usr/bin/lipo", "-archs", path], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ["/usr/bin/lipo", "-archs", path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                **self.platform.subprocess_kwargs(),
+            )
             if result.returncode == 0:
                 return result.stdout.strip()
         except Exception:
@@ -843,16 +849,7 @@ class YTDownloaderApp:
             self.lbl_path.config(text=f"{self.text['save_to']} {self.download_path}")
 
     def get_system_language(self):
-        try:
-            res = subprocess.run(['defaults', 'read', '-g', 'AppleLanguages'], capture_output=True, text=True, timeout=1)
-            output = res.stdout.lower()
-            m = re.search(r'"([^"]+)"', output)
-            if m:
-                primary = m.group(1)
-                if primary.startswith("ja"): return "ja"
-                if primary.startswith("zh"): return "zh"
-        except: pass
-        return "en"
+        return self.platform.language()
 
 if __name__ == "__main__":
     root = tk.Tk()
