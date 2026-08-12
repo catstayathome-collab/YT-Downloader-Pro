@@ -3,12 +3,14 @@ import hashlib
 import io
 import json
 import ssl
+import struct
 import tempfile
 import unittest
 import warnings
 import zipfile
+from email.message import Message
 from pathlib import Path
-from unittest import mock
+from urllib import request, response
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +18,49 @@ MANIFEST = ROOT / "tools" / "windows-tools.json"
 PACKAGE_CHECKER = ROOT / "scripts" / "check_windows_package.py"
 TOOL_FETCHER = ROOT / "scripts" / "fetch_windows_tools.py"
 ICON_GENERATOR = ROOT / "scripts" / "generate_windows_icon.py"
+TRACKED_ICON = ROOT / "assets" / "AppIcon.ico"
 BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_7.ps1"
 PACKAGE_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
 APP_EXE = "YT Downloader Pro.exe"
-ICON_SIZES = {(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256), (512, 512)}
+ICON_DIMENSIONS = (16, 24, 32, 48, 64, 128, 256)
+EXPECTED_MANIFEST = {
+    "ffmpeg": {
+        "version": "N-126086-ge5ecfe8970",
+        "url": (
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
+            "autobuild-2026-08-12-13-15/"
+            "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl.zip"
+        ),
+        "sha256": "3fe180f31a12a1de60568cdcf72210a1d3f475f5f88719afdd6c7012e13f6d3e",
+        "upstream": "https://github.com/BtbN/FFmpeg-Builds",
+        "license": "LGPL-2.1-or-later",
+        "license_file": "tools/licenses/FFmpeg-LGPL-2.1.txt",
+        "archive_members": [
+            {
+                "path": "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffmpeg.exe",
+                "output_name": "ffmpeg.exe",
+            },
+            {
+                "path": "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffprobe.exe",
+                "output_name": "ffprobe.exe",
+            },
+        ],
+    },
+    "deno": {
+        "version": "2.8.1",
+        "url": "https://github.com/denoland/deno/releases/download/v2.8.1/deno-x86_64-pc-windows-msvc.zip",
+        "sha256": "5fb5bac71f609fb91ec8960fb290885aadc27eeb22f07a8eca0c3db6be38b11a",
+        "upstream": "https://github.com/denoland/deno",
+        "license": "MIT",
+        "license_file": "tools/licenses/Deno-MIT.txt",
+        "archive_members": [
+            {
+                "path": "deno.exe",
+                "output_name": "deno.exe",
+            },
+        ],
+    },
+}
 
 
 def load_script(name, path):
@@ -58,38 +99,51 @@ def write_zip(path, members):
             archive.writestr(member, content)
 
 
+def raw_ico_entries(path):
+    data = Path(path).read_bytes()
+    if len(data) < 6:
+        raise AssertionError("truncated ICONDIR")
+    reserved, image_type, count = struct.unpack_from("<HHH", data, 0)
+    if (reserved, image_type) != (0, 1):
+        raise AssertionError(f"invalid ICONDIR: {(reserved, image_type)}")
+    if len(data) < 6 + (16 * count):
+        raise AssertionError("truncated ICONDIRENTRY table")
+
+    entries = []
+    for index in range(count):
+        fields = struct.unpack_from("<BBBBHHII", data, 6 + (16 * index))
+        width, height, _colors, entry_reserved, planes, bits, length, offset = fields
+        if entry_reserved != 0 or planes != 1 or bits != 32:
+            raise AssertionError(f"invalid ICONDIRENTRY metadata: {fields}")
+        payload = data[offset:offset + length]
+        if len(payload) != length or payload[:8] != b"\x89PNG\r\n\x1a\n":
+            raise AssertionError("ICO frame is not a complete PNG payload")
+        ihdr_length = struct.unpack_from(">I", payload, 8)[0]
+        if payload[12:16] != b"IHDR" or ihdr_length != 13:
+            raise AssertionError("PNG payload does not begin with IHDR")
+        png_width, png_height = struct.unpack_from(">II", payload, 16)
+        entries.append(
+            {
+                "advertised": (width or 256, height or 256),
+                "payload": (png_width, png_height),
+            }
+        )
+    return entries
+
+
+def archive_package(package_root, archive_path):
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in package_root.rglob("*"):
+            if path.is_file():
+                archive.write(path, path.relative_to(package_root.parent).as_posix())
+
+
 class WindowsBuildScriptTests(unittest.TestCase):
     def test_windows_tool_manifest_is_immutable_and_complete(self):
         self.assertTrue(MANIFEST.is_file(), "Windows helper manifest is missing")
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-        self.assertTrue(
-            manifest["ffmpeg"]["url"].endswith(
-                "autobuild-2026-08-12-13-15/"
-                "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl.zip"
-            )
-        )
-        self.assertEqual(
-            manifest["ffmpeg"]["sha256"],
-            "3fe180f31a12a1de60568cdcf72210a1d3f475f5f88719afdd6c7012e13f6d3e",
-        )
-        self.assertEqual(
-            manifest["deno"]["sha256"],
-            "5fb5bac71f609fb91ec8960fb290885aadc27eeb22f07a8eca0c3db6be38b11a",
-        )
-        self.assertEqual(
-            [member["output_name"] for member in manifest["ffmpeg"]["archive_members"]],
-            ["ffmpeg.exe", "ffprobe.exe"],
-        )
-        self.assertEqual(
-            [member["output_name"] for member in manifest["deno"]["archive_members"]],
-            ["deno.exe"],
-        )
-        for tool in manifest.values():
-            self.assertTrue(tool["url"].startswith("https://"))
-            self.assertTrue(tool["upstream"].startswith("https://"))
-            self.assertTrue(tool["license"])
-            self.assertTrue(tool["license_file"].startswith("tools/licenses/"))
+        self.assertEqual(manifest, EXPECTED_MANIFEST)
 
     def test_package_checker_requires_exact_helper_names(self):
         self.assertTrue(PACKAGE_CHECKER.is_file(), "Windows package checker is missing")
@@ -129,10 +183,7 @@ class WindowsBuildScriptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             package_root = create_valid_package(tmpdir)
             archive_path = Path(tmpdir) / f"{PACKAGE_NAME}.zip"
-            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                for path in package_root.rglob("*"):
-                    if path.is_file():
-                        archive.write(path, path.relative_to(package_root.parent).as_posix())
+            archive_package(package_root, archive_path)
 
             valid = checker.check_package(archive_path)
             wrong_name = Path(tmpdir) / "renamed.zip"
@@ -156,6 +207,32 @@ class WindowsBuildScriptTests(unittest.TestCase):
             result = checker.check_package(archive_path)
 
         self.assertTrue(any("duplicate ZIP member" in error for error in result.errors), result.errors)
+
+    def test_package_checker_rejects_all_unexpected_executables_in_directory(self):
+        checker = load_script("check_windows_package_extra_directory_exes", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            write_pe(package_root / "Helpers" / "nested" / "payload.exe")
+            write_pe(package_root / "_internal" / "payload.EXE")
+
+            result = checker.check_package(package_root)
+
+        self.assertTrue(any("Helpers/nested/payload.exe" in error for error in result.errors), result.errors)
+        self.assertTrue(any("_internal/payload.EXE" in error for error in result.errors), result.errors)
+
+    def test_package_checker_rejects_all_unexpected_executables_in_zip(self):
+        checker = load_script("check_windows_package_extra_zip_exes", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            write_pe(package_root / "Helpers" / "nested" / "payload.exe")
+            write_pe(package_root / "_internal" / "payload.EXE")
+            archive_path = Path(tmpdir) / f"{PACKAGE_NAME}.zip"
+            archive_package(package_root, archive_path)
+
+            result = checker.check_package(archive_path)
+
+        self.assertTrue(any("Helpers/nested/payload.exe" in error for error in result.errors), result.errors)
+        self.assertTrue(any("_internal/payload.EXE" in error for error in result.errors), result.errors)
 
     def test_fetcher_hashes_before_opening_archive(self):
         self.assertTrue(TOOL_FETCHER.is_file(), "Windows helper fetcher is missing")
@@ -213,30 +290,43 @@ class WindowsBuildScriptTests(unittest.TestCase):
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(context.check_hostname)
 
-    def test_fetcher_rejects_redirect_from_https_to_plain_http(self):
+    def test_fetcher_blocks_https_to_http_to_https_chain_before_plaintext_open(self):
         fetcher = load_script("fetch_windows_tools_redirect", TOOL_FETCHER)
 
-        class PlainHttpResponse(io.BytesIO):
-            def geturl(self):
-                return "http://downloads.example.invalid/tool.zip"
+        class ScriptedTransport(request.BaseHandler):
+            handler_order = 100
 
-            def __enter__(self):
-                return self
+            def __init__(self):
+                self.opened = []
 
-            def __exit__(self, *_args):
-                self.close()
+            def https_open(self, req):
+                return self._open(req)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            destination = Path(tmpdir) / "tool.zip"
-            with mock.patch.object(
-                fetcher.urllib.request,
-                "urlopen",
-                return_value=PlainHttpResponse(b"archive"),
-            ):
-                with self.assertRaisesRegex(ValueError, "redirected to non-HTTPS"):
-                    fetcher.download_archive("https://example.invalid/tool.zip", destination)
+            def http_open(self, req):
+                return self._open(req)
 
-            self.assertFalse(destination.exists())
+            def _open(self, req):
+                self.opened.append(req.full_url)
+                headers = Message()
+                redirects = {
+                    "https://secure.example/start": "http://plain.example/intermediate",
+                    "http://plain.example/intermediate": "https://secure.example/final",
+                }
+                location = redirects.get(req.full_url)
+                status = 302 if location else 200
+                if location:
+                    headers["Location"] = location
+                result = response.addinfourl(io.BytesIO(b"archive"), headers, req.full_url, status)
+                result.msg = "Found" if location else "OK"
+                return result
+
+        transport = ScriptedTransport()
+        opener = fetcher.build_https_opener(transport)
+
+        with self.assertRaisesRegex(ValueError, "non-HTTPS redirect"):
+            opener.open("https://secure.example/start")
+
+        self.assertEqual(transport.opened, ["https://secure.example/start"])
 
     def test_icon_generator_writes_all_required_frames(self):
         generator = load_script("generate_windows_icon", ICON_GENERATOR)
@@ -245,7 +335,17 @@ class WindowsBuildScriptTests(unittest.TestCase):
 
             generator.generate_icon(ROOT / "assets" / "AppIcon-1024.png", output)
 
-            self.assertEqual(generator.read_ico_sizes(output), ICON_SIZES)
+            entries = raw_ico_entries(output)
+
+        advertised = [entry["advertised"] for entry in entries]
+        expected = [(dimension, dimension) for dimension in ICON_DIMENSIONS]
+        self.assertEqual(advertised, expected)
+        self.assertEqual(len(advertised), len(set(advertised)))
+        self.assertEqual(
+            [entry["payload"] for entry in entries],
+            advertised,
+        )
+        self.assertEqual(raw_ico_entries(TRACKED_ICON), entries)
 
     def test_windows_build_is_windowed_onedir_and_preserves_package_root(self):
         self.assertTrue(BUILD_SCRIPT.is_file(), "Windows PowerShell build script is missing")

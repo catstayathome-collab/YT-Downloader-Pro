@@ -19,6 +19,10 @@ ARCHIVE_NAME = f"{PACKAGE_NAME}.zip"
 APP_EXE = "YT Downloader Pro.exe"
 EXPECTED_HELPERS = ("ffmpeg.exe", "ffprobe.exe", "deno.exe")
 EXPECTED_DOCUMENTS = ("THIRD_PARTY_NOTICES.txt", "README-Windows.txt")
+EXPECTED_EXECUTABLES = {
+    APP_EXE,
+    *(f"Helpers/{helper}" for helper in EXPECTED_HELPERS),
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,25 @@ def _check_directory(package_root, checked_path=None, check_root_name=True):
             f"Helpers must contain exactly {sorted(EXPECTED_HELPERS)}; found {helper_files}"
         )
     all_files = [path for path in package_root.rglob("*") if path.is_file()]
+    executable_paths = {
+        path.relative_to(package_root).as_posix()
+        for path in all_files
+        if path.suffix.casefold() == ".exe"
+    }
+    unexpected_executables = sorted(executable_paths - EXPECTED_EXECUTABLES)
+    missing_executables = sorted(EXPECTED_EXECUTABLES - executable_paths)
+    for relative_path in unexpected_executables:
+        errors.append(f"unexpected executable: {relative_path}")
+    if missing_executables:
+        errors.append(f"missing required executables: {missing_executables}")
+
+    if helper_root.is_dir():
+        for path in sorted(helper_root.rglob("*")):
+            relative_to_helpers = path.relative_to(helper_root)
+            if path.is_dir() or len(relative_to_helpers.parts) != 1:
+                relative_path = path.relative_to(package_root).as_posix()
+                errors.append(f"nested Helpers content is not allowed: {relative_path}")
+
     for helper, canonical_path in canonical_paths.items():
         if not canonical_path.is_file():
             errors.append(f"missing canonical helper: Helpers/{helper}")

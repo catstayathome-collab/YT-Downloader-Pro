@@ -12,7 +12,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "assets" / "AppIcon-1024.png"
 DEFAULT_OUTPUT = ROOT / "assets" / "AppIcon.ico"
-REQUIRED_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
+# ICONDIRENTRY dimensions are one byte and encode 256 as zero. The tracked
+# 1024 px PNG remains the source master; valid ICO frames stop at 256 px.
+REQUIRED_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
 def _resample_filter():
@@ -34,7 +36,7 @@ def _write_ico(frames, output_path):
     entries = []
     payloads = []
     for size, payload in frames:
-        dimension = 0 if size >= 256 else size
+        dimension = 0 if size == 256 else size
         entries.append(
             struct.pack("<BBBBHHII", dimension, dimension, 0, 0, 1, 32, len(payload), offset)
         )
@@ -65,8 +67,10 @@ def read_ico_sizes(path):
             frame.load()
             size = frame.size
         declared = (width_byte or 256, height_byte or 256)
-        if size != declared and max(size) <= 256:
+        if size != declared:
             raise ValueError(f"ICO directory size {declared} disagrees with payload {size}")
+        if declared in sizes:
+            raise ValueError(f"duplicate ICO directory size: {declared}")
         sizes.add(size)
     return sizes
 

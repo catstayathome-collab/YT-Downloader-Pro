@@ -26,6 +26,25 @@ def tls_context():
     return ssl.create_default_context(cafile=certifi.where())
 
 
+class HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirect targets before urllib can issue a non-HTTPS request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urlsplit(newurl)
+        if target.scheme != "https" or not target.netloc:
+            raise ValueError(f"helper download refused non-HTTPS redirect: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def build_https_opener(*handlers):
+    """Build the helper-download opener with TLS and redirect policy fixed."""
+    return urllib.request.build_opener(
+        HttpsOnlyRedirectHandler(),
+        urllib.request.HTTPSHandler(context=tls_context()),
+        *handlers,
+    )
+
+
 def download_archive(url, destination):
     """Download one HTTPS archive with certificate and hostname verification."""
     parsed = urllib.parse.urlsplit(url)
@@ -33,7 +52,7 @@ def download_archive(url, destination):
         raise ValueError(f"helper URL must use HTTPS: {url}")
     request = urllib.request.Request(url, headers={"User-Agent": "YT-Downloader-Pro-build/1.8.7"})
     destination = Path(destination)
-    with urllib.request.urlopen(request, context=tls_context(), timeout=120) as response:
+    with build_https_opener().open(request, timeout=120) as response:
         final_url = urllib.parse.urlsplit(response.geturl())
         if final_url.scheme != "https" or not final_url.netloc:
             raise ValueError(f"helper download redirected to non-HTTPS URL: {response.geturl()}")
