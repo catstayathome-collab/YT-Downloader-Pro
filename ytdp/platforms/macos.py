@@ -72,3 +72,18 @@ class MacOSPlatform(PlatformAdapter):
             raise ToolchainError(f"cannot inspect helper architecture: {path}") from error
         if result.returncode == 0 and "arm64" not in result.stdout.split():
             raise ToolchainError(f"helper is not arm64: {path}")
+
+    def filename_platform(self) -> str:
+        return "macos"
+
+    def js_runtime_name(self) -> str:
+        return "quickjs"
+
+    def js_runtime_tool(self) -> str:
+        return "qjs"
+
+    def js_runtime_check_args(self) -> tuple[str, ...]:
+        return ("--help",)
+
+    def js_runtime_output_marker(self) -> str:
+        return "QuickJS version"

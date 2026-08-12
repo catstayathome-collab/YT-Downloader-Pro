@@ -50,3 +50,23 @@ class PlatformAdapter(ABC):
     @abstractmethod
     def validate_architecture(self, path) -> None:
         """Raise ToolchainError when a bundled helper is incompatible."""
+
+    @abstractmethod
+    def filename_platform(self) -> str:
+        """Return the filename-allocation platform identifier."""
+
+    @abstractmethod
+    def js_runtime_name(self) -> str:
+        """Return the yt-dlp JavaScript runtime name."""
+
+    @abstractmethod
+    def js_runtime_tool(self) -> str:
+        """Return the bundled helper name for the JavaScript runtime."""
+
+    @abstractmethod
+    def js_runtime_check_args(self) -> tuple[str, ...]:
+        """Return arguments used to validate the bundled runtime."""
+
+    @abstractmethod
+    def js_runtime_output_marker(self) -> str:
+        """Return a marker expected in the runtime validation output."""

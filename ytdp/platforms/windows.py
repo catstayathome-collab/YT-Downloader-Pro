@@ -115,3 +115,18 @@ class WindowsPlatform(PlatformAdapter):
             raise ToolchainError(f"invalid Windows helper: {path}") from error
         if machine != 0x8664:
             raise ToolchainError(f"Windows helper is not AMD64: {path}")
+
+    def filename_platform(self) -> str:
+        return "windows"
+
+    def js_runtime_name(self) -> str:
+        return "deno"
+
+    def js_runtime_tool(self) -> str:
+        return "deno"
+
+    def js_runtime_check_args(self) -> tuple[str, ...]:
+        return ("--version",)
+
+    def js_runtime_output_marker(self) -> str:
+        return "deno"
