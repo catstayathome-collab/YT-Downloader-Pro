@@ -1,8 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import certifi
 import yt_dlp
-import ssl
 import sys
 import threading
 import queue
@@ -14,8 +12,6 @@ import locale
 import platform
 import re
 import webbrowser
-import json
-import base64
 from pathlib import Path
 
 from ytdp import (
@@ -25,8 +21,21 @@ from ytdp import (
     format_bytes,
     reserve_output_stem,
 )
+from ytdp.downloader import (
+    make_analysis_options as build_analysis_options,
+    make_download_options as build_download_options,
+)
+from ytdp.localization import (
+    LANG_DATA as SHARED_LANG_DATA,
+    clean_download_error as map_download_error,
+)
 from ytdp.platforms import MacOSPlatform
 from ytdp.settings import load_settings, save_settings, valid_output_directory
+from ytdp.updater import (
+    is_newer_version as compare_versions,
+    make_update_ssl_context as build_update_ssl_context,
+    parse_update_manifest as parse_manifest,
+)
 
 VERSION = "1.8.7"
 APP_NAME = "YT Downloader Pro"
@@ -38,120 +47,8 @@ COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
 DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
 
 
-# --- 國際化字典包 ---
-LANG_DATA = {
-    "zh": {
-        "title": "YouTube 下載器 Pro",
-        "video_title": "影片標題:",
-        "analyze": "解析影片",
-        "analyzing": "解析中...",
-        "quality": "選擇畫質:",
-        "audio_track": "選擇音軌:",
-        "audio_only": "僅下載音訊 (轉為 MP3)",
-        "change_path": "更改儲存路徑",
-        "save_to": "儲存至:",
-        "start_download": "開始下載",
-        "pause": "暫停",
-        "resume": "繼續",
-        "cancel": "取消",
-        "success": "下載完成！",
-        "cancelled": "下載已取消，已強力清除殘留檔案",
-        "about": "關於程式",
-        "update_check": "檢查更新",
-        "is_latest": "目前已是最新版本",
-        "manual_update": "目前版本為 v{version}。請從正式發布頁面取得更新版本。",
-        "update_available": "發現新版 v{latest}。是否前往下載頁面？",
-        "update_failed": "無法檢查更新：{error}",
-        "tool_missing": "找不到內附工具：{tool}",
-        "tool_unavailable_title": "內建轉檔工具無法使用",
-        "tool_unavailable": "內建轉檔工具無法在這台 Mac 上執行。\n\n工具：{tool}\n位置：{path}\n原因：{detail}\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
-        "tool_ytdlp_error": "內建轉檔工具無法被下載核心使用，因此無法合併影音或轉換 MP3。\n\n請重新下載完整的 Apple Silicon 版本，或聯絡開發者取得新版安裝檔。",
-        "format_unavailable": "YouTube 回傳的格式已變動，或剛才選到的格式已不可用。\n\n請重新解析影片後再下載；若仍失敗，請改選另一個畫質或音訊選項。",
-        "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認 macOS 日期時間正確，並更新或重新安裝 App。",
-        "network_error": "目前無法連上 YouTube。請檢查網路連線後再試一次。",
-        "youtube_bot_check": "YouTube 暫時要求登入驗證，這不是影片網址或轉檔工具故障。請先在瀏覽器登入 YouTube，稍後重新解析；若持續出現，請重新啟動 App 或聯絡開發者。",
-        "permission_error": "沒有權限寫入選擇的資料夾。請改選其他儲存位置，或在系統設定中允許 App 存取。",
-        "selection_invalid": "網址或可下載格式已變動，請重新解析影片後再下載。",
-        "merging": "正在合併影音，請稍候…",
-        "analyze_failed": "影片解析失敗",
-        "speed": "速度:",
-        "size": "檔案大小:"
-    },
-    "en": {
-        "title": "YouTube Downloader Pro",
-        "video_title": "Video Title:",
-        "analyze": "Analyze",
-        "analyzing": "Analyzing...",
-        "quality": "Select Quality:",
-        "audio_track": "Audio Track:",
-        "audio_only": "Audio Only (MP3)",
-        "change_path": "Change Save Path",
-        "save_to": "Save to:",
-        "start_download": "Download Now",
-        "pause": "Pause",
-        "resume": "Resume",
-        "cancel": "Cancel",
-        "success": "Download Finished!",
-        "cancelled": "Cancelled and temp files cleared",
-        "about": "About",
-        "update_check": "Check Update",
-        "is_latest": "Already up to date",
-        "manual_update": "Current version is v{version}. Please use the official release page for updates.",
-        "update_available": "Version v{latest} is available. Open the download page?",
-        "update_failed": "Unable to check for updates: {error}",
-        "tool_missing": "Bundled tool not found: {tool}",
-        "tool_unavailable_title": "Bundled converter unavailable",
-        "tool_unavailable": "The bundled converter cannot run on this Mac.\n\nTool: {tool}\nPath: {path}\nReason: {detail}\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
-        "tool_ytdlp_error": "The bundled converter could not be used by the download engine, so video/audio merging or MP3 conversion cannot continue.\n\nPlease download the complete Apple Silicon build again or contact the developer for an updated app.",
-        "format_unavailable": "The YouTube format list changed, or the selected format is no longer available.\n\nAnalyze the video again before downloading. If it still fails, choose another video or audio format.",
-        "certificate_error": "The secure certificate check failed. Verify the Mac's date and time, then update or reinstall the app.",
-        "network_error": "YouTube cannot be reached right now. Check the network connection and try again.",
-        "youtube_bot_check": "YouTube temporarily requires a sign-in verification. The video URL and converter are not at fault. Sign in to YouTube in your browser and analyze again later. If this continues, restart the app or contact the developer.",
-        "permission_error": "The selected folder cannot be written. Choose another location or allow access in System Settings.",
-        "selection_invalid": "The URL or available formats changed. Analyze the video again before downloading.",
-        "merging": "Merging video and audio. Please wait…",
-        "analyze_failed": "Video analysis failed",
-        "speed": "Speed:",
-        "size": "Size:"
-    },
-    "ja": {
-        "title": "YouTube ダウンローダー Pro",
-        "video_title": "動画のタイトル:",
-        "analyze": "解析する",
-        "analyzing": "解析中...",
-        "quality": "画質を選択:",
-        "audio_track": "音軌を選択:",
-        "audio_only": "音聲を抽出 (MP3轉換)",
-        "change_path": "保存先を変更",
-        "save_to": "保存先:",
-        "start_download": "ダウンロード開始",
-        "pause": "一時停止",
-        "resume": "再開",
-        "cancel": "キャンセル",
-        "success": "完了しました！",
-        "cancelled": "キャンセルされ、ファイルが削除されました",
-        "about": "このアプリについて",
-        "update_check": "アップデートを確認",
-        "is_latest": "最新バージョンです",
-        "manual_update": "現在のバージョンは v{version} です。公式リリースページから更新してください。",
-        "update_available": "新しいバージョン v{latest} があります。ダウンロードページを開きますか？",
-        "update_failed": "アップデートを確認できません：{error}",
-        "tool_missing": "同梱ツールが見つかりません: {tool}",
-        "tool_unavailable_title": "内蔵変換ツールを使用できません",
-        "tool_unavailable": "内蔵変換ツールをこの Mac で実行できません。\n\nツール: {tool}\n場所: {path}\n理由: {detail}\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
-        "tool_ytdlp_error": "内蔵変換ツールをダウンロードエンジンが使用できないため、動画と音声の結合または MP3 変換を続行できません。\n\n完全な Apple Silicon 版を再ダウンロードするか、開発者に新版を依頼してください。",
-        "format_unavailable": "YouTube の形式リストが変更されたか、選択した形式を利用できなくなりました。\n\n動画を再解析してから再度ダウンロードしてください。まだ失敗する場合は、別の画質または音声を選択してください。",
-        "certificate_error": "安全な証明書を確認できませんでした。Mac の日付と時刻を確認し、App を更新または再インストールしてください。",
-        "network_error": "現在 YouTube に接続できません。ネットワーク接続を確認して、もう一度お試しください。",
-        "youtube_bot_check": "YouTube が一時的にログイン確認を求めています。動画 URL や変換ツールの故障ではありません。ブラウザで YouTube にログインし、しばらくしてから再解析してください。続く場合は App を再起動するか、開発者に連絡してください。",
-        "permission_error": "選択したフォルダに書き込む権限がありません。別の保存先を選ぶか、システム設定でアクセスを許可してください。",
-        "selection_invalid": "URL または利用可能な形式が変更されました。動画を再解析してからダウンロードしてください。",
-        "merging": "動画と音声を結合しています。しばらくお待ちください…",
-        "analyze_failed": "動画の解析に失敗しました",
-        "speed": "速度:",
-        "size": "サイズ:"
-    }
-}
+# Shared localization is used by both macOS and Windows entry points.
+LANG_DATA = SHARED_LANG_DATA
 
 class YTDownloaderApp:
     def __init__(self, root):
@@ -327,42 +224,24 @@ class YTDownloaderApp:
         return f"{stem}.{ext}"
 
     def make_analysis_options(self, js_runtime_path=None):
-        options = {'quiet': True}
-        if js_runtime_path:
-            options['js_runtimes'] = {'quickjs': {'path': js_runtime_path}}
-        if self.browser_cookies:
-            options['cookiesfrombrowser'] = self.browser_cookies
-        return options
+        return build_analysis_options(
+            "quickjs", js_runtime_path, self.browser_cookies
+        )
 
     def make_download_options(self, request, ffmpeg_dir, js_runtime_path=None):
         ext = 'mp3' if request.audio_only else 'mp4'
         safe_name = self.get_safe_filename(request.output_directory, request.title, ext)
         self.current_artifacts = DownloadArtifactTracker(request.output_directory, safe_name)
-        output_template = safe_name
-        if request.audio_only:
-            output_template = f"{Path(safe_name).stem}.%(ext)s"
-        options = {
-            'ffmpeg_location': ffmpeg_dir,
-            'outtmpl': os.path.join(request.output_directory, output_template),
-            'progress_hooks': [self.progress_hook],
-            'postprocessor_hooks': [self.track_download_artifacts],
-            'format': (
-                f"{request.video_format_id}+{request.audio_format_id}"
-                if not request.audio_only
-                else request.audio_format_id or 'bestaudio/best'
-            ),
-            'merge_output_format': 'mp4' if not request.audio_only else None,
-        }
-        if js_runtime_path:
-            options['js_runtimes'] = {'quickjs': {'path': js_runtime_path}}
-        if self.browser_cookies:
-            options['cookiesfrombrowser'] = self.browser_cookies
-        if request.audio_only:
-            options['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+        options = build_download_options(
+            request,
+            Path(safe_name).stem,
+            ffmpeg_dir,
+            "quickjs",
+            js_runtime_path,
+            self.progress_hook,
+            self.browser_cookies,
+        )
+        options['postprocessor_hooks'] = [self.track_download_artifacts]
         return options
 
     def download_video(self, request):
@@ -502,28 +381,13 @@ class YTDownloaderApp:
         threading.Thread(target=_check, daemon=True).start()
 
     def make_update_ssl_context(self):
-        return ssl.create_default_context(cafile=certifi.where())
+        return build_update_ssl_context()
 
     def parse_update_manifest(self, content):
-        content = (content or "").strip()
-        if not content:
-            return ""
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict):
-                if data.get("content"):
-                    decoded = base64.b64decode(str(data["content"]).encode()).decode("utf-8", errors="replace")
-                    return self.parse_update_manifest(decoded)
-                return str(data.get("latest_version") or data.get("version") or data.get("tag_name") or "").strip().lstrip("v")
-        except json.JSONDecodeError:
-            pass
-        first_line = content.splitlines()[0].strip()
-        return first_line.lstrip("v")
+        return parse_manifest(content)
 
     def is_newer_version(self, latest, current):
-        def parts(v):
-            return [int(x) for x in re.findall(r'\d+', v)]
-        return parts(latest) > parts(current)
+        return compare_versions(latest, current)
 
     def show_update_dialog(self, latest):
         if messagebox.askyesno("Update", self.text['update_available'].format(latest=latest)):
@@ -648,28 +512,22 @@ class YTDownloaderApp:
             messagebox.showerror(self.text['tool_unavailable_title'], str(e))
 
     def clean_download_error(self, error):
-        message = str(error)
-        lowered = message.lower()
-        if isinstance(error, PermissionError) or "permission denied" in lowered:
-            return self.text['permission_error']
-        if "sign in to confirm you" in lowered and "not a bot" in lowered:
-            return self.text['youtube_bot_check']
-        if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
-            return self.text['certificate_error']
-        if any(value in lowered for value in (
-            "network is unreachable",
-            "name or service not known",
-            "temporary failure in name resolution",
-            "timed out",
-            "connection reset",
-            "connection refused",
-        )):
-            return self.text['network_error']
-        if "ffmpeg is not installed" in lowered or "requested merging of multiple formats" in lowered:
-            return self.text['tool_ytdlp_error']
-        if "requested format is not available" in lowered:
-            return self.text['format_unavailable']
-        return message
+        language = getattr(self, "lang", None)
+        if language not in LANG_DATA:
+            language = next(
+                (
+                    code for code, catalog in LANG_DATA.items()
+                    if catalog is getattr(self, "text", None)
+                ),
+                "en",
+            )
+        platform_adapter = getattr(self, "platform", None)
+        log_path = (
+            platform_adapter.log_dir() / "download-errors.log"
+            if platform_adapter is not None
+            else None
+        )
+        return map_download_error(error, language, log_path)
 
     def progress_hook(self, d):
         self.track_download_artifacts(d)
