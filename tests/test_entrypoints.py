@@ -110,6 +110,16 @@ class EntrypointTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Windows"):
                 module.main([])
 
+    def test_windows_normal_launch_returns_zero_after_ui_closes(self):
+        module = importlib.import_module("YT_downloader_187_windows")
+        closed_app = object()
+
+        with mock.patch.object(module.sys, "platform", "win32"):
+            with mock.patch.object(module, "run_app", return_value=closed_app) as run:
+                self.assertEqual(module.main([]), 0)
+
+        run.assert_called_once()
+
     def test_windows_self_test_has_clear_task_five_boundary(self):
         module = importlib.import_module("YT_downloader_187_windows")
         stderr = io.StringIO()
@@ -151,6 +161,20 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(self.app.analyzed_url, "")
         self.assertEqual(self.app.video_format_list, [])
         self.assertEqual(self.app.combo_quality.current(), -1)
+
+    def test_editing_pending_url_restores_analyze_button(self):
+        self.app.btn_analyze.config(
+            state="disabled", text=self.app.text["analyzing"]
+        )
+        self.app.url_entry.value = "https://youtu.be/changed"
+
+        self.app.handle_url_change()
+
+        self.assertEqual(self.app.analysis_request_id, 2)
+        self.assertEqual(self.app.btn_analyze.values["state"], "normal")
+        self.assertEqual(
+            self.app.btn_analyze.values["text"], self.app.text["analyze"]
+        )
 
     def test_pause_resume_and_cancel_follow_download_phase(self):
         self.app.set_download_phase("downloading")
@@ -208,6 +232,69 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(request.title, "Title")
         with self.assertRaises(AttributeError):
             request.title = "mutated"
+
+    def test_start_download_initializes_flags_before_worker_starts(self):
+        self.app.apply_analysis_result(
+            1, URL, "Title", VIDEO_OPTIONS, AUDIO_OPTIONS
+        )
+        self.app.download_path = "/tmp/output"
+        self.app.is_cancelled = True
+        self.app.is_paused = True
+        self.app.pause_event.clear()
+        observed = []
+
+        class FakeThread:
+            def __init__(self, target, args, daemon):
+                self.target = target
+                self.args = args
+                self.daemon = daemon
+
+            def start(_self):
+                observed.append((
+                    self.app.is_cancelled,
+                    self.app.is_paused,
+                    self.app.pause_event.is_set(),
+                ))
+
+        with mock.patch.object(self.shared.threading, "Thread", FakeThread):
+            self.app.start_download()
+
+        self.assertEqual(observed, [(False, False, True)])
+
+    def test_immediate_pause_and_cancel_survive_worker_entry(self):
+        self.app.apply_analysis_result(
+            1, URL, "Title", VIDEO_OPTIONS, AUDIO_OPTIONS
+        )
+        self.app.download_path = "/tmp/output"
+        captured = []
+
+        class FakeThread:
+            def __init__(self, target, args, daemon):
+                captured.append(args[0])
+
+            def start(self):
+                return None
+
+        with mock.patch.object(self.shared.threading, "Thread", FakeThread):
+            self.app.start_download()
+
+        self.app.toggle_pause()
+        self.app.cancel_download()
+        observed = []
+        self.app.post_to_ui = mock.Mock()
+
+        def fail_tool_lookup():
+            observed.append((
+                self.app.is_cancelled,
+                self.app.is_paused,
+                self.app.pause_event.is_set(),
+            ))
+            raise self.shared.ToolchainError("missing helper")
+
+        self.app.get_ffmpeg_path = fail_tool_lookup
+        self.app.download_video(captured[0])
+
+        self.assertEqual(observed, [(True, True, True)])
 
 
 if __name__ == "__main__":

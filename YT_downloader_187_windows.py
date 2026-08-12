@@ -26,7 +26,8 @@ def main(argv=None):
         return run_self_test(make_platform())
     if sys.platform != "win32":
         raise RuntimeError("YT Downloader Pro Windows can only launch on Windows.")
-    return run_app(make_platform())
+    run_app(make_platform())
+    return 0
 
 
 __all__ = [

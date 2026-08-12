@@ -246,8 +246,6 @@ class YTDownloaderApp:
         return options
 
     def download_video(self, request):
-        self.is_cancelled, self.is_paused = False, False
-        self.pause_event.set()
         try:
             ffmpeg_dir = self.get_ffmpeg_path()
             js_runtime_path = self.get_js_runtime_path()
@@ -601,6 +599,8 @@ class YTDownloaderApp:
             self.combo_audio.set("")
         if hasattr(self, "btn_download"):
             self.btn_download.config(state="disabled")
+        if hasattr(self, "btn_analyze"):
+            self.btn_analyze.config(state="normal", text=self.text["analyze"])
 
     def handle_url_change(self, _event=None):
         current_url = self.clean_url(self.url_entry.get())
@@ -690,6 +690,9 @@ class YTDownloaderApp:
             output_directory=self.download_path,
             title=self.current_video_title,
         )
+        self.is_cancelled = False
+        self.is_paused = False
+        self.pause_event.set()
         self.btn_download.config(state="disabled")
         self.set_download_phase("downloading")
         threading.Thread(target=self.download_video, args=(request,), daemon=True).start()
