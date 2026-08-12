@@ -16,8 +16,14 @@ import re
 import webbrowser
 import json
 import base64
-from dataclasses import dataclass
 from pathlib import Path
+
+from ytdp import (
+    DownloadArtifactTracker,
+    DownloadRequest,
+    format_bytes,
+    reserve_output_stem,
+)
 
 VERSION = "1.8.7"
 APP_NAME = "YT Downloader Pro"
@@ -32,51 +38,6 @@ DEFAULT_DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads")
 class ToolchainError(RuntimeError):
     pass
 
-
-@dataclass(frozen=True)
-class DownloadRequest:
-    url: str
-    video_format_id: str | None
-    audio_format_id: str | None
-    audio_only: bool
-    output_directory: str
-    title: str
-
-
-class DownloadArtifactTracker:
-    def __init__(self, directory, output_filename):
-        self.directory = Path(directory).resolve()
-        self.output_path = (self.directory / output_filename).absolute()
-        self.preexisting = {path.absolute() for path in self.directory.iterdir()}
-        self.preexisting_resolved = {path.resolve(strict=False) for path in self.preexisting}
-        self.tracked = set()
-        self.track(str(self.output_path))
-
-    def track(self, path):
-        if not path:
-            return
-        candidate = Path(path)
-        if not candidate.is_absolute():
-            candidate = self.directory / candidate
-        candidate = candidate.absolute()
-        resolved = candidate.resolve(strict=False)
-        if resolved != self.directory and self.directory not in resolved.parents:
-            return
-        if candidate not in self.preexisting and resolved not in self.preexisting_resolved:
-            self.tracked.add(candidate)
-
-    def cleanup(self):
-        removed = []
-        for path in sorted(self.tracked, key=lambda item: len(str(item)), reverse=True):
-            resolved = path.resolve(strict=False)
-            if path in self.preexisting or resolved in self.preexisting_resolved:
-                continue
-            if resolved != self.directory and self.directory not in resolved.parents:
-                continue
-            if path.is_file() or path.is_symlink():
-                path.unlink()
-                removed.append(str(path))
-        return sorted(removed)
 
 # --- 國際化字典包 ---
 LANG_DATA = {
@@ -367,14 +328,8 @@ class YTDownloaderApp:
         return DEFAULT_DOWNLOAD_PATH
 
     def get_safe_filename(self, directory, title, ext):
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-        base_name = f"{safe_title}.{ext}"
-        if not os.path.exists(os.path.join(directory, base_name)): return base_name
-        counter = 1
-        while True:
-            new_name = f"{safe_title} ({counter}).{ext}"
-            if not os.path.exists(os.path.join(directory, new_name)): return new_name
-            counter += 1
+        stem = reserve_output_stem(directory, title, f".{ext}", "macos")
+        return f"{stem}.{ext}"
 
     def make_analysis_options(self, js_runtime_path=None):
         options = {'quiet': True}
@@ -726,20 +681,13 @@ class YTDownloaderApp:
             else:
                 p = 0.0 # 避免除以零
             
-            speed = self.format_bytes(d.get('speed')) + "/s" if d.get('speed') else "--"
-            size = f"{self.format_bytes(downloaded)} / {self.format_bytes(total)}"
+            speed = format_bytes(d.get('speed')) + "/s" if d.get('speed') else "--"
+            size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
             self.post_to_ui(self.update_ui_data, round(p, 1), speed, size)
             
         elif d['status'] == 'finished':
             self.post_to_ui(self.set_download_phase, "merging")
             self.post_to_ui(self.update_ui_data, 100, "0 B/s", self.text['merging'])
-
-    def format_bytes(self, bytes):
-        if not bytes: return "--"
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if bytes < 1024.0: return f"{bytes:.2f} {unit}"
-            bytes /= 1024.0
-        return "--"
 
     def toggle_pause(self):
         if self.download_phase not in ("downloading", "paused"):
