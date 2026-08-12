@@ -86,7 +86,7 @@ LANG_DATA = {
 
 
 _SENSITIVE_KEY = (
-    r"cookies?|authorization|access[-_]?token|api[-_]?key|signature|"
+    r"cookies?|authorization|access[-_]?token|api[-_]?key|signature|sig|"
     r"credential|secret|session[-_]?token|token|password"
 )
 _SENSITIVE_HEADER_VALUE = re.compile(

@@ -175,6 +175,19 @@ class DownloadErrorLocalizationTests(unittest.TestCase):
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, diagnostic)
 
+    def test_diagnostic_log_redacts_sig_query_without_matching_word_interior(self):
+        error = Exception(
+            "HTTP 403 GET https://cdn.example.test/file?sig=query-secret&design=keep-value"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "logs" / "download.log"
+            clean_download_error(error, "en", log_path)
+            diagnostic = log_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("query-secret", diagnostic)
+        self.assertIn("sig=[REDACTED]", diagnostic)
+        self.assertIn("design=keep-value", diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()
