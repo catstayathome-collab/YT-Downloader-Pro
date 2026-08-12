@@ -26,6 +26,7 @@ def make_download_options(
     js_runtime_path,
     progress_hook,
     cookies_browser,
+    artifact_hook=None,
 ):
     """Return safe yt-dlp options for one download request."""
     output_template = (
@@ -45,6 +46,8 @@ def make_download_options(
     _add_runtime_and_cookies(
         options, js_runtime_name, js_runtime_path, cookies_browser
     )
+    if artifact_hook is not None:
+        options["postprocessor_hooks"] = [artifact_hook]
     if request.audio_only:
         options["postprocessors"] = [{
             "key": "FFmpegExtractAudio",

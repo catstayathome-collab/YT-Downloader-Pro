@@ -1,6 +1,7 @@
 """Localized UI strings and safe download error translation."""
 
 from pathlib import Path
+import re
 
 
 LANG_DATA = {
@@ -84,6 +85,21 @@ LANG_DATA = {
 }
 
 
+def _redact_diagnostic_details(error):
+    value = str(error)
+    value = re.sub(
+        r"(?im)^(\s*(?:cookies?|authorization)\s*[:=]\s*)([^\r\n]*)",
+        r"\1[REDACTED]",
+        value,
+    )
+    value = re.sub(
+        r"(?i)\b(cookies?|authorization|token|password)\b(\s*[:=]\s*)([^\s,;&]+)",
+        r"\1\2[REDACTED]",
+        value,
+    )
+    return re.sub(r"(?i)\bbearer\s+([^\s,;&]+)", "Bearer [REDACTED]", value)
+
+
 def _write_diagnostic(error, log_path):
     if not log_path:
         return
@@ -91,7 +107,7 @@ def _write_diagnostic(error, log_path):
         destination = Path(log_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("a", encoding="utf-8") as handle:
-            handle.write(f"{error}\n")
+            handle.write(f"{_redact_diagnostic_details(error)}\n")
     except OSError:
         pass
 

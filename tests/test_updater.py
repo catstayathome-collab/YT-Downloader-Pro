@@ -44,6 +44,26 @@ class UpdateHelpersTests(unittest.TestCase):
 
         self.assertEqual(asset, "app-Windows-x64.zip")
 
+    def test_windows_asset_selection_requires_supported_64_bit_architecture(self):
+        for asset in (
+            "app-Windows-x64.zip",
+            "app-Windows-amd64.zip",
+            "app-win64.zip",
+        ):
+            with self.subTest(asset=asset):
+                self.assertEqual(select_release_asset([asset], "windows"), asset)
+
+    def test_windows_asset_selection_rejects_other_architectures_and_macos(self):
+        for asset in (
+            "app-Windows-x86.zip",
+            "app-Windows-32-bit.zip",
+            "app-Windows-arm.zip",
+            "app-Windows-arm64.zip",
+            "app-macOS-x64.zip",
+        ):
+            with self.subTest(asset=asset):
+                self.assertIsNone(select_release_asset([asset], "windows"))
+
     def test_update_asset_selection_rejects_windows_for_macos(self):
         asset = select_release_asset(
             ["app-Windows-x64.zip", "app-macOS-arm64.zip"],
@@ -96,6 +116,33 @@ class DownloadErrorLocalizationTests(unittest.TestCase):
             self.assertNotIn("private backend detail", message)
             self.assertIn("download failed", message.lower())
             self.assertIn("private backend detail", log_path.read_text(encoding="utf-8"))
+
+    def test_diagnostic_log_redacts_sensitive_credential_values(self):
+        secrets = (
+            "cookie-secret",
+            "plural-cookie-secret",
+            "authorization-secret",
+            "bearer-secret",
+            "token-secret",
+            "password-secret",
+        )
+        error = Exception(
+            "Cookie: session=cookie-secret; theme=private\n"
+            "cookies=plural-cookie-secret\n"
+            "Authorization: Basic authorization-secret\n"
+            "Bearer bearer-secret\n"
+            "token=token-secret\n"
+            "password: password-secret"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "logs" / "download.log"
+            clean_download_error(error, "en", log_path)
+            diagnostic = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("[REDACTED]", diagnostic)
+        for secret in secrets:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, diagnostic)
 
 
 if __name__ == "__main__":

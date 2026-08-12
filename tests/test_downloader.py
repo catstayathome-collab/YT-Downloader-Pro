@@ -95,6 +95,23 @@ class DownloadOptionsTests(unittest.TestCase):
 
         self.assertEqual(options["cookiesfrombrowser"], ("firefox",))
 
+    def test_download_options_preserve_explicit_artifact_hook_identity(self):
+        def artifact_hook(_data):
+            return None
+
+        options = make_download_options(
+            self.request,
+            "Title",
+            "/tmp/helpers",
+            "quickjs",
+            "qjs",
+            lambda _data: None,
+            None,
+            artifact_hook=artifact_hook,
+        )
+
+        self.assertIs(options["postprocessor_hooks"][0], artifact_hook)
+
 
 if __name__ == "__main__":
     unittest.main()

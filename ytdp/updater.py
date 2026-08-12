@@ -53,11 +53,29 @@ def _asset_name(asset):
     return str(asset)
 
 
+def _asset_tokens(asset):
+    return set(re.findall(r"[a-z0-9]+", _asset_name(asset).lower()))
+
+
+def _is_windows_x64_asset(asset):
+    tokens = _asset_tokens(asset)
+    is_windows = bool(tokens & {"windows", "win", "win64"})
+    is_supported_architecture = bool(tokens & {"x64", "amd64", "win64"})
+    is_rejected = bool(tokens & {
+        "mac", "macos", "darwin", "osx", "x86", "x32", "win32", "32",
+        "arm", "arm64", "aarch64", "i386", "i686",
+    })
+    return is_windows and is_supported_architecture and not is_rejected
+
+
 def select_release_asset(assets, platform_name):
     """Return the first release asset appropriate for the requested platform."""
     platform_name = str(platform_name).lower()
     if platform_name in {"windows", "win32"}:
-        required, excluded = ("windows", "win"), ("macos", "darwin", "osx")
+        for asset in assets:
+            if _is_windows_x64_asset(asset):
+                return asset
+        return None
     elif platform_name in {"macos", "darwin", "mac"}:
         required, excluded = ("macos", "darwin", "osx"), ("windows", "win32")
     else:

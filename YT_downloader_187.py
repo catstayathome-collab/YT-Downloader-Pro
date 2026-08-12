@@ -240,8 +240,8 @@ class YTDownloaderApp:
             js_runtime_path,
             self.progress_hook,
             self.browser_cookies,
+            artifact_hook=self.track_download_artifacts,
         )
-        options['postprocessor_hooks'] = [self.track_download_artifacts]
         return options
 
     def download_video(self, request):
