@@ -22,11 +22,13 @@ from ytdp.downloader import (
     make_analysis_options as build_analysis_options,
     make_download_options as build_download_options,
 )
+from ytdp.diagnostics import DiagnosticLogger
 from ytdp.localization import (
     LANG_DATA as SHARED_LANG_DATA,
     clean_download_error as map_download_error,
 )
 from ytdp.settings import load_settings, save_settings, valid_output_directory
+from ytdp.toolchain import Toolchain
 from ytdp.updater import (
     is_newer_version as compare_versions,
     make_update_ssl_context as build_update_ssl_context,
@@ -76,6 +78,10 @@ class YTDownloaderApp:
         self.current_artifacts = None
         self.browser_cookies = (COOKIES_BROWSER,) if COOKIES_BROWSER else None
         self.toolchain_error = None
+        self.toolchain_ready = False
+        self.toolchain_report = None
+        self.diagnostic_logger = DiagnosticLogger(self.platform)
+        self.toolchain = Toolchain(self.platform, logger=self.diagnostic_logger)
         self.ui_queue = queue.Queue()
 
         # 選單列
@@ -102,7 +108,12 @@ class YTDownloaderApp:
         self.root.bind_all('<<Paste>>', lambda e: self.force_paste())
         self.url_entry.bind('<Button-3>', self.show_context_menu)
 
-        self.btn_analyze = tk.Button(url_frame, text=self.text['analyze'], command=self.start_analyze)
+        self.btn_analyze = tk.Button(
+            url_frame,
+            text=self.text['analyze'],
+            command=self.start_analyze,
+            state="disabled",
+        )
         self.btn_analyze.pack(side="right")
 
         tk.Label(root, text=self.text['quality']).pack(pady=(5, 0))
@@ -497,13 +508,39 @@ class YTDownloaderApp:
         return path
 
     def check_toolchain_on_startup(self):
-        try:
-            self.get_ffmpeg_path()
-            self.get_js_runtime_path()
+        self.toolchain_ready = False
+        self.btn_analyze.config(state="disabled")
+        self.btn_download.config(state="disabled")
+
+        def _validate():
+            try:
+                report = self.toolchain.validate()
+                error = None
+            except Exception as caught:
+                report = None
+                error = caught
+            self.post_to_ui(self.apply_toolchain_validation, report, error)
+
+        threading.Thread(target=_validate, daemon=True).start()
+
+    def apply_toolchain_validation(self, report, error):
+        self.toolchain_report = report
+        self.toolchain_ready = error is None
+        if error is None:
             self.toolchain_error = None
-        except ToolchainError as e:
-            self.toolchain_error = str(e)
-            messagebox.showerror(self.text['tool_unavailable_title'], str(e))
+            self.btn_analyze.config(state="normal", text=self.text['analyze'])
+            self.refresh_download_button()
+            return
+        log_path = self.diagnostic_logger.log(error, stage="startup_toolchain")
+        self.toolchain_error = self.text['tool_validation_failed'].format(
+            log_path=log_path
+        )
+        self.btn_analyze.config(state="disabled")
+        self.btn_download.config(state="disabled")
+        messagebox.showerror(
+            self.text['tool_unavailable_title'],
+            self.toolchain_error,
+        )
 
     def clean_download_error(self, error):
         language = getattr(self, "lang", None)
@@ -638,6 +675,12 @@ class YTDownloaderApp:
         messagebox.showerror(self.text['analyze_failed'], error)
 
     def start_analyze(self):
+        if not getattr(self, "toolchain_ready", True):
+            if self.toolchain_error:
+                messagebox.showerror(
+                    self.text['tool_unavailable_title'], self.toolchain_error
+                )
+            return
         url = self.clean_url(self.url_entry.get())
         if not url: return
         self.url_entry.delete(0, tk.END)
@@ -669,10 +712,17 @@ class YTDownloaderApp:
     def refresh_download_button(self):
         url = self.clean_url(self.url_entry.get())
         audio_only = bool(self.audio_only_var.get())
-        state = "normal" if self.download_selection_is_valid(url, audio_only) else "disabled"
+        ready = getattr(self, "toolchain_ready", True)
+        state = "normal" if ready and self.download_selection_is_valid(url, audio_only) else "disabled"
         self.btn_download.config(state=state)
 
     def start_download(self):
+        if not getattr(self, "toolchain_ready", True):
+            if self.toolchain_error:
+                messagebox.showerror(
+                    self.text['tool_unavailable_title'], self.toolchain_error
+                )
+            return
         url = self.clean_url(self.url_entry.get())
         audio_only = bool(self.audio_only_var.get())
         if not self.download_selection_is_valid(url, audio_only):

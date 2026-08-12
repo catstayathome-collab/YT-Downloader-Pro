@@ -91,6 +91,15 @@ class DownloadErrorLocalizationTests(unittest.TestCase):
             with self.subTest(error=error, language=language):
                 self.assertIn(expected, clean_download_error(Exception(error), language))
 
+    def test_helper_recovery_guidance_is_platform_neutral(self):
+        for language in ("zh", "en", "ja"):
+            with self.subTest(language=language):
+                message = clean_download_error(
+                    Exception("ffmpeg helper execution failed"), language
+                )
+                self.assertNotIn("Mac", message)
+                self.assertNotIn("Apple Silicon", message)
+
     def test_localizes_network_tls_content_permission_and_antivirus_errors(self):
         cases = (
             ("CERTIFICATE_VERIFY_FAILED", "certificate"),

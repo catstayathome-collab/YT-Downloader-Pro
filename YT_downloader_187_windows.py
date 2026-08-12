@@ -1,5 +1,6 @@
 """Windows 1.8.7 launcher for the shared YT Downloader Pro application."""
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -15,15 +16,16 @@ def make_platform():
 
 
 def main(argv=None):
-    """Launch on Windows, reserving packaged verification for Task 5."""
+    """Run the packaged self-test or launch the Windows interface."""
     args = list(sys.argv[1:] if argv is None else argv)
     if "--self-test" in args:
-        try:
-            from ytdp.selftest import run_self_test
-        except ImportError:
-            print("--self-test is implemented by Windows 1.8.7 Task 5.", file=sys.stderr)
-            return 2
-        return run_self_test(make_platform())
+        parser = argparse.ArgumentParser(prog="YT Downloader Pro")
+        parser.add_argument("--self-test", action="store_true")
+        parser.add_argument("--self-test-report")
+        options = parser.parse_args(args)
+        from ytdp.selftest import run_self_test
+
+        return run_self_test(make_platform(), options.self_test_report)
     if sys.platform != "win32":
         raise RuntimeError("YT Downloader Pro Windows can only launch on Windows.")
     run_app(make_platform())

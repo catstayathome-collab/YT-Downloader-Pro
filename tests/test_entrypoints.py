@@ -1,5 +1,4 @@
 import importlib
-import io
 import queue
 import sys
 import tempfile
@@ -90,6 +89,7 @@ class EntrypointTests(unittest.TestCase):
         self.app.is_paused = False
         self.app.is_cancelled = False
         self.app.download_phase = "idle"
+        self.app.toolchain_error = None
 
     def test_windows_entrypoint_declares_version_1_8_7(self):
         module = importlib.import_module("YT_downloader_187_windows")
@@ -120,15 +120,82 @@ class EntrypointTests(unittest.TestCase):
 
         run.assert_called_once()
 
-    def test_windows_self_test_has_clear_task_five_boundary(self):
+    def test_windows_self_test_passes_optional_report_path_without_opening_ui(self):
         module = importlib.import_module("YT_downloader_187_windows")
-        stderr = io.StringIO()
+        report_path = "/tmp/windows-self-test.json"
 
         with mock.patch.object(module.sys, "platform", "darwin"):
-            with mock.patch.object(module.sys, "stderr", stderr):
-                self.assertEqual(module.main(["--self-test"]), 2)
+            with mock.patch("ytdp.selftest.run_self_test", return_value=0) as run:
+                with mock.patch.object(module, "run_app") as run_app:
+                    self.assertEqual(
+                        module.main(["--self-test", "--self-test-report", report_path]),
+                        0,
+                    )
 
-        self.assertIn("Task 5", stderr.getvalue())
+        run.assert_called_once_with(mock.ANY, report_path)
+        run_app.assert_not_called()
+
+    def test_startup_toolchain_validation_runs_in_background(self):
+        captured = []
+        self.app.toolchain = mock.Mock()
+        self.app.toolchain.validate.return_value = object()
+        self.app.apply_toolchain_validation = mock.Mock()
+        self.app.post_to_ui = mock.Mock()
+
+        class FakeThread:
+            def __init__(self, target, daemon):
+                captured.append((target, daemon))
+
+            def start(self):
+                return None
+
+        with mock.patch.object(self.shared.threading, "Thread", FakeThread):
+            self.app.check_toolchain_on_startup()
+
+        self.app.toolchain.validate.assert_not_called()
+        self.assertTrue(captured[0][1])
+        captured[0][0]()
+        self.app.post_to_ui.assert_called_once_with(
+            self.app.apply_toolchain_validation,
+            self.app.toolchain.validate.return_value,
+            None,
+        )
+
+    def test_unexpected_startup_validation_failure_is_returned_to_ui(self):
+        captured = []
+        self.app.toolchain = mock.Mock()
+        self.app.toolchain.validate.side_effect = OSError("helper directory blocked")
+        self.app.apply_toolchain_validation = mock.Mock()
+        self.app.post_to_ui = mock.Mock()
+
+        class FakeThread:
+            def __init__(self, target, daemon):
+                captured.append(target)
+
+            def start(self):
+                return None
+
+        with mock.patch.object(self.shared.threading, "Thread", FakeThread):
+            self.app.check_toolchain_on_startup()
+
+        captured[0]()
+        callback, report, error = self.app.post_to_ui.call_args.args
+        self.assertIs(callback, self.app.apply_toolchain_validation)
+        self.assertIsNone(report)
+        self.assertIsInstance(error, OSError)
+
+    def test_failed_toolchain_validation_disables_actions_and_shows_log_location(self):
+        self.app.diagnostic_logger = mock.Mock()
+        self.app.diagnostic_logger.path = Path("C:/logs/diagnostics.jsonl")
+        self.app.diagnostic_logger.log.return_value = self.app.diagnostic_logger.path
+
+        with mock.patch.object(self.shared.messagebox, "showerror") as showerror:
+            self.app.apply_toolchain_validation(None, self.shared.ToolchainError("deno token=secret"))
+
+        self.assertEqual(self.app.btn_analyze.values["state"], "disabled")
+        self.assertEqual(self.app.btn_download.values["state"], "disabled")
+        self.assertNotIn("secret", showerror.call_args.args[1])
+        self.assertIn("diagnostics.jsonl", showerror.call_args.args[1])
 
     def test_enter_starts_analysis_and_default_format_is_first(self):
         self.app.apply_analysis_result(
