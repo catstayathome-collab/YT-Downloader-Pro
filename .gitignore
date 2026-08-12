@@ -10,5 +10,8 @@ __pycache__/
 .swiftpm/
 swift-2.0/.build/
 .pyinstaller-cache/
+build/windows-tools/
+dist/YT-Downloader-Pro-v*-Windows-x64.zip
+dist/windows-self-test.json
 DerivedData/
 .worktrees/

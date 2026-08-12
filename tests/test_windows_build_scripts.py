@@ -1,0 +1,283 @@
+import importlib.util
+import hashlib
+import io
+import json
+import ssl
+import tempfile
+import unittest
+import warnings
+import zipfile
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "tools" / "windows-tools.json"
+PACKAGE_CHECKER = ROOT / "scripts" / "check_windows_package.py"
+TOOL_FETCHER = ROOT / "scripts" / "fetch_windows_tools.py"
+ICON_GENERATOR = ROOT / "scripts" / "generate_windows_icon.py"
+BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_7.ps1"
+PACKAGE_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+APP_EXE = "YT Downloader Pro.exe"
+ICON_SIZES = {(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256), (512, 512)}
+
+
+def load_script(name, path):
+    if not Path(path).is_file():
+        raise AssertionError(f"required script is missing: {path}")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_pe(path, machine=0x8664):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = bytearray(0x90)
+    data[:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data[0x80:0x84] = b"PE\0\0"
+    data[0x84:0x86] = machine.to_bytes(2, "little")
+    path.write_bytes(data)
+
+
+def create_valid_package(parent):
+    package_root = Path(parent) / PACKAGE_NAME
+    write_pe(package_root / APP_EXE)
+    for helper in ("ffmpeg.exe", "ffprobe.exe", "deno.exe"):
+        write_pe(package_root / "Helpers" / helper)
+    (package_root / "THIRD_PARTY_NOTICES.txt").write_text("notices", encoding="utf-8")
+    (package_root / "README-Windows.txt").write_text("readme", encoding="utf-8")
+    return package_root
+
+
+def write_zip(path, members):
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for member, content in members.items():
+            archive.writestr(member, content)
+
+
+class WindowsBuildScriptTests(unittest.TestCase):
+    def test_windows_tool_manifest_is_immutable_and_complete(self):
+        self.assertTrue(MANIFEST.is_file(), "Windows helper manifest is missing")
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+        self.assertTrue(
+            manifest["ffmpeg"]["url"].endswith(
+                "autobuild-2026-08-12-13-15/"
+                "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl.zip"
+            )
+        )
+        self.assertEqual(
+            manifest["ffmpeg"]["sha256"],
+            "3fe180f31a12a1de60568cdcf72210a1d3f475f5f88719afdd6c7012e13f6d3e",
+        )
+        self.assertEqual(
+            manifest["deno"]["sha256"],
+            "5fb5bac71f609fb91ec8960fb290885aadc27eeb22f07a8eca0c3db6be38b11a",
+        )
+        self.assertEqual(
+            [member["output_name"] for member in manifest["ffmpeg"]["archive_members"]],
+            ["ffmpeg.exe", "ffprobe.exe"],
+        )
+        self.assertEqual(
+            [member["output_name"] for member in manifest["deno"]["archive_members"]],
+            ["deno.exe"],
+        )
+        for tool in manifest.values():
+            self.assertTrue(tool["url"].startswith("https://"))
+            self.assertTrue(tool["upstream"].startswith("https://"))
+            self.assertTrue(tool["license"])
+            self.assertTrue(tool["license_file"].startswith("tools/licenses/"))
+
+    def test_package_checker_requires_exact_helper_names(self):
+        self.assertTrue(PACKAGE_CHECKER.is_file(), "Windows package checker is missing")
+        checker = load_script("check_windows_package", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = checker.check_package(Path(tmpdir))
+
+        for helper in ("ffmpeg.exe", "ffprobe.exe", "deno.exe"):
+            self.assertTrue(
+                any(helper in error for error in result.errors),
+                f"missing diagnostic for {helper}: {result.errors}",
+            )
+
+    def test_package_checker_accepts_complete_static_amd64_fixture(self):
+        checker = load_script("check_windows_package_valid", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+
+            result = checker.check_package(package_root)
+
+        self.assertTrue(result.ok, result.errors)
+
+    def test_package_checker_rejects_duplicate_and_wrong_architecture_helpers(self):
+        checker = load_script("check_windows_package_invalid", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            write_pe(package_root / "_internal" / "FFMPEG.EXE")
+            write_pe(package_root / "Helpers" / "deno.exe", machine=0xAA64)
+
+            result = checker.check_package(package_root)
+
+        self.assertTrue(any("duplicate" in error and "ffmpeg.exe" in error.lower() for error in result.errors))
+        self.assertTrue(any("AMD64" in error and "deno.exe" in error for error in result.errors))
+
+    def test_package_checker_requires_exact_zip_name_and_single_consistent_top_level(self):
+        checker = load_script("check_windows_package_zip", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            archive_path = Path(tmpdir) / f"{PACKAGE_NAME}.zip"
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for path in package_root.rglob("*"):
+                    if path.is_file():
+                        archive.write(path, path.relative_to(package_root.parent).as_posix())
+
+            valid = checker.check_package(archive_path)
+            wrong_name = Path(tmpdir) / "renamed.zip"
+            archive_path.rename(wrong_name)
+            invalid = checker.check_package(wrong_name)
+
+        self.assertTrue(valid.ok, valid.errors)
+        self.assertTrue(any(PACKAGE_NAME in error for error in invalid.errors))
+
+    def test_package_checker_rejects_duplicate_archive_paths(self):
+        checker = load_script("check_windows_package_duplicate_zip", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / f"{PACKAGE_NAME}.zip"
+            duplicate = f"{PACKAGE_NAME}/Helpers/ffmpeg.exe"
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    archive.writestr(duplicate, b"first")
+                    archive.writestr(duplicate, b"second")
+
+            result = checker.check_package(archive_path)
+
+        self.assertTrue(any("duplicate ZIP member" in error for error in result.errors), result.errors)
+
+    def test_fetcher_hashes_before_opening_archive(self):
+        self.assertTrue(TOOL_FETCHER.is_file(), "Windows helper fetcher is missing")
+        fetcher = load_script("fetch_windows_tools_hash", TOOL_FETCHER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "not-a-zip.zip"
+            archive_path.write_bytes(b"not a zip")
+            spec = {
+                "sha256": "0" * 64,
+                "archive_members": [{"path": "tool.exe", "output_name": "tool.exe"}],
+            }
+
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                fetcher.install_archive(spec, archive_path, Path(tmpdir) / "Helpers")
+
+    def test_fetcher_rejects_zip_traversal_before_copying_declared_members(self):
+        fetcher = load_script("fetch_windows_tools_traversal", TOOL_FETCHER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "tool.zip"
+            write_zip(archive_path, {"../escape.exe": b"bad", "tool.exe": b"MZ"})
+            spec = {
+                "sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+                "archive_members": [{"path": "tool.exe", "output_name": "tool.exe"}],
+            }
+
+            with self.assertRaisesRegex(ValueError, "unsafe ZIP member"):
+                fetcher.install_archive(spec, archive_path, Path(tmpdir) / "Helpers")
+
+            self.assertFalse((Path(tmpdir) / "escape.exe").exists())
+
+    def test_fetcher_copies_only_declared_amd64_members(self):
+        fetcher = load_script("fetch_windows_tools_members", TOOL_FETCHER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            pe_path = tmpdir / "source.exe"
+            write_pe(pe_path)
+            archive_path = tmpdir / "tool.zip"
+            write_zip(archive_path, {"bin/tool.exe": pe_path.read_bytes(), "extra.exe": pe_path.read_bytes()})
+            spec = {
+                "sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+                "archive_members": [{"path": "bin/tool.exe", "output_name": "tool.exe"}],
+            }
+            output_dir = tmpdir / "Helpers"
+
+            outputs = fetcher.install_archive(spec, archive_path, output_dir)
+
+            self.assertEqual(outputs, [output_dir / "tool.exe"])
+            self.assertEqual([path.name for path in output_dir.iterdir()], ["tool.exe"])
+
+    def test_fetcher_tls_context_requires_certificate_and_hostname_verification(self):
+        fetcher = load_script("fetch_windows_tools_tls", TOOL_FETCHER)
+
+        context = fetcher.tls_context()
+
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+
+    def test_fetcher_rejects_redirect_from_https_to_plain_http(self):
+        fetcher = load_script("fetch_windows_tools_redirect", TOOL_FETCHER)
+
+        class PlainHttpResponse(io.BytesIO):
+            def geturl(self):
+                return "http://downloads.example.invalid/tool.zip"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            destination = Path(tmpdir) / "tool.zip"
+            with mock.patch.object(
+                fetcher.urllib.request,
+                "urlopen",
+                return_value=PlainHttpResponse(b"archive"),
+            ):
+                with self.assertRaisesRegex(ValueError, "redirected to non-HTTPS"):
+                    fetcher.download_archive("https://example.invalid/tool.zip", destination)
+
+            self.assertFalse(destination.exists())
+
+    def test_icon_generator_writes_all_required_frames(self):
+        generator = load_script("generate_windows_icon", ICON_GENERATOR)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "AppIcon.ico"
+
+            generator.generate_icon(ROOT / "assets" / "AppIcon-1024.png", output)
+
+            self.assertEqual(generator.read_ico_sizes(output), ICON_SIZES)
+
+    def test_windows_build_is_windowed_onedir_and_preserves_package_root(self):
+        self.assertTrue(BUILD_SCRIPT.is_file(), "Windows PowerShell build script is missing")
+        script = BUILD_SCRIPT.read_text(encoding="utf-8")
+
+        for argument in (
+            "--windowed",
+            "--onedir",
+            "--icon",
+            "--hidden-import",
+            "yt_dlp_ejs",
+            "--collect-data",
+            "--version-file",
+        ):
+            self.assertIn(argument, script)
+        self.assertIn("YT_downloader_187_windows.py", script)
+        self.assertIn("Helpers", script)
+        self.assertIn("README-Windows.txt", script)
+        self.assertIn("THIRD_PARTY_NOTICES.txt", script)
+        self.assertIn("Compress-Archive -Path $PackageRoot", script)
+        self.assertIn("scripts/check_windows_package.py", script)
+        self.assertIn("Set-Content -Path $VersionFile -Encoding ascii", script)
+
+    def test_windows_build_self_test_always_carries_report_path(self):
+        self.assertTrue(BUILD_SCRIPT.is_file(), "Windows PowerShell build script is missing")
+        script = BUILD_SCRIPT.read_text(encoding="utf-8")
+        self_test_lines = [line.strip() for line in script.splitlines() if "--self-test" in line]
+
+        self.assertTrue(self_test_lines)
+        self.assertTrue(all("--self-test-report" in line for line in self_test_lines), self_test_lines)
+        self.assertIn("windows-self-test.json", script)
+
+
+if __name__ == "__main__":
+    unittest.main()

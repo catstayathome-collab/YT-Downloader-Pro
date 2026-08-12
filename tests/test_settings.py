@@ -369,6 +369,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 "pyinstaller==6.21.0",
                 "certifi==2026.1.4",
                 "yt-dlp-ejs==0.8.0",
+                "Pillow==12.3.0",
             ],
         )
 
