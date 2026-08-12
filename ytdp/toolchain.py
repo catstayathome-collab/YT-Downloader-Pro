@@ -85,12 +85,13 @@ class Toolchain:
                 self.logger.log(error, stage=f"{tool}_version", command=command)
             raise ToolchainError(f"{tool} execution failed: {error}") from error
         output = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
-        runtime_success = (
-            tool not in {"ffmpeg", "ffprobe"}
+        quickjs_exit_one = (
+            tool == "quickjs"
+            and self.adapter.filename_platform() == "macos"
             and result.returncode == 1
             and self.adapter.js_runtime_output_marker() in output
         )
-        if result.returncode != 0 and not runtime_success:
+        if result.returncode != 0 and not quickjs_exit_one:
             detail = output or f"exit code {result.returncode}"
             if self.logger:
                 self.logger.log(detail, stage=f"{tool}_version", command=command)

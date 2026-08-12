@@ -1,13 +1,13 @@
 """Deterministic packaged checks for the Windows onedir application."""
 
+import ctypes
 import importlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
-
-import certifi
 
 from ytdp.core import sanitize_filename_stem
 from ytdp.diagnostics import sanitize_diagnostic
@@ -15,18 +15,19 @@ from ytdp.toolchain import Toolchain
 
 
 SCHEMA_VERSION = 1
+ATTACH_PARENT_PROCESS = 0xFFFFFFFF
+STD_OUTPUT_HANDLE = -11
 
 
 def _check_imports():
-    imported = []
+    imported = {}
     for name in ("certifi", "yt_dlp", "yt_dlp_ejs", "ytdp"):
-        importlib.import_module(name)
-        imported.append(name)
-    return {"modules": imported}
+        imported[name] = importlib.import_module(name)
+    return imported
 
 
-def _check_certificate():
-    path = Path(certifi.where())
+def _check_certificate(certifi_module):
+    path = Path(certifi_module.where())
     if not path.is_file() or path.stat().st_size == 0:
         raise RuntimeError(f"certificate bundle is unavailable: {path}")
     return {"path": str(path), "bytes": path.stat().st_size}
@@ -148,14 +149,110 @@ def _run_check(checks, name, function):
 def _write_report(path, payload):
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(payload + "\n", encoding="utf-8")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(destination)
+    except Exception:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
+def _open_windows_stdout(kernel32):
+    """Open the attached process standard-output handle as UTF-8 text."""
+    import msvcrt
+
+    kernel32.GetStdHandle.restype = ctypes.c_void_p
+    handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+    invalid = ctypes.c_void_p(-1).value
+    if not handle or handle == invalid:
+        return None
+    descriptor = msvcrt.open_osfhandle(int(handle), os.O_WRONLY)
+    return os.fdopen(descriptor, "w", encoding="utf-8", buffering=1)
+
+
+def _attach_parent_stdout():
+    """Attach a windowed Windows process to its parent console when possible."""
+    if sys.platform != "win32":
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.AttachConsole.argtypes = [ctypes.c_uint32]
+        kernel32.AttachConsole.restype = ctypes.c_int
+        kernel32.AttachConsole(ATTACH_PARENT_PROCESS)
+        return _open_windows_stdout(kernel32)
+    except (AttributeError, OSError, OverflowError, ValueError):
+        return None
+
+
+def _emit_report(payload):
+    def _write(stream):
+        if stream is None or getattr(stream, "closed", False):
+            return False
+        stream.write(payload)
+        stream.write("\n")
+        stream.flush()
+        return True
+    try:
+        if _write(sys.stdout):
+            return True
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    stream = _attach_parent_stdout()
+    if stream is None:
+        return False
+    sys.stdout = stream
+    try:
+        return _write(stream)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
 
 
 def run_self_test(adapter, report_path=None):
-    """Run packaged checks, emit one JSON report, and return a process code."""
+    """Run packaged checks and emit JSON; CI must always provide report_path."""
     checks = []
-    _run_check(checks, "imports", _check_imports)
-    _run_check(checks, "certificate", _check_certificate)
+    dependencies = None
+    try:
+        dependencies = _check_imports()
+        checks.append({
+            "name": "imports",
+            "status": "ok",
+            "details": {"modules": list(dependencies)},
+        })
+    except Exception as error:
+        checks.append({
+            "name": "imports",
+            "status": "failed",
+            "error": sanitize_diagnostic(error),
+        })
+    if dependencies is None:
+        _run_check(
+            checks,
+            "certificate",
+            lambda: (_ for _ in ()).throw(RuntimeError("checked imports failed")),
+        )
+    else:
+        _run_check(
+            checks,
+            "certificate",
+            lambda: _check_certificate(dependencies["certifi"]),
+        )
     _run_check(
         checks,
         "settings_writable",
@@ -201,10 +298,12 @@ def run_self_test(adapter, report_path=None):
         "checks": checks,
     }
     payload = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    report_written = False
     if report_path is not None:
         try:
             _write_report(report_path, payload)
-        except OSError as error:
+            report_written = True
+        except Exception as error:
             checks.append({
                 "name": "report_writable",
                 "status": "failed",
@@ -212,9 +311,9 @@ def run_self_test(adapter, report_path=None):
             })
             report["status"] = "failed"
             payload = json.dumps(report, ensure_ascii=False, sort_keys=True)
-    if sys.stdout is not None:
-        print(payload)
-    return 0 if report["status"] == "ok" else 1
+    stdout_written = _emit_report(payload)
+    evidence_written = stdout_written or (report_path is not None and report_written)
+    return 0 if report["status"] == "ok" and evidence_written else 1
 
 
 __all__ = ["run_self_test"]

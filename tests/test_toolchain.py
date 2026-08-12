@@ -109,14 +109,17 @@ class ToolchainTests(unittest.TestCase):
 
     def test_rejects_version_mismatch_execution_failure_and_non_lgpl_build(self):
         scenarios = {
-            "mismatch": lambda command: subprocess.CompletedProcess(
+            "mismatch": (lambda command, **_kwargs: subprocess.CompletedProcess(
                 command,
                 0,
                 "ffprobe version 7.0\n" if "ffprobe" in Path(command[0]).name else completed_for(command).stdout,
                 "",
+            ), "version mismatch"),
+            "execution": (
+                lambda command, **_kwargs: (_ for _ in ()).throw(OSError("blocked token=secret")),
+                "execution failed",
             ),
-            "execution": lambda command: (_ for _ in ()).throw(OSError("blocked token=secret")),
-            "gpl": lambda command: subprocess.CompletedProcess(
+            "gpl": (lambda command, **_kwargs: subprocess.CompletedProcess(
                 command,
                 0,
                 (
@@ -125,15 +128,40 @@ class ToolchainTests(unittest.TestCase):
                     else completed_for(command).stdout
                 ),
                 "",
-            ),
+            ), "--enable-gpl"),
+            "nonfree": (lambda command, **_kwargs: subprocess.CompletedProcess(
+                command,
+                0,
+                (
+                    f"ffmpeg version {FFMPEG_VERSION}\nconfiguration: --enable-nonfree\n"
+                    if Path(command[0]).name.lower() == "ffmpeg.exe"
+                    else completed_for(command).stdout
+                ),
+                "",
+            ), "--enable-nonfree"),
         }
-        for problem, result in scenarios.items():
+        for problem, (result, expected) in scenarios.items():
             with self.subTest(problem=problem), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
                 create_helpers(root)
                 with mock.patch("ytdp.toolchain.subprocess.run", side_effect=result):
-                    with self.assertRaises(ToolchainError):
+                    with self.assertRaisesRegex(ToolchainError, expected):
                         Toolchain(WindowsPlatform(frozen_dir=root, frozen=True)).validate()
+
+    def test_windows_deno_version_requires_zero_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            create_helpers(root)
+
+            def deno_fails(command, **_kwargs):
+                result = completed_for(command)
+                if Path(command[0]).name.lower() == "deno.exe":
+                    result.returncode = 1
+                return result
+
+            with mock.patch("ytdp.toolchain.subprocess.run", side_effect=deno_fails):
+                with self.assertRaisesRegex(ToolchainError, "deno execution failed"):
+                    Toolchain(WindowsPlatform(frozen_dir=root, frozen=True)).validate()
 
     def test_rejects_ffmpeg_without_configuration_evidence(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -236,6 +264,55 @@ class DiagnosticLoggerTests(unittest.TestCase):
             "cookie-secret",
             "token-secret",
             "password-secret",
+        ):
+            self.assertNotIn(secret, rendered)
+
+    def test_logger_recursively_redacts_sensitive_keys_and_compound_options(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "diagnostics.jsonl"
+            logger = DiagnosticLogger(path=path)
+            logger.log(
+                "helper failed",
+                stage="toolchain",
+                command=[
+                    "deno.exe",
+                    "--cookies-from-browser", "firefox-secret",
+                    "--password-file=password-secret",
+                    "--access-token", "access-secret",
+                    "--api-key=api-secret",
+                    "--signature", "signature-secret",
+                    "--credential=credential-secret",
+                    "--session-token", "session-secret",
+                ],
+                token="top-secret",
+                metadata={
+                    "authorization": "authorization-secret",
+                    "nested": [
+                        {"sig": "sig-secret", "safe": "keep-me"},
+                        {
+                            "api_key": "nested-api-secret",
+                            "accessToken": "camel-access-secret",
+                            "passwordFile": "camel-password-secret",
+                            "cookiesFromBrowser": "camel-cookie-secret",
+                            "sessionToken": "camel-session-secret",
+                        },
+                    ],
+                },
+            )
+
+            entry = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(entry["token"], "[REDACTED]")
+        self.assertEqual(entry["metadata"]["authorization"], "[REDACTED]")
+        self.assertEqual(entry["metadata"]["nested"][0]["sig"], "[REDACTED]")
+        self.assertEqual(entry["metadata"]["nested"][0]["safe"], "keep-me")
+        rendered = json.dumps(entry)
+        for secret in (
+            "firefox-secret", "password-secret", "access-secret", "api-secret",
+            "signature-secret", "credential-secret", "session-secret", "top-secret",
+            "authorization-secret", "sig-secret", "nested-api-secret",
+            "camel-access-secret", "camel-password-secret",
+            "camel-cookie-secret", "camel-session-secret",
         ):
             self.assertNotIn(secret, rendered)
 

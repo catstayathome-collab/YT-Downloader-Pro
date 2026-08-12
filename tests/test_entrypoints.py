@@ -1,4 +1,7 @@
+import builtins
 import importlib
+import importlib.util
+import io
 import queue
 import sys
 import tempfile
@@ -97,6 +100,24 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(module.VERSION, "1.8.7")
         self.assertIs(module.YTDownloaderApp, self.shared.YTDownloaderApp)
 
+    def test_windows_launcher_bootstrap_does_not_import_ui_dependencies(self):
+        source = ROOT / "YT_downloader_187_windows.py"
+        spec = importlib.util.spec_from_file_location("isolated_windows_launcher", source)
+        module = importlib.util.module_from_spec(spec)
+        original_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "ytdp.app" or name.split(".", 1)[0] in {
+                "tkinter", "yt_dlp", "certifi"
+            }:
+                raise AssertionError(f"eager UI dependency import: {name}")
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=guarded_import):
+            spec.loader.exec_module(module)
+
+        self.assertEqual(module.VERSION, "1.8.7")
+
     def test_macos_entrypoint_reexports_shared_application(self):
         module = importlib.import_module("YT_downloader_187")
 
@@ -113,10 +134,17 @@ class EntrypointTests(unittest.TestCase):
     def test_windows_normal_launch_returns_zero_after_ui_closes(self):
         module = importlib.import_module("YT_downloader_187_windows")
         closed_app = object()
+        run = mock.Mock(return_value=closed_app)
 
         with mock.patch.object(module.sys, "platform", "win32"):
-            with mock.patch.object(module, "run_app", return_value=closed_app) as run:
-                self.assertEqual(module.main([]), 0)
+            with mock.patch.object(
+                module,
+                "_load_ui",
+                return_value=(self.shared.YTDownloaderApp, run),
+                create=True,
+            ):
+                with mock.patch.object(module, "run_app", run):
+                    self.assertEqual(module.main([]), 0)
 
         run.assert_called_once()
 
@@ -126,14 +154,34 @@ class EntrypointTests(unittest.TestCase):
 
         with mock.patch.object(module.sys, "platform", "darwin"):
             with mock.patch("ytdp.selftest.run_self_test", return_value=0) as run:
-                with mock.patch.object(module, "run_app") as run_app:
+                with mock.patch.object(module, "_load_ui", create=True) as load_ui:
                     self.assertEqual(
                         module.main(["--self-test", "--self-test-report", report_path]),
                         0,
                     )
 
         run.assert_called_once_with(mock.ANY, report_path)
-        run_app.assert_not_called()
+        load_ui.assert_not_called()
+
+    def test_invalid_selftest_argument_combinations_fail_without_opening_ui(self):
+        module = importlib.import_module("YT_downloader_187_windows")
+        cases = (
+            (["--self-test-report", "report.json"], "requires --self-test"),
+            (["--self-test-report"], "expected one argument"),
+            (["--self-test", "--unknown"], "unrecognized arguments"),
+        )
+
+        for args, expected in cases:
+            with self.subTest(args=args):
+                stderr = io.StringIO()
+                with mock.patch.object(module.sys, "platform", "win32"):
+                    with mock.patch.object(module.sys, "stderr", stderr):
+                        with mock.patch.object(module, "_load_ui", create=True) as load_ui:
+                            with self.assertRaises(SystemExit) as raised:
+                                module.main(args)
+                self.assertNotEqual(raised.exception.code, 0)
+                self.assertIn(expected, stderr.getvalue())
+                load_ui.assert_not_called()
 
     def test_startup_toolchain_validation_runs_in_background(self):
         captured = []

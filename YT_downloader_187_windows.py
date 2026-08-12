@@ -4,13 +4,36 @@ import argparse
 import sys
 from pathlib import Path
 
-from ytdp import DownloadArtifactTracker, DownloadRequest
-from ytdp.app import APP_NAME, VERSION, YTDownloaderApp, run_app
-from ytdp.platforms import WindowsPlatform
+
+APP_NAME = "YT Downloader Pro"
+VERSION = "1.8.7"
+
+
+def _load_ui():
+    from ytdp.app import YTDownloaderApp, run_app
+
+    return YTDownloaderApp, run_app
+
+
+def __getattr__(name):
+    """Preserve legacy launcher imports without loading UI dependencies early."""
+    if name in {"DownloadArtifactTracker", "DownloadRequest"}:
+        from ytdp import DownloadArtifactTracker, DownloadRequest
+
+        return {
+            "DownloadArtifactTracker": DownloadArtifactTracker,
+            "DownloadRequest": DownloadRequest,
+        }[name]
+    if name in {"YTDownloaderApp", "run_app"}:
+        application, launch = _load_ui()
+        return {"YTDownloaderApp": application, "run_app": launch}[name]
+    raise AttributeError(name)
 
 
 def make_platform():
     """Build the Windows adapter with the current source or package root."""
+    from ytdp.platforms import WindowsPlatform
+
     root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
     return WindowsPlatform(frozen_dir=root, frozen=getattr(sys, "frozen", False))
 
@@ -18,16 +41,22 @@ def make_platform():
 def main(argv=None):
     """Run the packaged self-test or launch the Windows interface."""
     args = list(sys.argv[1:] if argv is None else argv)
-    if "--self-test" in args:
-        parser = argparse.ArgumentParser(prog="YT Downloader Pro")
-        parser.add_argument("--self-test", action="store_true")
-        parser.add_argument("--self-test-report")
-        options = parser.parse_args(args)
+    parser = argparse.ArgumentParser(prog=APP_NAME)
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--self-test-report",
+        help="atomic JSON evidence path; CI must always provide this with --self-test",
+    )
+    options = parser.parse_args(args)
+    if options.self_test:
         from ytdp.selftest import run_self_test
 
         return run_self_test(make_platform(), options.self_test_report)
+    if options.self_test_report is not None:
+        parser.error("--self-test-report requires --self-test")
     if sys.platform != "win32":
         raise RuntimeError("YT Downloader Pro Windows can only launch on Windows.")
+    _application, run_app = _load_ui()
     run_app(make_platform())
     return 0
 
