@@ -153,6 +153,22 @@ class UpdateHelpersTests(unittest.TestCase):
 
 
 class DownloadErrorLocalizationTests(unittest.TestCase):
+    def test_youtube_http_403_has_actionable_message_in_each_language(self):
+        expected = {
+            "zh": "拒絕了這次影片串流",
+            "en": "rejected this video stream",
+            "ja": "動画ストリームを拒否",
+        }
+
+        for language, phrase in expected.items():
+            with self.subTest(language=language):
+                message = clean_download_error(
+                    Exception("unable to download video data: HTTP Error 403: Forbidden"),
+                    language,
+                )
+                self.assertIn(phrase, message)
+                self.assertNotIn("HTTP Error 403", message)
+
     def test_localizes_bot_helper_and_path_errors_for_supported_languages(self):
         cases = (
             ("Sign in to confirm you are not a bot", "zh", "登入驗證"),

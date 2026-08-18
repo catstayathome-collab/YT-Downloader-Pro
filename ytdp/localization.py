@@ -22,6 +22,7 @@ LANG_DATA = {
         "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認電腦日期時間正確，並更新或重新安裝 App。",
         "network_error": "目前無法連上 YouTube。請檢查網路連線後再試一次。",
         "youtube_bot_check": "YouTube 暫時要求登入驗證，這不是影片網址或轉檔工具故障。請先在瀏覽器登入 YouTube，稍後重新解析；若持續出現，請重新啟動 App 或聯絡開發者。",
+        "youtube_stream_forbidden": "YouTube 拒絕了這次影片串流。請重新解析影片後再下載；若仍失敗，可能需要更新 App。",
         "permission_error": "沒有權限寫入選擇的資料夾。請改選其他儲存位置，或在系統設定中允許 App 存取。",
         "content_unavailable": "影片目前無法播放或下載。可能已被移除、設為私人或受地區限制。",
         "disk_full": "儲存空間不足。請釋放磁碟空間後再試一次。",
@@ -49,6 +50,7 @@ LANG_DATA = {
         "certificate_error": "The secure certificate check failed. Verify the computer's date and time, then update or reinstall the app.",
         "network_error": "YouTube cannot be reached right now. Check the network connection and try again.",
         "youtube_bot_check": "YouTube temporarily requires a sign-in verification. The video URL and converter are not at fault. Sign in to YouTube in your browser and analyze again later. If this continues, restart the app or contact the developer.",
+        "youtube_stream_forbidden": "YouTube rejected this video stream. Analyze the video again before downloading. If it still fails, the app may need an update.",
         "permission_error": "The selected folder cannot be written. Choose another location or allow access in System Settings.",
         "content_unavailable": "This video is unavailable for download. It may have been removed, made private, or restricted in your region.",
         "disk_full": "The selected drive is full. Free up disk space and try again.", "invalid_path": "The selected save path is invalid. Choose another folder and try again.",
@@ -75,6 +77,7 @@ LANG_DATA = {
         "certificate_error": "安全な証明書を確認できませんでした。コンピューターの日付と時刻を確認し、App を更新または再インストールしてください。",
         "network_error": "現在 YouTube に接続できません。ネットワーク接続を確認して、もう一度お試しください。",
         "youtube_bot_check": "YouTube が一時的にログイン確認を求めています。動画 URL や変換ツールの故障ではありません。ブラウザで YouTube にログインし、しばらくしてから再解析してください。続く場合は App を再起動するか、開発者に連絡してください。",
+        "youtube_stream_forbidden": "YouTube がこの動画ストリームを拒否しました。動画を再解析してからダウンロードしてください。まだ失敗する場合は App の更新が必要な可能性があります。",
         "permission_error": "選択したフォルダに書き込む権限がありません。別の保存先を選ぶか、システム設定でアクセスを許可してください。",
         "content_unavailable": "この動画はダウンロードできません。削除、非公開、または地域制限されている可能性があります。",
         "disk_full": "保存先の空き容量が不足しています。空き容量を確保してから、もう一度お試しください。",
@@ -135,6 +138,8 @@ def clean_download_error(error, language, log_path=None):
         return text["invalid_path"]
     if "sign in to confirm you" in lowered and "not a bot" in lowered:
         return text["youtube_bot_check"]
+    if "http error 403" in lowered or "403 forbidden" in lowered or "403: forbidden" in lowered:
+        return text["youtube_stream_forbidden"]
     if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
         return text["certificate_error"]
     if any(value in lowered for value in ("no space left", "disk full", "winerror 112")):

@@ -3,6 +3,10 @@
 import os
 
 
+def _youtube_extractor_args():
+    return {"youtube": {"player_client": ["web_embedded"]}}
+
+
 def _add_runtime_and_cookies(options, js_runtime_name, js_runtime_path, cookies_browser):
     if js_runtime_name and js_runtime_path:
         options["js_runtimes"] = {js_runtime_name: {"path": js_runtime_path}}
@@ -14,7 +18,10 @@ def _add_runtime_and_cookies(options, js_runtime_name, js_runtime_path, cookies_
 def make_analysis_options(js_runtime_name, js_runtime_path, cookies_browser):
     """Return safe yt-dlp options for video analysis."""
     return _add_runtime_and_cookies(
-        {"quiet": True}, js_runtime_name, js_runtime_path, cookies_browser
+        {"quiet": True, "extractor_args": _youtube_extractor_args()},
+        js_runtime_name,
+        js_runtime_path,
+        cookies_browser,
     )
 
 
@@ -34,6 +41,7 @@ def make_download_options(
     )
     options = {
         "ffmpeg_location": ffmpeg_dir,
+        "extractor_args": _youtube_extractor_args(),
         "outtmpl": os.path.join(request.output_directory, output_template),
         "progress_hooks": [progress_hook],
         "format": (

@@ -26,6 +26,10 @@ class DownloadOptionsTests(unittest.TestCase):
             options["js_runtimes"],
             {"deno": {"path": r"C:\\App\\Helpers\\deno.exe"}},
         )
+        self.assertEqual(
+            options["extractor_args"],
+            {"youtube": {"player_client": ["web_embedded"]}},
+        )
         self.assertNotIn("nocheckcertificate", options)
 
     def test_analysis_options_add_cookies_only_when_explicitly_enabled(self):
@@ -53,6 +57,10 @@ class DownloadOptionsTests(unittest.TestCase):
             str(Path(self.tempdir.name) / "Title.mp4"),
         )
         self.assertEqual(options["js_runtimes"], {"deno": {"path": "deno.exe"}})
+        self.assertEqual(
+            options["extractor_args"],
+            {"youtube": {"player_client": ["web_embedded"]}},
+        )
         self.assertNotIn("nocheckcertificate", options)
 
     def test_mp3_template_has_single_dynamic_extension(self):
