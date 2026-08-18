@@ -1,6 +1,6 @@
 import Foundation
 
-struct DownloadFailure: Codable, Equatable, Sendable {
+struct DownloadFailure: Error, Codable, Equatable, Sendable {
     enum Category: String, CaseIterable, Codable, Sendable {
         case invalidURL
         case metadataUnavailable
@@ -24,6 +24,10 @@ struct DownloadFailure: Codable, Equatable, Sendable {
     var toolExitCode: Int32?
     var occurredAt: Date
 
+    private static let sensitiveDetailPattern = try! NSRegularExpression(
+        pattern: #"(?i)\b(cookie|cookies|authorization|access[-_]?token|po[-_]?token|token|sig|signature)\b(\s*[=:]\s*)((?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s&,;]+))"#
+    )
+
     init(
         category: Category,
         summaryKey: String? = nil,
@@ -35,8 +39,19 @@ struct DownloadFailure: Codable, Equatable, Sendable {
         self.category = category
         self.summaryKey = summaryKey ?? category.summaryKey
         self.recoverySuggestionKey = recoverySuggestionKey ?? category.recoveryKey
-        self.technicalDetail = technicalDetail
+        self.technicalDetail = Self.sanitize(technicalDetail)
         self.toolExitCode = toolExitCode
         self.occurredAt = occurredAt
+    }
+
+    private static func sanitize(_ detail: String?) -> String? {
+        guard let detail else { return nil }
+
+        let range = NSRange(detail.startIndex..., in: detail)
+        return sensitiveDetailPattern.stringByReplacingMatches(
+            in: detail,
+            range: range,
+            withTemplate: "$1$2[REDACTED]"
+        )
     }
 }
