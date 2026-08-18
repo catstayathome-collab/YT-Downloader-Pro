@@ -99,6 +99,46 @@ class UpdateHelpersTests(unittest.TestCase):
             "https://downloads.example/windows-x64.zip",
         )
 
+    def test_release_asset_parser_skips_unsafe_x64_before_safe_x64(self):
+        content = json.dumps(
+            {
+                "assets": [
+                    {
+                        "name": "app-Windows-x64.zip",
+                        "browser_download_url": "http://downloads.example/unsafe.zip",
+                    },
+                    {
+                        "name": "app-Windows-amd64.zip",
+                        "browser_download_url": "https://downloads.example/safe.zip",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            parse_release_asset_url(content, "windows"),
+            "https://downloads.example/safe.zip",
+        )
+
+    def test_release_asset_parser_returns_none_when_all_matching_x64_urls_are_unsafe(self):
+        content = json.dumps(
+            {
+                "assets": [
+                    {"name": "app-Windows-x64.zip"},
+                    {
+                        "name": "app-Windows-amd64.zip",
+                        "browser_download_url": "http://downloads.example/unsafe.zip",
+                    },
+                    {
+                        "name": "app-win64.zip",
+                        "browser_download_url": "https:///missing-host.zip",
+                    },
+                ]
+            }
+        )
+
+        self.assertIsNone(parse_release_asset_url(content, "windows"))
+
     def test_release_asset_parser_rejects_missing_or_non_https_windows_assets(self):
         cases = (
             {"assets": [{"name": "app-macOS-arm64.zip", "browser_download_url": "https://downloads.example/macos.zip"}]},

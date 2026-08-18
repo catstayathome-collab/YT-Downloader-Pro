@@ -86,6 +86,7 @@ class WindowsDocumentationTests(unittest.TestCase):
             fields = dict(re.findall(r"^- ([^:]+): `?([^`\n]+)`?$", body, flags=re.MULTILINE))
 
             self.assertEqual(fields["Version"], expected["version"])
+            self.assertEqual(fields["Upstream"], expected["upstream"])
             self.assertEqual(fields["Exact archive"], expected["url"])
             self.assertEqual(fields["SHA-256"], expected["sha256"])
             self.assertEqual(fields["License"], expected["license"])
