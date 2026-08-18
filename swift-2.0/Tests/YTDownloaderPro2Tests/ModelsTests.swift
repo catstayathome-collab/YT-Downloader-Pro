@@ -74,4 +74,29 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(detail.contains("format=best"))
         XCTAssertTrue(detail.contains("[REDACTED]"))
     }
+
+    func testDownloadFailureRedactsEveryCookieHeaderValue() throws {
+        let failure = DownloadFailure(
+            category: .unknown,
+            technicalDetail: "Cookie: SID=secret-one; HSID=secret-two\nSafe context: retrying request"
+        )
+
+        let detail = try XCTUnwrap(failure.technicalDetail)
+
+        XCTAssertFalse(detail.contains("secret-one"))
+        XCTAssertFalse(detail.contains("secret-two"))
+        XCTAssertTrue(detail.contains("Safe context: retrying request"))
+    }
+
+    func testDownloadFailureRedactsAuthorizationHeaderWithoutRemovingNextLine() throws {
+        let failure = DownloadFailure(
+            category: .unknown,
+            technicalDetail: "Authorization: Bearer authorization-secret\nSafe context: HTTP 403"
+        )
+
+        let detail = try XCTUnwrap(failure.technicalDetail)
+
+        XCTAssertFalse(detail.contains("authorization-secret"))
+        XCTAssertTrue(detail.contains("Safe context: HTTP 403"))
+    }
 }

@@ -27,6 +27,9 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     private static let sensitiveDetailPattern = try! NSRegularExpression(
         pattern: #"(?i)\b(cookie|cookies|authorization|access[-_]?token|po[-_]?token|token|sig|signature)\b(\s*[=:]\s*)((?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s&,;]+))"#
     )
+    private static let sensitiveHeaderPattern = try! NSRegularExpression(
+        pattern: #"(?im)^([ \t]*(?:cookie|authorization)[ \t]*:[ \t]*)[^\r\n]*"#
+    )
 
     init(
         category: Category,
@@ -48,9 +51,15 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         guard let detail else { return nil }
 
         let range = NSRange(detail.startIndex..., in: detail)
-        return sensitiveDetailPattern.stringByReplacingMatches(
+        let redactedHeaders = sensitiveHeaderPattern.stringByReplacingMatches(
             in: detail,
             range: range,
+            withTemplate: "$1[REDACTED]"
+        )
+        let headerRange = NSRange(redactedHeaders.startIndex..., in: redactedHeaders)
+        return sensitiveDetailPattern.stringByReplacingMatches(
+            in: redactedHeaders,
+            range: headerRange,
             withTemplate: "$1$2[REDACTED]"
         )
     }
