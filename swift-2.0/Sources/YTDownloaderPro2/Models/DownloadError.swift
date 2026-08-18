@@ -47,6 +47,10 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         self.occurredAt = occurredAt
     }
 
+    static func sanitizedTechnicalDetail(_ detail: String) -> String {
+        sanitize(detail) ?? ""
+    }
+
     private static func sanitize(_ detail: String?) -> String? {
         guard let detail else { return nil }
 
