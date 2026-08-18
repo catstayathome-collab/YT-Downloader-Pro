@@ -13,6 +13,12 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(AppSettings(maximumConcurrentDownloads: 99).maximumConcurrentDownloads, 10)
     }
 
+    func testSettingsDefaultsIncludeFuturePreferences() {
+        XCTAssertNil(AppSettings.defaults.languageOverride)
+        XCTAssertEqual(AppSettings.defaults.defaultOptions, .defaults)
+        XCTAssertTrue(AppSettings.defaults.automaticallyCheckForUpdates)
+    }
+
     func testMergingCannotPause() {
         XCTAssertFalse(DownloadStatus.merging.canPause)
 
