@@ -18,6 +18,41 @@ $ArchivePath = Join-Path $DistRoot "$PackageName.zip"
 $SelfTestReport = Join-Path $DistRoot "windows-self-test.json"
 $VersionFile = Join-Path $BuildRoot "windows-version-info.txt"
 
+function Invoke-WindowedSelfTest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ReportPath
+    )
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $ExecutablePath
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    [void]$psi.ArgumentList.Add('--self-test')
+    [void]$psi.ArgumentList.Add('--self-test-report')
+    [void]$psi.ArgumentList.Add([string]$ReportPath)
+
+    $process = $null
+    try {
+        $process = [System.Diagnostics.Process]::Start($psi)
+        if ($null -eq $process) {
+            throw "Unable to start packaged Windows self-test: $ExecutablePath"
+        }
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            throw "Packaged Windows self-test failed. Report: $ReportPath"
+        }
+    }
+    finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
 Set-Location $RepoRoot
 New-Item -ItemType Directory -Force -Path $BuildRoot, $DistRoot | Out-Null
 
@@ -74,10 +109,7 @@ Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $PackageRoot "THIRD_PARTY_NOTICES.
 if ($LASTEXITCODE -ne 0) { throw "Static Windows package check failed." }
 
 $PackagedExe = Join-Path $PackageRoot "YT Downloader Pro.exe"
-$process = Start-Process -FilePath $PackagedExe `
-    -ArgumentList @('--self-test', '--self-test-report', $SelfTestReport) `
-    -Wait -PassThru -NoNewWindow
-if ($process.ExitCode -ne 0) { throw "Packaged Windows self-test failed. Report: $SelfTestReport" }
+Invoke-WindowedSelfTest -ExecutablePath $PackagedExe -ReportPath $SelfTestReport
 if (-not (Test-Path -LiteralPath $SelfTestReport -PathType Leaf)) {
     throw "Packaged self-test did not create report: $SelfTestReport"
 }

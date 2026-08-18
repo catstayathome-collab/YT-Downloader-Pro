@@ -379,17 +379,24 @@ class WindowsBuildScriptTests(unittest.TestCase):
             ("workflow", WINDOWS_WORKFLOW.read_text(encoding="utf-8"), "$extractedExe", "$extractedSelfTest"),
         ):
             with self.subTest(label=label):
-                start = source.index("$process = Start-Process -FilePath")
-                end = source.find("Compress-Archive", start)
-                validation = source[start:end] if end >= 0 else source[start:]
-                self.assertIn(f"-FilePath {executable}", validation)
-                self.assertIn(f"-ArgumentList @('--self-test', '--self-test-report', {report})", validation)
-                self.assertIn("-Wait", validation)
-                self.assertIn("-PassThru", validation)
-                self.assertIn("$process.ExitCode", validation)
-                self.assertIn("ConvertFrom-Json", validation)
-                self.assertIn("status -ne 'ok'", validation)
-                self.assertNotIn("$LASTEXITCODE", validation)
+                self.assertIn("function Invoke-WindowedSelfTest", source)
+                self.assertIn("[System.Diagnostics.ProcessStartInfo]", source)
+                self.assertIn("$psi.FileName = $ExecutablePath", source)
+                self.assertIn("$psi.UseShellExecute = $false", source)
+                self.assertIn("$psi.CreateNoWindow = $true", source)
+                self.assertIn("$psi.ArgumentList.Add('--self-test')", source)
+                self.assertIn("$psi.ArgumentList.Add('--self-test-report')", source)
+                self.assertIn("$psi.ArgumentList.Add([string]$ReportPath)", source)
+                self.assertIn("[System.Diagnostics.Process]::Start($psi)", source)
+                self.assertIn("$null -eq $process", source)
+                self.assertIn("$process.WaitForExit()", source)
+                self.assertIn("$process.ExitCode", source)
+                self.assertIn("$process.Dispose()", source)
+                self.assertIn(f"-ExecutablePath {executable} -ReportPath {report}", source)
+                self.assertIn("ConvertFrom-Json", source)
+                self.assertIn("status -ne 'ok'", source)
+                self.assertNotIn("Start-Process", source)
+                self.assertNotIn("-ArgumentList", source)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,41 @@ jobs:
           $packageReport = Join-Path $distRoot 'windows-package-report.json'
           $extractionRoot = Join-Path $env:RUNNER_TEMP "yt-downloader-pro-extracted-$([guid]::NewGuid())"
 
+          function Invoke-WindowedSelfTest {
+            [CmdletBinding()]
+            param(
+              [Parameter(Mandatory = $true)]
+              [string]$ExecutablePath,
+              [Parameter(Mandatory = $true)]
+              [string]$ReportPath
+            )
+
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $ExecutablePath
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            [void]$psi.ArgumentList.Add('--self-test')
+            [void]$psi.ArgumentList.Add('--self-test-report')
+            [void]$psi.ArgumentList.Add([string]$ReportPath)
+
+            $process = $null
+            try {
+              $process = [System.Diagnostics.Process]::Start($psi)
+              if ($null -eq $process) {
+                throw "Unable to start extracted Windows self-test: $ExecutablePath"
+              }
+              $process.WaitForExit()
+              if ($process.ExitCode -ne 0) {
+                throw "Extracted Windows executable self-test failed. Report: $ReportPath"
+              }
+            }
+            finally {
+              if ($null -ne $process) {
+                $process.Dispose()
+              }
+            }
+          }
+
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
           "$hash *$([System.IO.Path]::GetFileName($archivePath))" | Set-Content -LiteralPath $sha256Path -NoNewline
 
@@ -77,10 +112,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows package failed the static check.' }
 
           $extractedExe = Join-Path $packageRoot 'YT Downloader Pro.exe'
-          $process = Start-Process -FilePath $extractedExe `
-            -ArgumentList @('--self-test', '--self-test-report', $extractedSelfTest) `
-            -Wait -PassThru -NoNewWindow
-          if ($process.ExitCode -ne 0) { throw 'Extracted Windows executable self-test failed.' }
+          Invoke-WindowedSelfTest -ExecutablePath $extractedExe -ReportPath $extractedSelfTest
 
           foreach ($reportPath in @($originalSelfTest, $extractedSelfTest)) {
             if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {

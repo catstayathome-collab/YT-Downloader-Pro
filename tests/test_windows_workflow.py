@@ -126,20 +126,29 @@ class WindowsWorkflowTests(unittest.TestCase):
             "RUNNER_TEMP",
             "[guid]::NewGuid()",
             "scripts/check_windows_package.py",
-            "$process = Start-Process -FilePath $extractedExe",
-            "-ArgumentList @('--self-test', '--self-test-report', $extractedSelfTest)",
-            "-Wait",
-            "-PassThru",
+            "function Invoke-WindowedSelfTest",
+            "[System.Diagnostics.ProcessStartInfo]",
+            "$psi.FileName = $ExecutablePath",
+            "$psi.UseShellExecute = $false",
+            "$psi.CreateNoWindow = $true",
+            "$psi.ArgumentList.Add('--self-test')",
+            "$psi.ArgumentList.Add('--self-test-report')",
+            "$psi.ArgumentList.Add([string]$ReportPath)",
+            "[System.Diagnostics.Process]::Start($psi)",
+            "$null -eq $process",
+            "$process.WaitForExit()",
             "$process.ExitCode",
+            "$process.Dispose()",
+            "-ExecutablePath $extractedExe -ReportPath $extractedSelfTest",
             "ConvertFrom-Json",
             "status -ne 'ok'",
         ):
             self.assertIn(expected, script)
 
-        process_block = script[script.index("$process = Start-Process"):]
-        self.assertNotIn("$LASTEXITCODE", process_block)
+        self.assertNotIn("Start-Process", script)
+        self.assertNotIn("-ArgumentList", script)
         self.assertLess(script.index("Expand-Archive"), script.index("scripts/check_windows_package.py"))
-        self.assertLess(script.index("scripts/check_windows_package.py"), script.index("$process = Start-Process"))
+        self.assertLess(script.index("scripts/check_windows_package.py"), script.rindex("Invoke-WindowedSelfTest"))
 
     def test_workflow_uploads_exactly_one_verified_artifact_and_has_no_release_step(self):
         upload_steps = [
