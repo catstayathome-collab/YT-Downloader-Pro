@@ -15,3 +15,4 @@ dist/YT-Downloader-Pro-v*-Windows-x64.zip
 dist/windows-self-test.json
 DerivedData/
 .worktrees/
+.superpowers/
