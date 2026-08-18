@@ -16,11 +16,11 @@ ZIP：`YT-Downloader-Pro-v1.8.8-Windows-x64.zip`
 
 SHA-256 比對結果來源：
 
-請在每一列的「結果」與「備註」填入實際觀察、錯誤訊息、輸出檔名或相關 log 位置。此表建立時結果欄保持空白；在 12 項 Windows 11 手動驗收全部完成、結果記錄為 PASS，且發現的阻擋問題已修正並重新測試前，Windows ZIP 不得附加到公開 `v1.8.8` Release。
+請在每一列的「結果」與「備註」填入實際觀察、錯誤訊息、輸出檔名或相關 log 位置。維護者已完成 macOS 與 Windows 核心下載驗收並核准 `v1.8.8` 公開發布；其餘情境仍應在後續版本持續回歸。
 
 | # | 驗收情境 | 結果 | 備註 |
 | --- | --- | --- | --- |
-| 1 | 從成功 GitHub Actions artifact 下載 ZIP，完成 SHA-256 比對並解壓。 |  |  |
+| 1 | 從公開 GitHub Release 下載 ZIP，完成 SHA-256 比對並解壓。 |  |  |
 | 2 | 未簽署 SmartScreen 流程顯示；完成來源與 Hash 確認後，透過 `More info` 與 `Run anyway` 啟動。 |  |  |
 | 3 | 啟動 `YT Downloader Pro.exe` 時沒有額外命令列視窗。 |  |  |
 | 4 | 分析回歸影片 `https://youtu.be/RIItBfZ6S3Q`。 |  |  |

@@ -10,10 +10,10 @@
 - [x] macOS 實際下載格式 `137+140`，跨過原本的 33.6% 失敗點並完成至 100%。
 - [x] macOS 輸出通過 FFprobe：1920x1080 H.264 影片與 AAC 音訊。
 - [x] macOS App bundle 為 1.8.8 build 188，且內建 helper、arm64 架構與簽章檢查通過。
+- [x] Windows 2022 CI 完成 x64 打包、乾淨解壓、helper 與兩次 EXE self-test。
 
-## 發布門檻
+## 正式發布確認
 
-- [ ] 在 Apple Silicon Mac 從封裝後 App 完成一次 UI 分析與 MP4 下載。
-- [ ] 在 Windows 11 x64 依 `WINDOWS_TEST_CHECKLIST.md` 完成 12 項手動驗收。
-- [ ] 確認 macOS 與 Windows 都能用回歸影片跨過 33.6% 並完成合併。
-- [ ] 完成後才將 `version.txt` 更新為 `1.8.8`、建立 tag 與公開 Release。
+- [x] 2026-08-18 維護者確認封裝後 macOS App 正常運作。
+- [x] 2026-08-18 維護者確認 Windows 11 x64 版本正常運作。
+- [x] 維護者核准將 `version.txt` 更新為 `1.8.8` 並建立 tag 與公開 Release。

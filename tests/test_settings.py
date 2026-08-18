@@ -19,10 +19,10 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_release_version_is_1_8_8(self):
         self.assertEqual(app_module.VERSION, "1.8.8")
 
-    def test_public_update_manifest_stays_on_published_release(self):
+    def test_public_update_manifest_matches_release_version(self):
         manifest_version = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
 
-        self.assertEqual(manifest_version, "1.8.7")
+        self.assertEqual(manifest_version, app_module.VERSION)
 
     def test_update_page_uses_github_releases(self):
         self.assertEqual(
@@ -496,12 +496,13 @@ class ReadmeTests(unittest.TestCase):
         ):
             self.assertIn(expected, readme)
 
-    def test_readme_marks_1_8_8_as_a_test_candidate(self):
+    def test_readme_marks_1_8_8_as_released(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("`1.8.8`", readme)
-        self.assertIn("目前最新公開版本為 `1.8.7`", readme)
-        self.assertIn("尚未附加到公開", readme)
+        self.assertIn("`v1.8.8`", readme)
+        self.assertIn("目前最新公開版本為 `1.8.8`", readme)
+        self.assertNotIn("候選修補版", readme)
+        self.assertNotIn("尚未附加到公開", readme)
 
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):

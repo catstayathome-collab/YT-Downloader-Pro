@@ -12,11 +12,11 @@ NOTICES = ROOT / "THIRD_PARTY_NOTICES.md"
 CHECKLIST = ROOT / "docs" / "WINDOWS_TEST_CHECKLIST.md"
 MANIFEST = ROOT / "tools" / "windows-tools.json"
 RELEASE_GATE = (
-    "在 12 項 Windows 11 手動驗收全部完成、結果記錄為 PASS，且發現的阻擋問題已修正並重新測試前，"
-    "Windows ZIP 不得附加到公開 `v1.8.8` Release。"
+    "維護者已完成 macOS 與 Windows 核心下載驗收並核准 `v1.8.8` 公開發布；"
+    "其餘情境仍應在後續版本持續回歸。"
 )
 CHECKLIST_SCENARIOS = (
-    "從成功 GitHub Actions artifact 下載 ZIP，完成 SHA-256 比對並解壓。",
+    "從公開 GitHub Release 下載 ZIP，完成 SHA-256 比對並解壓。",
     "未簽署 SmartScreen 流程顯示；完成來源與 Hash 確認後，透過 `More info` 與 `Run anyway` 啟動。",
     "啟動 `YT Downloader Pro.exe` 時沒有額外命令列視窗。",
     "分析回歸影片 `https://youtu.be/RIItBfZ6S3Q`。",
@@ -36,7 +36,7 @@ WINDOWS_NOTICE_HEADINGS = {
 
 
 class WindowsDocumentationTests(unittest.TestCase):
-    def test_windows_readme_describes_the_exact_unsigned_test_artifact(self):
+    def test_windows_readme_describes_the_exact_unsigned_release_asset(self):
         text = WINDOWS_README.read_text(encoding="utf-8")
 
         for expected in (
@@ -49,8 +49,8 @@ class WindowsDocumentationTests(unittest.TestCase):
             "%LOCALAPPDATA%\\YT Downloader Pro\\logs",
             "More info",
             "Run anyway",
-            "未簽署測試版",
-            "GitHub Actions",
+            "未簽署版",
+            "GitHub Releases",
             "SHA-256",
             "Helpers\\ffmpeg.exe",
             "Helpers\\ffprobe.exe",
@@ -69,14 +69,14 @@ class WindowsDocumentationTests(unittest.TestCase):
         self.assertIn("YT-Downloader-Pro-v1.8.7-Windows-x64.zip", text)
         self.assertNotIn("v1.8.8", text)
 
-    def test_project_readme_keeps_macos_release_separate_from_windows_test_build(self):
+    def test_project_readme_documents_both_release_assets(self):
         text = PROJECT_README.read_text(encoding="utf-8")
 
         self.assertIn("Apple Silicon Mac", text)
-        self.assertIn("Windows 測試版", text)
+        self.assertIn("Windows 版", text)
         self.assertIn("YT-Downloader-Pro-v1.8.8-Windows-x64.zip", text)
-        self.assertIn("GitHub Actions artifact", text)
-        self.assertIn("尚未附加到公開", text)
+        self.assertIn("GitHub Release", text)
+        self.assertNotIn("尚未附加到公開", text)
 
     def test_windows_notices_parse_to_the_pinned_tool_manifest(self):
         notices = NOTICES.read_text(encoding="utf-8")
