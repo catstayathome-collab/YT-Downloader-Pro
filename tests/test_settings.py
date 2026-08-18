@@ -7,16 +7,17 @@ import tempfile
 import unittest
 import base64
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_187 as app_module
+import YT_downloader_188 as app_module
 
 
 class ReleaseMetadataTests(unittest.TestCase):
-    def test_release_version_is_1_8_7(self):
-        self.assertEqual(app_module.VERSION, "1.8.7")
+    def test_release_version_is_1_8_8(self):
+        self.assertEqual(app_module.VERSION, "1.8.8")
 
     def test_public_update_manifest_matches_release_version(self):
         manifest_version = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
@@ -260,20 +261,21 @@ class NetworkSafetyTests(unittest.TestCase):
         )
 
     def test_download_options_keep_certificate_checks_enabled(self):
-        request = app_module.DownloadRequest(
-            url="https://youtu.be/first",
-            video_format_id="137",
-            audio_format_id="140",
-            audio_only=False,
-            output_directory="/tmp",
-            title="Title",
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/first",
+                video_format_id="137",
+                audio_format_id="140",
+                audio_only=False,
+                output_directory=directory,
+                title="Title",
+            )
 
-        options = self.app.make_download_options(
-            request,
-            "/tmp/helpers",
-            "/app/Contents/Helpers/qjs",
-        )
+            options = self.app.make_download_options(
+                request,
+                "/tmp/helpers",
+                "/app/Contents/Helpers/qjs",
+            )
 
         self.assertNotIn("nocheckcertificate", options)
         self.assertEqual(
@@ -308,6 +310,72 @@ class NetworkSafetyTests(unittest.TestCase):
         message = self.app.clean_download_error(PermissionError("denied"))
 
         self.assertIn("權限", message)
+
+    def test_missing_output_directory_is_localized(self):
+        message = self.app.clean_download_error(FileNotFoundError("missing"))
+
+        self.assertIn("路徑無效", message)
+
+
+class DownloadFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.browser_cookies = None
+
+    def test_output_setup_failure_reports_error_and_resets_ui(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+        app.is_cancelled = False
+        app.get_ffmpeg_path = mock.Mock(return_value="helpers")
+        app.get_js_runtime_path = mock.Mock(return_value="deno.exe")
+        app.make_download_options = mock.Mock(side_effect=FileNotFoundError("missing"))
+        app.clean_download_error = mock.Mock(return_value="invalid output path")
+        app.show_download_error = mock.Mock()
+        app.reset_ui = mock.Mock()
+        app.post_to_ui = mock.Mock()
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="missing",
+            title="Title",
+        )
+
+        app.download_video(request)
+
+        app.post_to_ui.assert_has_calls([
+            mock.call(app.show_download_error, "invalid output path"),
+            mock.call(app.reset_ui),
+        ])
+
+    def test_cancelled_setup_failure_never_cleans_a_previous_download_tracker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path(directory) / "Previous.mp4"
+            tracker = app_module.DownloadArtifactTracker(directory, previous.name)
+            previous.write_bytes(b"completed download")
+            app = object.__new__(app_module.YTDownloaderApp)
+            app.current_artifacts = tracker
+            app.is_cancelled = True
+            app.get_ffmpeg_path = mock.Mock(return_value="helpers")
+            app.get_js_runtime_path = mock.Mock(return_value="deno.exe")
+            app.make_download_options = mock.Mock(side_effect=FileNotFoundError("missing"))
+            app.show_cancelled = mock.Mock()
+            app.reset_ui = mock.Mock()
+            app.post_to_ui = mock.Mock()
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/second",
+                video_format_id="137",
+                audio_format_id="140",
+                audio_only=False,
+                output_directory="missing",
+                title="Second",
+            )
+
+            app.download_video(request)
+
+            self.assertTrue(previous.exists())
+            self.assertIsNone(app.current_artifacts)
 
     def test_youtube_bot_check_is_localized(self):
         message = self.app.clean_download_error(
@@ -361,6 +429,7 @@ class DownloadPhaseTests(unittest.TestCase):
 class ReleaseConfigurationTests(unittest.TestCase):
     def test_dependencies_are_exactly_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        test_requirements = (ROOT / "requirements-test.txt").read_text(encoding="utf-8").splitlines()
 
         self.assertEqual(
             requirements,
@@ -369,22 +438,32 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 "pyinstaller==6.21.0",
                 "certifi==2026.1.4",
                 "yt-dlp-ejs==0.8.0",
+                "Pillow==12.3.0",
             ],
         )
+        self.assertEqual(test_requirements, ["PyYAML==6.0.3"])
 
-    def test_build_script_targets_1_8_7_with_bundle_metadata(self):
-        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+    def test_build_script_targets_1_8_8_with_bundle_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_8.sh").read_text(encoding="utf-8")
 
-        self.assertIn("YT_downloader_187.py", script)
+        self.assertIn("YT_downloader_188.py", script)
         self.assertIn("CFBundleShortVersionString", script)
-        self.assertIn("1.8.7", script)
+        self.assertIn("1.8.8", script)
         self.assertIn("CFBundleVersion", script)
-        self.assertIn("187", script)
-        self.assertIn("Add :CFBundleVersion string 187", script)
+        self.assertIn("188", script)
+        self.assertIn("Add :CFBundleVersion string 188", script)
         self.assertIn("LSMinimumSystemVersion", script)
         self.assertIn("11.0", script)
         self.assertIn("--collect-data yt_dlp_ejs", script)
         self.assertIn('tools/qjs', script)
+        self.assertIn('--expected-version "1.8.8"', script)
+        self.assertIn('--expected-build "188"', script)
+
+    def test_legacy_build_script_keeps_its_own_bundle_check_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+
+        self.assertIn('--expected-version "1.8.7"', script)
+        self.assertIn('--expected-build "187"', script)
 
     def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
         checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
@@ -398,6 +477,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("unexpected_dependencies", checker)
         self.assertIn("MAXIMUM_DEPLOYMENT_TARGET", checker)
         self.assertIn("Bundled app icon does not match AppIcon.icns", checker)
+        self.assertIn("--expected-version", checker)
+        self.assertIn("--expected-build", checker)
 
 
 class ReadmeTests(unittest.TestCase):
@@ -405,7 +486,7 @@ class ReadmeTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         for expected in (
-            "1.8.7",
+            "1.8.8",
             "Apple Silicon",
             "MP4",
             "MP3",
@@ -415,12 +496,13 @@ class ReadmeTests(unittest.TestCase):
         ):
             self.assertIn(expected, readme)
 
-    def test_readme_marks_1_8_7_as_released(self):
+    def test_readme_marks_1_8_8_as_released(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("`v1.8.7`", readme)
-        self.assertNotIn("開發中的 `1.8.7`", readme)
-        self.assertNotIn("公開安裝檔會在", readme)
+        self.assertIn("`v1.8.8`", readme)
+        self.assertIn("目前最新公開版本為 `1.8.8`", readme)
+        self.assertNotIn("候選修補版", readme)
+        self.assertNotIn("尚未附加到公開", readme)
 
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):

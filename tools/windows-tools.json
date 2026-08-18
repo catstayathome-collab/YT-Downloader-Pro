@@ -1,0 +1,34 @@
+{
+  "ffmpeg": {
+    "version": "N-126086-ge5ecfe8970",
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-12-13-15/ffmpeg-N-126086-ge5ecfe8970-win64-lgpl.zip",
+    "sha256": "3fe180f31a12a1de60568cdcf72210a1d3f475f5f88719afdd6c7012e13f6d3e",
+    "upstream": "https://github.com/BtbN/FFmpeg-Builds",
+    "license": "LGPL-2.1-or-later",
+    "license_file": "tools/licenses/FFmpeg-LGPL-2.1.txt",
+    "archive_members": [
+      {
+        "path": "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffmpeg.exe",
+        "output_name": "ffmpeg.exe"
+      },
+      {
+        "path": "ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffprobe.exe",
+        "output_name": "ffprobe.exe"
+      }
+    ]
+  },
+  "deno": {
+    "version": "2.8.1",
+    "url": "https://github.com/denoland/deno/releases/download/v2.8.1/deno-x86_64-pc-windows-msvc.zip",
+    "sha256": "5fb5bac71f609fb91ec8960fb290885aadc27eeb22f07a8eca0c3db6be38b11a",
+    "upstream": "https://github.com/denoland/deno",
+    "license": "MIT",
+    "license_file": "tools/licenses/Deno-MIT.txt",
+    "archive_members": [
+      {
+        "path": "deno.exe",
+        "output_name": "deno.exe"
+      }
+    ]
+  }
+}

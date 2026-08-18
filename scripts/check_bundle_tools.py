@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import hashlib
 import os
 import plistlib
@@ -7,12 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-EXPECTED_METADATA = {
-    "CFBundleShortVersionString": "1.8.7",
-    "CFBundleVersion": "187",
-    "LSMinimumSystemVersion": "11.0",
-}
 
 ALLOWED_DYLIB_PREFIXES = ("/System/Library/", "/usr/lib/")
 MAXIMUM_DEPLOYMENT_TARGET = (11, 0)
@@ -66,18 +61,25 @@ def deployment_target(path):
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: check_bundle_tools.py /path/to/App.app", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(description="Validate a packaged macOS app bundle.")
+    parser.add_argument("app", type=Path)
+    parser.add_argument("--expected-version", default="1.8.8")
+    parser.add_argument("--expected-build", default="188")
+    options = parser.parse_args()
+    expected_metadata = {
+        "CFBundleShortVersionString": options.expected_version,
+        "CFBundleVersion": options.expected_build,
+        "LSMinimumSystemVersion": "11.0",
+    }
 
-    app = Path(sys.argv[1])
+    app = options.app
     info_plist = app / "Contents" / "Info.plist"
     if not info_plist.is_file():
         print(f"Missing bundle metadata: {info_plist}", file=sys.stderr)
         return 1
     with info_plist.open("rb") as handle:
         metadata = plistlib.load(handle)
-    for key, expected_value in EXPECTED_METADATA.items():
+    for key, expected_value in expected_metadata.items():
         actual_value = str(metadata.get(key, ""))
         if actual_value != expected_value:
             print(f"Unexpected {key}: {actual_value!r} (expected {expected_value!r})", file=sys.stderr)
@@ -174,7 +176,10 @@ def main() -> int:
         print((signature.stderr or signature.stdout).strip(), file=sys.stderr)
         return 1
 
-    print(f"OK: {app.name} v1.8.7 build 187 is arm64 compatible and internally consistent")
+    print(
+        f"OK: {app.name} v{options.expected_version} build {options.expected_build} "
+        "is arm64 compatible and internally consistent"
+    )
     return 0
 
 

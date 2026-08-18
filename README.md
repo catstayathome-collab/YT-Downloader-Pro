@@ -1,6 +1,6 @@
 # YT Downloader Pro
 
-YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，由 Ta-Chou Weng 維護。目前正式版本 `1.8.7` 是 Python/Tkinter 安全修補版，主要支援 Apple Silicon Mac。
+YT Downloader Pro 是一款單影片 YouTube 下載工具，由 Ta-Chou Weng 維護。目前最新公開版本為 `1.8.8`，支援 Apple Silicon Mac 與 Windows 10/11 x64，並修正 YouTube 串流下載途中可能出現的 HTTP 403。
 
 ## 功能
 
@@ -15,12 +15,12 @@ YT Downloader Pro 是一款給 macOS 使用的單影片 YouTube 下載工具，�
 
 ## 系統需求
 
-- Apple Silicon Mac（M1 或更新處理器）。
-- macOS 11.0 或更新版本。
+- Apple Silicon Mac（M1 或更新處理器），macOS 11.0 或更新版本。
+- Windows 10 22H2 或 Windows 11，Intel/AMD x64。
 - 可連線至 YouTube 的網路環境。
 - 不需要另外安裝 Homebrew、FFmpeg 或 Python。
 
-Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Windows 版本會另外開發，不會共用這個 macOS 安裝檔。
+Intel Mac、Windows ARM、32 位元 Windows 與 Linux 不屬於目前 `1.8.x` 的支援範圍。macOS 與 Windows 使用不同的 Release 安裝檔。
 
 ## 安裝與開啟
 
@@ -29,11 +29,17 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 3. 第一次開啟若 macOS 顯示安全提示，請在 Finder 對 App 按右鍵並選擇「打開」，再確認一次。
 4. 貼上影片網址、按 Enter 或「解析影片」，選擇格式及儲存位置後開始下載。
 
-請只從本專案的 Releases 頁取得安裝檔。目前最新公開版本為 `1.8.7`。
+請只從本專案的 Releases 頁取得安裝檔。目前最新公開版本為 `1.8.8`。
+
+## Windows 版
+
+`v1.8.8` 同時提供 macOS arm64 與 Windows 10 22H2/Windows 11 Intel/AMD x64 安裝檔。Windows 版是未簽署的可攜式 ZIP，檔名為 `YT-Downloader-Pro-v1.8.8-Windows-x64.zip`。
+
+Windows 使用者應從公開 GitHub Release 下載 ZIP 與 SHA-256 檔案、完成比對、完整解壓後啟動 `YT Downloader Pro.exe`。未簽署版本預期會出現 SmartScreen 提示，詳細步驟請參考包內 `README-Windows.txt`。
 
 ## 已知限制
 
-- `1.8.7` 一次處理一支影片，不支援播放清單與多網址佇列。
+- `1.8.8` 一次處理一支影片，不支援播放清單與多網址佇列。
 - 暫停只在 yt-dlp 回報下載進度時生效；進入 FFmpeg 合併或 MP3 轉換後不能暫停或取消。
 - DRM、付費、私人、會員限定、地區限制或需要登入驗證的影片不保證可下載。
 - YouTube 隨時可能調整格式或驗證方式；遇到格式錯誤時請先重新解析並確認是否已有新版。
@@ -50,7 +56,7 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 
 請在 GitHub Issues 提供下列資料，避免上傳帳號、Cookie 或其他私人資訊：
 
-- App 完整版本，例如 `1.8.7`。
+- App 完整版本，例如 `1.8.8`。
 - Mac 型號與處理器，例如 MacBook Air M5。
 - macOS 版本。
 - 發生問題的 YouTube 網址。
@@ -65,18 +71,24 @@ Intel Mac、Windows 與 Linux 不屬於目前 `1.8.x` App 的支援範圍。Wind
 - `v1.8.5`：修正不可合併的 HLS 格式選擇。
 - `v1.8.6`：加入 GitHub Contents API 更新檢查。
 - `v1.8.7`：改善 Apple Silicon 相容性、下載安全性、錯誤訊息與完整尺寸 App 圖示。
-- `YT_downloader_187.py`：`1.8.7` 對應的版本化原始碼。
+- `v1.8.8`：分析與下載統一使用可正常取得串流的 YouTube client，加入 HTTP 403 本地化提示與 Windows x64 版本。
+- `YT_downloader_188.py`：macOS `1.8.8` 對應的版本化原始碼。
+- `YT_downloader_188_windows.py`：Windows `1.8.8` x64 未簽署版的版本化入口。
+- `YT_downloader_187.py`、`YT_downloader_187_windows.py`：保留的 `1.8.7` 版本原始碼。
 - `develop/v2.0-swift`：原生 SwiftUI 下載中心開發線。
 
-每個 Python 版本保留獨立檔名，方便比較與回復。公開發布時才會同步更新 `version.txt` 並建立相同版本的 Git tag。
+每個 Python 版本保留獨立檔名，方便比較與回復。公開版本會讓 `version.txt`、Git tag 與 GitHub Release 維持相同版本號。
+
+`1.8.8` 的自動驗證結果與雙平台發布門檻記錄於 `docs/RELEASE_1_8_8_VALIDATION.md`。
 
 ## 開發與建置
 
 ```bash
-python3 -m venv .venv-1.8.7
-.venv-1.8.7/bin/python -m pip install -r requirements.txt
-.venv-1.8.7/bin/python -m unittest discover -s tests -v
-PATH="$PWD/.venv-1.8.7/bin:$PATH" ./scripts/build_1_8_7.sh
+python3 -m venv .venv-1.8.8
+.venv-1.8.8/bin/python -m pip install -r requirements.txt
+.venv-1.8.8/bin/python -m pip install -r requirements-test.txt
+.venv-1.8.8/bin/python -m unittest discover -s tests -v
+PATH="$PWD/.venv-1.8.8/bin:$PATH" ./scripts/build_1_8_8.sh
 ```
 
 建置腳本會把唯一一組 `ffmpeg` 與 `ffprobe` 放入 `Contents/Helpers/`，設定 App 版本資訊並執行 arm64、工具版本、授權設定與簽章檢查。

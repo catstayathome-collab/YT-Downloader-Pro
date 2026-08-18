@@ -20,13 +20,13 @@ python3 -m PyInstaller \
   --osx-bundle-identifier "com.tachouweng.ytdownloaderpro" \
   --hidden-import yt_dlp_ejs \
   --collect-data yt_dlp_ejs \
-  "$ROOT_DIR/YT_downloader_187.py"
+  "$ROOT_DIR/YT_downloader_188.py"
 
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.7" "$INFO_PLIST" 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.8.7" "$INFO_PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 187" "$INFO_PLIST" 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 187" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.8" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.8.8" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 188" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 188" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$INFO_PLIST" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$INFO_PLIST"
 
@@ -49,5 +49,5 @@ codesign --force --sign - "$ONEDIR_HELPERS_DIR/qjs"
 codesign --force --deep --sign - "$APP_PATH"
 
 "$ROOT_DIR/scripts/check_bundle_tools.py" "$APP_PATH" \
-  --expected-version "1.8.7" \
-  --expected-build "187"
+  --expected-version "1.8.8" \
+  --expected-build "188"
