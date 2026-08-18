@@ -23,6 +23,7 @@ actor RecordingProcessRunner: ProcessRunning {
         case failed(toolName: String, stderr: String)
         case mismatchedFFprobe
         case invalidQuickJS
+        case quickJSHelpExitCode(Int32)
     }
 
     private let mode: Mode
@@ -59,7 +60,13 @@ actor RecordingProcessRunner: ProcessRunning {
             } else {
                 output = "QuickJS version 2025-01-01\n"
             }
-            return ProcessResult(exitCode: 0, stdout: output, stderr: "")
+            let exitCode: Int32
+            if case let .quickJSHelpExitCode(value) = mode {
+                exitCode = value
+            } else {
+                exitCode = 1
+            }
+            return ProcessResult(exitCode: exitCode, stdout: output, stderr: "")
         default:
             throw NSError(domain: "RecordingProcessRunner", code: 1)
         }

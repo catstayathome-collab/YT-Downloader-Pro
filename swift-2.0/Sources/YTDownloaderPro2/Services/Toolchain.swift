@@ -98,6 +98,7 @@ struct ToolchainValidator {
             executable: toolchain.qjs,
             arguments: ["--help"],
             helperName: "qjs",
+            acceptedExitCodes: [0, 1],
             recognizes: { $0.contains("QuickJS version") }
         )
 
@@ -123,6 +124,7 @@ struct ToolchainValidator {
         executable: URL,
         arguments: [String],
         helperName: String,
+        acceptedExitCodes: Set<Int32> = [0],
         recognizes: (String) -> Bool
     ) async throws -> String {
         let result: ProcessResult
@@ -133,7 +135,7 @@ struct ToolchainValidator {
         }
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard result.exitCode == 0, !output.isEmpty, recognizes(output) else {
+        guard acceptedExitCodes.contains(result.exitCode), !output.isEmpty, recognizes(output) else {
             throw Toolchain.failure(for: helperName, exitCode: result.exitCode)
         }
         return output

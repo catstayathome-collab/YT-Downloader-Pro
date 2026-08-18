@@ -64,6 +64,25 @@ final class ToolchainTests: XCTestCase {
         XCTAssertEqual(commands.map(\.arguments), [["--version"], ["-version"], ["-version"], ["--help"]])
     }
 
+    func testValidatorAcceptsQuickJSHelpVersionOutputWithExitCodeOne() async throws {
+        let runner = RecordingProcessRunner()
+
+        let health = try await ToolchainValidator(processRunner: runner).validate(.fixture())
+
+        XCTAssertEqual(health.quickJSVersion, "2025-01-01")
+    }
+
+    func testValidatorRejectsQuickJSHelpOutputWithExitCodeTwo() async {
+        let runner = RecordingProcessRunner(mode: .quickJSHelpExitCode(2))
+
+        do {
+            _ = try await ToolchainValidator(processRunner: runner).validate(.fixture())
+            XCTFail("Expected unavailable downloader failure")
+        } catch {
+            XCTAssertEqual((error as? DownloadFailure)?.category, .bundledDownloaderUnavailable)
+        }
+    }
+
     func testValidatorRejectsMismatchedFFmpegAndFFprobeFamilies() async {
         let runner = RecordingProcessRunner(mode: .mismatchedFFprobe)
 
