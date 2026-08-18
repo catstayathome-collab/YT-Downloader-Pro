@@ -1,6 +1,6 @@
 name: Build Windows 1.8.7 test artifact
 
-on:
+'on':
   workflow_dispatch:
   pull_request:
     paths:
@@ -18,7 +18,11 @@ on:
       - 'THIRD_PARTY_NOTICES.md'
       - 'docs/WINDOWS_TEST_CHECKLIST.md'
       - 'requirements.txt'
+      - 'requirements-test.txt'
       - 'tests/**'
+
+permissions:
+  contents: read
 
 jobs:
   build-windows:
@@ -27,10 +31,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
           architecture: x64
@@ -39,6 +43,9 @@ jobs:
 
       - name: Install exact requirements
         run: python -m pip install --requirement requirements.txt
+
+      - name: Install exact test requirements
+        run: python -m pip install --requirement requirements-test.txt
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
@@ -70,8 +77,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows package failed the static check.' }
 
           $extractedExe = Join-Path $packageRoot 'YT Downloader Pro.exe'
-          & $extractedExe --self-test --self-test-report $extractedSelfTest
-          if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows executable self-test failed.' }
+          $process = Start-Process -FilePath $extractedExe `
+            -ArgumentList @('--self-test', '--self-test-report', $extractedSelfTest) `
+            -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw 'Extracted Windows executable self-test failed.' }
 
           foreach ($reportPath in @($originalSelfTest, $extractedSelfTest)) {
             if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
@@ -84,7 +93,7 @@ jobs:
           }
 
       - name: Upload verified Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: YT-Downloader-Pro-v1.8.7-Windows-x64
           if-no-files-found: error

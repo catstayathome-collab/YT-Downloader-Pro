@@ -361,6 +361,7 @@ class DownloadPhaseTests(unittest.TestCase):
 class ReleaseConfigurationTests(unittest.TestCase):
     def test_dependencies_are_exactly_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        test_requirements = (ROOT / "requirements-test.txt").read_text(encoding="utf-8").splitlines()
 
         self.assertEqual(
             requirements,
@@ -372,6 +373,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 "Pillow==12.3.0",
             ],
         )
+        self.assertEqual(test_requirements, ["PyYAML==6.0.3"])
 
     def test_build_script_targets_1_8_7_with_bundle_metadata(self):
         script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")

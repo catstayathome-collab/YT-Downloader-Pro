@@ -82,6 +82,7 @@ Windows 測試者應從成功的 Actions 執行頁下載 artifact、比對隨附
 ```bash
 python3 -m venv .venv-1.8.7
 .venv-1.8.7/bin/python -m pip install -r requirements.txt
+.venv-1.8.7/bin/python -m pip install -r requirements-test.txt
 .venv-1.8.7/bin/python -m unittest discover -s tests -v
 PATH="$PWD/.venv-1.8.7/bin:$PATH" ./scripts/build_1_8_7.sh
 ```

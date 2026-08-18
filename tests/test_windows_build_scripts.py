@@ -20,6 +20,7 @@ TOOL_FETCHER = ROOT / "scripts" / "fetch_windows_tools.py"
 ICON_GENERATOR = ROOT / "scripts" / "generate_windows_icon.py"
 TRACKED_ICON = ROOT / "assets" / "AppIcon.ico"
 BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_7.ps1"
+WINDOWS_WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.7.yml"
 PACKAGE_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
 APP_EXE = "YT Downloader Pro.exe"
 ICON_DIMENSIONS = (16, 24, 32, 48, 64, 128, 256)
@@ -369,14 +370,26 @@ class WindowsBuildScriptTests(unittest.TestCase):
         self.assertIn("scripts/check_windows_package.py", script)
         self.assertIn("Set-Content -Path $VersionFile -Encoding ascii", script)
 
-    def test_windows_build_self_test_always_carries_report_path(self):
+    def test_windowed_exe_self_tests_wait_for_process_exit_and_validate_reports_in_both_invocation_sites(self):
         self.assertTrue(BUILD_SCRIPT.is_file(), "Windows PowerShell build script is missing")
-        script = BUILD_SCRIPT.read_text(encoding="utf-8")
-        self_test_lines = [line.strip() for line in script.splitlines() if "--self-test" in line]
+        self.assertTrue(WINDOWS_WORKFLOW.is_file(), "Windows workflow is missing")
 
-        self.assertTrue(self_test_lines)
-        self.assertTrue(all("--self-test-report" in line for line in self_test_lines), self_test_lines)
-        self.assertIn("windows-self-test.json", script)
+        for label, source, executable, report in (
+            ("build script", BUILD_SCRIPT.read_text(encoding="utf-8"), "$PackagedExe", "$SelfTestReport"),
+            ("workflow", WINDOWS_WORKFLOW.read_text(encoding="utf-8"), "$extractedExe", "$extractedSelfTest"),
+        ):
+            with self.subTest(label=label):
+                start = source.index("$process = Start-Process -FilePath")
+                end = source.find("Compress-Archive", start)
+                validation = source[start:end] if end >= 0 else source[start:]
+                self.assertIn(f"-FilePath {executable}", validation)
+                self.assertIn(f"-ArgumentList @('--self-test', '--self-test-report', {report})", validation)
+                self.assertIn("-Wait", validation)
+                self.assertIn("-PassThru", validation)
+                self.assertIn("$process.ExitCode", validation)
+                self.assertIn("ConvertFrom-Json", validation)
+                self.assertIn("status -ne 'ok'", validation)
+                self.assertNotIn("$LASTEXITCODE", validation)
 
 
 if __name__ == "__main__":

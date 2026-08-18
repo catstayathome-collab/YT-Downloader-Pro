@@ -1,130 +1,164 @@
-import re
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.7.yml"
 ARTIFACT_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+ACTION_REFS = {
+    "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
+    "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+}
+ACTION_VERSIONS = {
+    "actions/checkout": "v7.0.1",
+    "actions/setup-python": "v7.0.0",
+    "actions/upload-artifact": "v7.0.1",
+}
+PR_PATHS = {
+    ".github/workflows/windows-1.8.7.yml",
+    "YT_downloader_187_windows.py",
+    "ytdp/**",
+    "scripts/build_windows_1_8_7.ps1",
+    "scripts/check_windows_package.py",
+    "scripts/fetch_windows_tools.py",
+    "scripts/generate_windows_icon.py",
+    "tools/windows-tools.json",
+    "tools/licenses/**",
+    "assets/AppIcon-1024.png",
+    "README-Windows.txt",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/WINDOWS_TEST_CHECKLIST.md",
+    "requirements.txt",
+    "requirements-test.txt",
+    "tests/**",
+}
+ARTIFACT_PATHS = {
+    f"dist/{ARTIFACT_NAME}.zip",
+    f"dist/{ARTIFACT_NAME}.zip.sha256",
+    "dist/windows-self-test.json",
+    "dist/windows-extracted-self-test.json",
+    "dist/windows-package-report.json",
+    "tools/windows-tools.json",
+}
 
 
-def indented_block(text, header, indentation):
-    """Return one YAML block, bounded by the next peer indentation level."""
-    match = re.search(
-        rf"^{re.escape(indentation)}{re.escape(header)}:\n(?P<body>.*?)(?=^{re.escape(indentation)}[^\s#][^\n]*:|\Z)",
-        text,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise AssertionError(f"missing YAML block: {header}")
-    return match.group("body")
+def step_named(steps, name):
+    matches = [step for step in steps if step.get("name") == name]
+    if len(matches) != 1:
+        raise AssertionError(f"expected exactly one step named {name!r}; found {len(matches)}")
+    return matches[0]
+
+
+def walk_mappings(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk_mappings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk_mappings(child)
 
 
 class WindowsWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = WORKFLOW.read_text(encoding="utf-8")
-        cls.on_block = indented_block(cls.workflow, "on", "")
-        cls.jobs_block = indented_block(cls.workflow, "jobs", "")
-        cls.build_job = indented_block(cls.jobs_block, "build-windows", "  ")
+        cls.source = WORKFLOW.read_text(encoding="utf-8")
+        cls.workflow = yaml.safe_load(cls.source)
+        cls.triggers = cls.workflow["on"]
+        cls.job = cls.workflow["jobs"]["build-windows"]
+        cls.steps = cls.job["steps"]
 
-    def test_workflow_is_manually_dispatchable_and_limits_pull_requests_to_windows_shared_files(self):
-        self.assertIsNotNone(re.search(r"^  workflow_dispatch:\s*$", self.on_block, flags=re.MULTILINE))
-        pull_request = indented_block(self.on_block, "pull_request", "  ")
-        paths = indented_block(pull_request, "paths", "    ")
+    def test_workflow_has_only_manual_and_filtered_pull_request_triggers(self):
+        self.assertEqual(set(self.triggers), {"workflow_dispatch", "pull_request"})
+        self.assertIsNone(self.triggers["workflow_dispatch"])
+        self.assertEqual(set(self.triggers["pull_request"]), {"paths"})
+        self.assertEqual(set(self.triggers["pull_request"]["paths"]), PR_PATHS)
 
-        for expected_path in (
-            ".github/workflows/windows-1.8.7.yml",
-            "YT_downloader_187_windows.py",
-            "ytdp/**",
-            "scripts/build_windows_1_8_7.ps1",
+    def test_workflow_uses_read_only_permissions_and_one_windows_job(self):
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+        self.assertEqual(set(self.workflow["jobs"]), {"build-windows"})
+        self.assertEqual(self.job["runs-on"], "windows-2022")
+
+        for mapping in walk_mappings(self.workflow):
+            permissions = mapping.get("permissions")
+            if permissions is not None:
+                values = permissions.values() if isinstance(permissions, dict) else [permissions]
+                for value in values:
+                    self.assertNotIn("write", str(value).casefold())
+
+    def test_workflow_uses_reviewed_immutable_action_revisions_with_release_comments(self):
+        action_steps = [step["uses"] for step in self.steps if "uses" in step]
+        self.assertEqual(
+            action_steps,
+            [f"{action}@{revision}" for action, revision in ACTION_REFS.items()],
+        )
+
+        for action, revision in ACTION_REFS.items():
+            self.assertIn(
+                f"uses: {action}@{revision} # {ACTION_VERSIONS[action]}",
+                self.source,
+            )
+
+    def test_workflow_installs_runtime_and_test_requirements_before_all_unit_tests(self):
+        runtime = step_named(self.steps, "Install exact requirements")
+        test = step_named(self.steps, "Install exact test requirements")
+        unit_tests = step_named(self.steps, "Run unit tests")
+        build = step_named(self.steps, "Build Windows package")
+
+        self.assertEqual(runtime["run"], "python -m pip install --requirement requirements.txt")
+        self.assertEqual(test["run"], "python -m pip install --requirement requirements-test.txt")
+        self.assertEqual(unit_tests["run"], "python -m unittest discover -s tests -v")
+        self.assertLess(self.steps.index(runtime), self.steps.index(test))
+        self.assertLess(self.steps.index(test), self.steps.index(unit_tests))
+        self.assertLess(self.steps.index(unit_tests), self.steps.index(build))
+
+    def test_clean_extraction_waits_for_the_exe_and_validates_its_report(self):
+        verify = step_named(self.steps, "Verify the final ZIP from a clean extraction")
+        script = verify["run"]
+
+        for expected in (
+            "Get-FileHash",
+            ".sha256",
+            "Expand-Archive",
+            "RUNNER_TEMP",
+            "[guid]::NewGuid()",
             "scripts/check_windows_package.py",
-            "scripts/fetch_windows_tools.py",
-            "scripts/generate_windows_icon.py",
-            "tools/windows-tools.json",
-            "tools/licenses/**",
-            "assets/AppIcon-1024.png",
-            "README-Windows.txt",
-            "THIRD_PARTY_NOTICES.md",
-            "docs/WINDOWS_TEST_CHECKLIST.md",
-            "requirements.txt",
-            "tests/**",
+            "$process = Start-Process -FilePath $extractedExe",
+            "-ArgumentList @('--self-test', '--self-test-report', $extractedSelfTest)",
+            "-Wait",
+            "-PassThru",
+            "$process.ExitCode",
+            "ConvertFrom-Json",
+            "status -ne 'ok'",
         ):
-            self.assertIn(f"- '{expected_path}'", paths)
+            self.assertIn(expected, script)
 
-    def test_workflow_uses_pinned_windows_x64_runner_and_python(self):
-        self.assertIn("runs-on: windows-2022", self.build_job)
-        self.assertIn("uses: actions/checkout@v5", self.build_job)
-
-        setup_step = re.search(
-            r"^      - name: Set up Python\n(?P<body>.*?)(?=^      - |\Z)",
-            self.build_job,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        self.assertIsNotNone(setup_step)
-        self.assertIn("uses: actions/setup-python@v6", setup_step.group("body"))
-        self.assertIn("python-version: '3.13'", setup_step.group("body"))
-        self.assertIn("architecture: x64", setup_step.group("body"))
-        self.assertIn("cache: pip", setup_step.group("body"))
-        self.assertIn("cache-dependency-path: requirements.txt", setup_step.group("body"))
-
-    def test_workflow_installs_exact_requirements_and_runs_all_unit_tests_before_packaging(self):
-        install_index = self.build_job.index("python -m pip install --requirement requirements.txt")
-        tests_index = self.build_job.index("python -m unittest discover -s tests -v")
-        build_index = self.build_job.index("scripts/build_windows_1_8_7.ps1")
-
-        self.assertLess(install_index, tests_index)
-        self.assertLess(tests_index, build_index)
-
-    def test_workflow_verifies_a_clean_extraction_and_both_self_test_reports(self):
-        verification_step = re.search(
-            r"^      - name: Verify the final ZIP from a clean extraction\n(?P<body>.*?)(?=^      - |\Z)",
-            self.build_job,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        self.assertIsNotNone(verification_step)
-        script = verification_step.group("body")
-
-        self.assertIn("Get-FileHash", script)
-        self.assertIn(".sha256", script)
-        self.assertIn("Expand-Archive", script)
-        self.assertIn("RUNNER_TEMP", script)
-        self.assertIn("[guid]::NewGuid()", script)
-        self.assertIn("scripts/check_windows_package.py", script)
-        self.assertIn("YT Downloader Pro.exe", script)
-        self.assertIn("--self-test --self-test-report", script)
-        self.assertIn("ConvertFrom-Json", script)
-        self.assertIn("status -ne 'ok'", script)
-        self.assertIn("windows-self-test.json", script)
-        self.assertIn("windows-extracted-self-test.json", script)
-        self.assertIn("windows-package-report.json", script)
-
+        process_block = script[script.index("$process = Start-Process"):]
+        self.assertNotIn("$LASTEXITCODE", process_block)
         self.assertLess(script.index("Expand-Archive"), script.index("scripts/check_windows_package.py"))
-        self.assertLess(script.index("scripts/check_windows_package.py"), script.index("--self-test --self-test-report"))
+        self.assertLess(script.index("scripts/check_windows_package.py"), script.index("$process = Start-Process"))
 
-    def test_workflow_uploads_only_the_verified_ci_artifact_without_release_actions(self):
-        upload_step = re.search(
-            r"^      - name: Upload verified Windows artifact\n(?P<body>.*?)(?=^      - |\Z)",
-            self.build_job,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        self.assertIsNotNone(upload_step)
-        artifact = upload_step.group("body")
+    def test_workflow_uploads_exactly_one_verified_artifact_and_has_no_release_step(self):
+        upload_steps = [
+            step
+            for step in self.steps
+            if step.get("uses", "").split("@", 1)[0] == "actions/upload-artifact"
+        ]
+        self.assertEqual(len(upload_steps), 1)
+        upload = upload_steps[0]
+        self.assertEqual(upload["uses"], f"actions/upload-artifact@{ACTION_REFS['actions/upload-artifact']}")
+        self.assertEqual(upload["with"]["name"], ARTIFACT_NAME)
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        artifact_paths = [path for path in upload["with"]["path"].splitlines() if path]
+        self.assertEqual(len(artifact_paths), 6)
+        self.assertEqual(set(artifact_paths), ARTIFACT_PATHS)
 
-        self.assertIn("uses: actions/upload-artifact@v4", artifact)
-        self.assertIn(f"name: {ARTIFACT_NAME}", artifact)
-        for expected_path in (
-            f"dist/{ARTIFACT_NAME}.zip",
-            f"dist/{ARTIFACT_NAME}.zip.sha256",
-            "dist/windows-self-test.json",
-            "dist/windows-extracted-self-test.json",
-            "dist/windows-package-report.json",
-            "tools/windows-tools.json",
-        ):
-            self.assertIn(expected_path, artifact)
-
-        self.assertNotRegex(self.workflow, r"(?im)^\s*uses:\s*(?:softprops/action-gh-release|ncipollo/release-action)@")
-        self.assertNotRegex(self.workflow, r"(?im)^\s*gh\s+release\s+")
+        for step in self.steps:
+            self.assertNotIn("release", step.get("uses", "").casefold())
+            self.assertNotRegex(step.get("run", ""), r"(?im)\b(?:gh|github)\s+release\b")
 
 
 if __name__ == "__main__":

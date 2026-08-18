@@ -74,10 +74,16 @@ Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $PackageRoot "THIRD_PARTY_NOTICES.
 if ($LASTEXITCODE -ne 0) { throw "Static Windows package check failed." }
 
 $PackagedExe = Join-Path $PackageRoot "YT Downloader Pro.exe"
-& $PackagedExe --self-test --self-test-report $SelfTestReport
-if ($LASTEXITCODE -ne 0) { throw "Packaged Windows self-test failed. Report: $SelfTestReport" }
+$process = Start-Process -FilePath $PackagedExe `
+    -ArgumentList @('--self-test', '--self-test-report', $SelfTestReport) `
+    -Wait -PassThru -NoNewWindow
+if ($process.ExitCode -ne 0) { throw "Packaged Windows self-test failed. Report: $SelfTestReport" }
 if (-not (Test-Path -LiteralPath $SelfTestReport -PathType Leaf)) {
     throw "Packaged self-test did not create report: $SelfTestReport"
+}
+$selfTest = Get-Content -LiteralPath $SelfTestReport -Raw | ConvertFrom-Json
+if ($selfTest.status -ne 'ok') {
+    throw "Packaged self-test did not report status ok: $SelfTestReport"
 }
 
 Compress-Archive -Path $PackageRoot -DestinationPath $ArchivePath -CompressionLevel Optimal
