@@ -4,6 +4,7 @@ import base64
 import json
 import re
 import ssl
+from urllib.parse import urlparse
 
 import certifi
 
@@ -87,3 +88,22 @@ def select_release_asset(assets, platform_name):
         ):
             return asset
     return None
+
+
+def parse_release_asset_url(content, platform_name):
+    """Return the selected release asset's HTTPS download URL, if available."""
+    try:
+        release = json.loads(content)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(release, dict) or not isinstance(release.get("assets"), list):
+        return None
+
+    asset = select_release_asset(release["assets"], platform_name)
+    if not isinstance(asset, dict):
+        return None
+    download_url = str(asset.get("browser_download_url") or "").strip()
+    parsed = urlparse(download_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    return download_url

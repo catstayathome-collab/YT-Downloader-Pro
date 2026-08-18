@@ -9,6 +9,7 @@ from ytdp.localization import clean_download_error
 from ytdp.updater import (
     is_newer_version,
     make_update_ssl_context,
+    parse_release_asset_url,
     parse_update_manifest,
     select_release_asset,
 )
@@ -76,6 +77,39 @@ class UpdateHelpersTests(unittest.TestCase):
         asset = select_release_asset(["app-darwin-arm64.zip"], "macos")
 
         self.assertEqual(asset, "app-darwin-arm64.zip")
+
+    def test_release_asset_parser_returns_only_the_matching_https_windows_url(self):
+        content = json.dumps(
+            {
+                "assets": [
+                    {
+                        "name": "YT-Downloader-Pro-v1.8.8-macOS-arm64.zip",
+                        "browser_download_url": "https://downloads.example/macos.zip",
+                    },
+                    {
+                        "name": "YT-Downloader-Pro-v1.8.8-Windows-x64.zip",
+                        "browser_download_url": "https://downloads.example/windows-x64.zip",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            parse_release_asset_url(content, "windows"),
+            "https://downloads.example/windows-x64.zip",
+        )
+
+    def test_release_asset_parser_rejects_missing_or_non_https_windows_assets(self):
+        cases = (
+            {"assets": [{"name": "app-macOS-arm64.zip", "browser_download_url": "https://downloads.example/macos.zip"}]},
+            {"assets": [{"name": "app-Windows-x86.zip", "browser_download_url": "https://downloads.example/x86.zip"}]},
+            {"assets": [{"name": "app-Windows-arm64.zip", "browser_download_url": "https://downloads.example/arm64.zip"}]},
+            {"assets": [{"name": "app-Windows-x64.zip", "browser_download_url": "http://downloads.example/windows.zip"}]},
+        )
+
+        for release in cases:
+            with self.subTest(release=release):
+                self.assertIsNone(parse_release_asset_url(json.dumps(release), "windows"))
 
 
 class DownloadErrorLocalizationTests(unittest.TestCase):

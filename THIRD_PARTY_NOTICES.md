@@ -46,17 +46,20 @@ This project bundles command-line tools used by YT Downloader Pro.
 - License: `LGPL-2.1-or-later`
 - License text: `tools/licenses/FFmpeg-LGPL-2.1.txt`
 - Bundled Windows helpers: `Helpers/ffmpeg.exe`, `Helpers/ffprobe.exe`
+- Archive member: `ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffmpeg.exe` -> `Helpers/ffmpeg.exe`
+- Archive member: `ffmpeg-N-126086-ge5ecfe8970-win64-lgpl/bin/ffprobe.exe` -> `Helpers/ffprobe.exe`
 - The Windows test build uses this pinned LGPL archive rather than the macOS arm64 helpers above.
 
 ## Deno (Windows x64 test build)
 
 - Upstream: https://github.com/denoland/deno
 - Exact archive: https://github.com/denoland/deno/releases/download/v2.8.1/deno-x86_64-pc-windows-msvc.zip
-- Version: `v2.8.1`
+- Version: `2.8.1`
 - SHA-256: `5fb5bac71f609fb91ec8960fb290885aadc27eeb22f07a8eca0c3db6be38b11a`
 - License: `MIT`
 - License text: `tools/licenses/Deno-MIT.txt`
 - Bundled Windows helper: `Helpers/deno.exe`
+- Archive member: `deno.exe` -> `Helpers/deno.exe`
 - Purpose: executes the yt-dlp JavaScript challenge solver in the Windows x64 test build.
 
 ## LAME

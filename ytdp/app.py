@@ -32,6 +32,7 @@ from ytdp.toolchain import Toolchain
 from ytdp.updater import (
     is_newer_version as compare_versions,
     make_update_ssl_context as build_update_ssl_context,
+    parse_release_asset_url as parse_release_url,
     parse_update_manifest as parse_manifest,
 )
 
@@ -39,6 +40,7 @@ VERSION = "1.8.7"
 APP_NAME = "YT Downloader Pro"
 DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/version.txt?ref=main"
 DEFAULT_UPDATE_DOWNLOAD_URL = "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/latest"
+DEFAULT_UPDATE_RELEASE_API_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/releases/latest"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", DEFAULT_UPDATE_MANIFEST_URL).strip()
 UPDATE_DOWNLOAD_URL = os.environ.get("YTDP_UPDATE_DOWNLOAD_URL", DEFAULT_UPDATE_DOWNLOAD_URL).strip()
 COOKIES_BROWSER = os.environ.get("YTDP_COOKIES_BROWSER", "").strip()
@@ -374,15 +376,29 @@ class YTDownloaderApp:
 
         def _check():
             try:
+                context = self.make_update_ssl_context()
                 with urllib.request.urlopen(
                     urllib.request.Request(PUBLIC_UPDATE_MANIFEST_URL),
                     timeout=5,
-                    context=self.make_update_ssl_context(),
+                    context=context,
                 ) as resp:
                     latest = self.parse_update_manifest(resp.read().decode('utf-8'))
                 if not latest:
                     raise ValueError("missing latest version")
-                if self.is_newer_version(latest, VERSION): self.post_to_ui(self.show_update_dialog, latest)
+                if self.is_newer_version(latest, VERSION):
+                    download_url = UPDATE_DOWNLOAD_URL
+                    if self.platform.filename_platform() in {"windows", "win32"}:
+                        with urllib.request.urlopen(
+                            urllib.request.Request(DEFAULT_UPDATE_RELEASE_API_URL),
+                            timeout=5,
+                            context=context,
+                        ) as resp:
+                            download_url = self.parse_release_asset_url(
+                                resp.read().decode("utf-8"), "windows"
+                            )
+                        if not download_url:
+                            raise ValueError("matching Windows x64 release asset is unavailable")
+                    self.post_to_ui(self.show_update_dialog, latest, download_url)
                 elif not silent: self.post_to_ui(messagebox.showinfo, "Update", self.text['is_latest'])
             except Exception as e:
                 if not silent:
@@ -399,9 +415,12 @@ class YTDownloaderApp:
     def is_newer_version(self, latest, current):
         return compare_versions(latest, current)
 
-    def show_update_dialog(self, latest):
+    def parse_release_asset_url(self, content, platform_name):
+        return parse_release_url(content, platform_name)
+
+    def show_update_dialog(self, latest, download_url):
         if messagebox.askyesno("Update", self.text['update_available'].format(latest=latest)):
-            webbrowser.open(UPDATE_DOWNLOAD_URL)
+            webbrowser.open(download_url)
 
     def get_tool_dir(self):
         return str(self.platform.helper_dir())

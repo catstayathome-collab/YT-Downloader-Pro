@@ -2,6 +2,7 @@ import builtins
 import importlib
 import importlib.util
 import io
+import json
 import queue
 import sys
 import tempfile
@@ -94,6 +95,38 @@ class EntrypointTests(unittest.TestCase):
         self.app.download_phase = "idle"
         self.app.toolchain_error = None
 
+    def _run_update_check(self, responses, *, silent):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self.payload.encode("utf-8")
+
+        class ImmediateThread:
+            def __init__(self, target, daemon):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        def fake_urlopen(request, *, timeout, context):
+            self.assertEqual(timeout, 5)
+            self.assertIsNotNone(context)
+            return FakeResponse(responses[request.full_url])
+
+        self.app.post_to_ui = mock.Mock()
+        with mock.patch.object(self.shared.threading, "Thread", ImmediateThread):
+            with mock.patch.object(self.shared.urllib.request, "urlopen", side_effect=fake_urlopen):
+                self.app.check_update(silent=silent)
+
+
     def test_windows_entrypoint_declares_version_1_8_7(self):
         module = importlib.import_module("YT_downloader_187_windows")
 
@@ -182,6 +215,62 @@ class EntrypointTests(unittest.TestCase):
                 self.assertNotEqual(raised.exception.code, 0)
                 self.assertIn(expected, stderr.getvalue())
                 load_ui.assert_not_called()
+
+    def test_windows_update_uses_the_matching_release_asset_and_opens_its_url(self):
+        manifest_url = "https://api.example/version.txt"
+        release_url = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/releases/latest"
+        download_url = "https://downloads.example/YT-Downloader-Pro-v1.8.8-Windows-x64.zip"
+        responses = {
+            manifest_url: "1.8.8\n",
+            release_url: json.dumps(
+                {
+                    "assets": [
+                        {"name": "app-macOS-arm64.zip", "browser_download_url": "https://downloads.example/macos.zip"},
+                        {"name": "app-Windows-x64.zip", "browser_download_url": download_url},
+                    ]
+                }
+            ),
+        }
+
+        with mock.patch.object(self.shared, "PUBLIC_UPDATE_MANIFEST_URL", manifest_url):
+            self._run_update_check(responses, silent=False)
+
+        self.app.post_to_ui.assert_called_once_with(
+            self.app.show_update_dialog,
+            "1.8.8",
+            download_url,
+        )
+        with mock.patch.object(self.shared.messagebox, "askyesno", return_value=True):
+            with mock.patch.object(self.shared.webbrowser, "open") as open_url:
+                self.app.show_update_dialog("1.8.8", download_url)
+        open_url.assert_called_once_with(download_url)
+
+    def test_windows_update_without_a_safe_matching_asset_reports_manual_failure_only(self):
+        manifest_url = "https://api.example/version.txt"
+        release_url = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/releases/latest"
+        release = json.dumps(
+            {
+                "assets": [
+                    {"name": "app-macOS-arm64.zip", "browser_download_url": "https://downloads.example/macos.zip"},
+                    {"name": "app-Windows-x86.zip", "browser_download_url": "https://downloads.example/x86.zip"},
+                    {"name": "app-Windows-arm64.zip", "browser_download_url": "https://downloads.example/arm64.zip"},
+                    {"name": "app-Windows-x64.zip", "browser_download_url": "http://downloads.example/windows.zip"},
+                ]
+            }
+        )
+
+        with mock.patch.object(self.shared, "PUBLIC_UPDATE_MANIFEST_URL", manifest_url):
+            self._run_update_check({manifest_url: "1.8.8\n", release_url: release}, silent=False)
+
+        callback, message, title = self.app.post_to_ui.call_args.args
+        self.assertIs(callback.__self__, self.app)
+        self.assertIs(callback.__func__, self.app.show_download_error.__func__)
+        self.assertEqual(title, "Update")
+        self.assertIn("matching Windows x64 release asset", message)
+
+        with mock.patch.object(self.shared, "PUBLIC_UPDATE_MANIFEST_URL", manifest_url):
+            self._run_update_check({manifest_url: "1.8.8\n", release_url: release}, silent=True)
+        self.app.post_to_ui.assert_not_called()
 
     def test_startup_toolchain_validation_runs_in_background(self):
         captured = []

@@ -10,6 +10,28 @@ PROJECT_README = ROOT / "README.md"
 NOTICES = ROOT / "THIRD_PARTY_NOTICES.md"
 CHECKLIST = ROOT / "docs" / "WINDOWS_TEST_CHECKLIST.md"
 MANIFEST = ROOT / "tools" / "windows-tools.json"
+RELEASE_GATE = (
+    "在 12 項 Windows 11 手動驗收全部完成、結果記錄為 PASS，且發現的阻擋問題已修正並重新測試前，"
+    "Windows ZIP 不得附加到公開 `v1.8.7` Release。"
+)
+CHECKLIST_SCENARIOS = (
+    "從成功 GitHub Actions artifact 下載 ZIP，完成 SHA-256 比對並解壓。",
+    "未簽署 SmartScreen 流程顯示；完成來源與 Hash 確認後，透過 `More info` 與 `Run anyway` 啟動。",
+    "啟動 `YT Downloader Pro.exe` 時沒有額外命令列視窗。",
+    "分析指定的公開 YouTube URL。",
+    "下載並合併最高可用品質 MP4。",
+    "轉換為 192 kbps MP3。",
+    "重複下載相同內容時建立 ` (1)`，且不覆寫原檔。",
+    "變更輸出資料夾後重新啟動，確認資料夾設定仍被保留。",
+    "在可暫停的下載階段測試暫停、繼續與取消行為。",
+    "取消下載時，確認既有檔案未被刪除。",
+    "確認繁體中文 UI、Windows 字型、檔案對話框與路徑顯示。",
+    "分別確認離線、不可寫入資料夾與 helper 遺失時的本地化處理及 log。",
+)
+WINDOWS_NOTICE_HEADINGS = {
+    "ffmpeg": "BtbN FFmpeg and FFprobe (Windows x64 test build)",
+    "deno": "Deno (Windows x64 test build)",
+}
 
 
 class WindowsDocumentationTests(unittest.TestCase):
@@ -48,33 +70,42 @@ class WindowsDocumentationTests(unittest.TestCase):
         self.assertIn("GitHub Actions artifact", text)
         self.assertIn("尚未附加到公開", text)
 
-    def test_windows_notices_match_the_pinned_tool_manifest(self):
+    def test_windows_notices_parse_to_the_pinned_tool_manifest(self):
         notices = NOTICES.read_text(encoding="utf-8")
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-        ffmpeg = manifest["ffmpeg"]
-        deno = manifest["deno"]
-        for expected in (
-            "BtbN",
-            ffmpeg["version"],
-            ffmpeg["url"],
-            ffmpeg["sha256"],
-            ffmpeg["license"],
-            "Deno",
-            "v2.8.1",
-            deno["url"],
-            deno["sha256"],
-            deno["license"],
-            deno["license_file"],
-        ):
-            self.assertIn(expected, notices)
+        for tool, expected in manifest.items():
+            heading = WINDOWS_NOTICE_HEADINGS[tool]
+            section = re.search(
+                rf"^## {re.escape(heading)}\n(?P<body>.*?)(?=^## |\Z)",
+                notices,
+                flags=re.MULTILINE | re.DOTALL,
+            )
+            self.assertIsNotNone(section, heading)
+            body = section.group("body")
+            fields = dict(re.findall(r"^- ([^:]+): `?([^`\n]+)`?$", body, flags=re.MULTILINE))
+
+            self.assertEqual(fields["Version"], expected["version"])
+            self.assertEqual(fields["Exact archive"], expected["url"])
+            self.assertEqual(fields["SHA-256"], expected["sha256"])
+            self.assertEqual(fields["License"], expected["license"])
+            self.assertEqual(fields["License text"], expected["license_file"])
+            mappings = re.findall(
+                r"^- Archive member: `([^`]+)` -> `([^`]+)`$",
+                body,
+                flags=re.MULTILINE,
+            )
+            self.assertEqual(
+                mappings,
+                [(member["path"], f"Helpers/{member['output_name']}") for member in expected["archive_members"]],
+            )
 
     def test_windows_acceptance_checklist_has_twelve_unfilled_result_and_note_rows(self):
         text = CHECKLIST.read_text(encoding="utf-8")
-        rows = re.findall(r"^\|\s*(\d+)\s*\|[^\n]*\|\s*\|\s*\|$", text, flags=re.MULTILINE)
+        rows = re.findall(r"^\|\s*(\d+)\s*\|\s*(.*?)\s*\|\s*\|\s*\|$", text, flags=re.MULTILINE)
 
-        self.assertEqual(rows, [str(number) for number in range(1, 13)])
-        self.assertNotIn("PASS", text.upper())
+        self.assertEqual(rows, [(str(number), scenario) for number, scenario in enumerate(CHECKLIST_SCENARIOS, start=1)])
+        self.assertIn(RELEASE_GATE, text)
         self.assertIn("Windows 11", text)
         self.assertIn("YT-Downloader-Pro-v1.8.7-Windows-x64.zip", text)
 
