@@ -46,14 +46,14 @@ actor PersistenceController {
         if flush {
             deferredSaveTask?.cancel()
             deferredSaveTask = nil
-            if hasDeferredWriteFailure {
-                hasDeferredWriteFailure = false
-                throw PersistenceControllerError.deferredWriteFailed
-            }
-
+            let deferredWriteFailure = hasDeferredWriteFailure
             let latestJobs = pendingJobs ?? jobs
             try persist(latestJobs)
             pendingJobs = nil
+            if deferredWriteFailure {
+                hasDeferredWriteFailure = false
+                throw PersistenceControllerError.deferredWriteFailed
+            }
             return
         }
 

@@ -73,7 +73,7 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.title), ["Latest"])
     }
 
-    func testDeferredWriteFailureSurfacesOnFlushAndRetainsLatestSnapshot() async throws {
+    func testDeferredWriteFailureFlushPersistsLatestSnapshotBeforeReportingFailure() async throws {
         let parent = try temporaryDirectory()
         let root = parent.appendingPathComponent("blocked-root")
         try Data("not-a-directory".utf8).write(to: root)
@@ -81,6 +81,7 @@ final class PersistenceControllerTests: XCTestCase {
 
         try await sut.saveJobs([.fixture(title: "First")], flush: false)
         try await Task.sleep(for: .milliseconds(100))
+        try FileManager.default.removeItem(at: root)
 
         do {
             try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
@@ -89,14 +90,11 @@ final class PersistenceControllerTests: XCTestCase {
             XCTAssertEqual(error as? PersistenceControllerError, .deferredWriteFailed)
         }
 
-        try FileManager.default.removeItem(at: root)
-        try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
-
         let loaded = try await sut.loadJobs()
         XCTAssertEqual(loaded.map(\.title), ["Latest"])
     }
 
-    func testFlushReportsDeferredFailureAfterLatestSnapshotRetriesSuccessfully() async throws {
+    func testFailedFlushRetryPreservesDeferredFailureAndLatestSnapshot() async throws {
         let parent = try temporaryDirectory()
         let root = parent.appendingPathComponent("blocked-root")
         try Data("not-a-directory".utf8).write(to: root)
@@ -104,18 +102,22 @@ final class PersistenceControllerTests: XCTestCase {
 
         try await sut.saveJobs([.fixture(title: "First")], flush: false)
         try await Task.sleep(for: .milliseconds(100))
-        try FileManager.default.removeItem(at: root)
-        try await sut.saveJobs([.fixture(title: "Latest")], flush: false)
-        try await Task.sleep(for: .milliseconds(100))
 
         do {
             try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
-            XCTFail("Expected the deferred write failure to be reported")
+            XCTFail("Expected the retry write to fail")
+        } catch {
+            XCTAssertFalse(error is PersistenceControllerError)
+        }
+
+        try FileManager.default.removeItem(at: root)
+        do {
+            try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
+            XCTFail("Expected the original deferred write failure to be reported")
         } catch {
             XCTAssertEqual(error as? PersistenceControllerError, .deferredWriteFailed)
         }
 
-        try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
         let loaded = try await sut.loadJobs()
         XCTAssertEqual(loaded.map(\.title), ["Latest"])
     }
