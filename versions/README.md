@@ -11,10 +11,12 @@
 | 1.8.4 | 無獨立檔名 | `v1.8.4` | 當時仍使用 `YT_downloader_180.py`。 |
 | 1.8.5 | `v1.8.5/YT_downloader_185.py` | `v1.8.5` | 後補建立的版本化來源檔。 |
 | 1.8.6 | `v1.8.6/YT_downloader_186.py` | `v1.8.6` | 加入公開更新 manifest。 |
-| 1.8.7 | `v1.8.7/YT_downloader_187.py`、`YT_downloader_187_windows.py` | `v1.8.7` | macOS 入口與後續加入的 Windows 入口。 |
+| 1.8.7 | `v1.8.7/YT_downloader_187.py`、`YT_downloader_187_windows.py`、`YT_downloader_187_standalone.py` | `v1.8.7` | macOS/Windows 共用核心入口，以及開發期間保留的 macOS 獨立版封存。 |
 | 1.8.8 | `v1.8.8/YT_downloader_188.py`、`YT_downloader_188_windows.py` | `v1.8.8` | 目前 macOS 與 Windows 正式版本入口。 |
 
 1.8.1 至 1.8.4 在當時沒有建立獨立版本檔名，因此這裡不複製內容相近但不能代表完整發布狀態的檔案。請切換到表格中的 Git tag 查看完整版本。
+
+`v1.8.7/YT_downloader_187_standalone.py` 是重構為 `ytdp/` 共用核心之前的獨立版封存，只供歷史比較與回溯；正式建置仍使用同資料夾中的 `YT_downloader_187.py`。
 
 ## 建置規則
 

@@ -51,6 +51,19 @@ class VersionSourceLayoutTests(unittest.TestCase):
         ):
             self.assertIn(expected, index)
 
+    def test_standalone_1_8_7_source_is_archived_and_documented(self):
+        archive = (
+            ROOT
+            / "versions"
+            / "v1.8.7"
+            / "YT_downloader_187_standalone.py"
+        )
+        self.assertTrue(archive.is_file())
+
+        index = (ROOT / "versions" / "README.md").read_text(encoding="utf-8")
+        self.assertIn("YT_downloader_187_standalone.py", index)
+        self.assertIn("獨立版封存", index)
+
     def test_build_scripts_use_the_grouped_entrypoints(self):
         for script_name, entrypoint in BUILD_ENTRYPOINTS.items():
             with self.subTest(script=script_name):
