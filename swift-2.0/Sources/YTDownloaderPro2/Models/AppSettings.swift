@@ -64,8 +64,29 @@ struct AppSettings: Codable, Equatable, Sendable {
         defaultOptions.outputDirectoryDisplayPath = directory.path
     }
 
-    func resolvedDefaultOutputDirectory(
+    func beginDefaultOutputDirectoryAccess(
         bookmarks: OutputDirectoryBookmarkService = .live
+    ) throws -> OutputDirectorySecurityScopedAccess {
+        let url = try resolveDefaultOutputDirectory(bookmarks: bookmarks)
+        guard bookmarks.startAccessingSecurityScopedResource(at: url) else {
+            throw OutputDirectoryBookmarkError.needsReselection
+        }
+        return OutputDirectorySecurityScopedAccess(url: url) {
+            bookmarks.stopAccessingSecurityScopedResource(at: url)
+        }
+    }
+
+    func withDefaultOutputDirectoryAccess<Result>(
+        bookmarks: OutputDirectoryBookmarkService = .live,
+        perform operation: (URL) throws -> Result
+    ) throws -> Result {
+        let access = try beginDefaultOutputDirectoryAccess(bookmarks: bookmarks)
+        defer { access.stopAccessing() }
+        return try operation(access.url)
+    }
+
+    private func resolveDefaultOutputDirectory(
+        bookmarks: OutputDirectoryBookmarkService
     ) throws -> URL {
         guard let bookmark = defaultOptions.outputDirectoryBookmark else {
             throw OutputDirectoryBookmarkError.needsReselection
@@ -93,6 +114,30 @@ enum OutputDirectoryBookmarkError: Error, Equatable, Sendable {
     case needsReselection
 }
 
+final class OutputDirectorySecurityScopedAccess {
+    let url: URL
+
+    private let stopAccessingClosure: () -> Void
+    private var hasStopped = false
+
+    init(url: URL, stopAccessing: @escaping () -> Void) {
+        self.url = url
+        stopAccessingClosure = stopAccessing
+    }
+
+    func stopAccessing() {
+        guard !hasStopped else {
+            return
+        }
+        hasStopped = true
+        stopAccessingClosure()
+    }
+
+    deinit {
+        stopAccessing()
+    }
+}
+
 struct OutputDirectoryBookmarkService: Sendable {
     struct Resolution: Sendable {
         let url: URL
@@ -101,13 +146,23 @@ struct OutputDirectoryBookmarkService: Sendable {
 
     private let makeBookmarkClosure: @Sendable (URL) throws -> Data
     private let resolveBookmarkClosure: @Sendable (Data) throws -> Resolution
+    private let startAccessingClosure: @Sendable (URL) -> Bool
+    private let stopAccessingClosure: @Sendable (URL) -> Void
 
     init(
         makeBookmark: @escaping @Sendable (URL) throws -> Data,
-        resolveBookmark: @escaping @Sendable (Data) throws -> Resolution
+        resolveBookmark: @escaping @Sendable (Data) throws -> Resolution,
+        startAccessingSecurityScopedResource: @escaping @Sendable (URL) -> Bool = { url in
+            url.startAccessingSecurityScopedResource()
+        },
+        stopAccessingSecurityScopedResource: @escaping @Sendable (URL) -> Void = { url in
+            url.stopAccessingSecurityScopedResource()
+        }
     ) {
         makeBookmarkClosure = makeBookmark
         resolveBookmarkClosure = resolveBookmark
+        startAccessingClosure = startAccessingSecurityScopedResource
+        stopAccessingClosure = stopAccessingSecurityScopedResource
     }
 
     static let live = OutputDirectoryBookmarkService(
@@ -136,6 +191,14 @@ struct OutputDirectoryBookmarkService: Sendable {
 
     func resolveBookmark(_ bookmark: Data) throws -> Resolution {
         try resolveBookmarkClosure(bookmark)
+    }
+
+    func startAccessingSecurityScopedResource(at url: URL) -> Bool {
+        startAccessingClosure(url)
+    }
+
+    func stopAccessingSecurityScopedResource(at url: URL) {
+        stopAccessingClosure(url)
     }
 }
 

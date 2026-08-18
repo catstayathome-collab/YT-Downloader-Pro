@@ -3,6 +3,7 @@ import Foundation
 enum PersistenceControllerError: Error, Equatable, Sendable {
     case unsupportedSchemaVersion(Int)
     case noRecoverableSnapshot
+    case deferredWriteFailed
 }
 
 actor PersistenceController {
@@ -18,6 +19,7 @@ actor PersistenceController {
     private let fileManager: FileManager
     private var pendingJobs: [DownloadJob]?
     private var deferredSaveTask: Task<Void, Never>?
+    private var hasDeferredWriteFailure = false
 
     init(root: URL, fileManager: FileManager = .default) {
         self.root = root
@@ -44,9 +46,14 @@ actor PersistenceController {
         if flush {
             deferredSaveTask?.cancel()
             deferredSaveTask = nil
+            if hasDeferredWriteFailure {
+                hasDeferredWriteFailure = false
+                throw PersistenceControllerError.deferredWriteFailed
+            }
+
             let latestJobs = pendingJobs ?? jobs
-            pendingJobs = nil
             try persist(latestJobs)
+            pendingJobs = nil
             return
         }
 
@@ -98,8 +105,13 @@ actor PersistenceController {
         guard let jobs = pendingJobs else {
             return
         }
-        pendingJobs = nil
-        try? persist(jobs)
+
+        do {
+            try persist(jobs)
+            pendingJobs = nil
+        } catch {
+            hasDeferredWriteFailure = true
+        }
     }
 
     private func persist(_ jobs: [DownloadJob]) throws {

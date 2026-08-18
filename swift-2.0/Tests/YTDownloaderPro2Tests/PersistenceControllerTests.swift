@@ -73,6 +73,53 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.title), ["Latest"])
     }
 
+    func testDeferredWriteFailureSurfacesOnFlushAndRetainsLatestSnapshot() async throws {
+        let parent = try temporaryDirectory()
+        let root = parent.appendingPathComponent("blocked-root")
+        try Data("not-a-directory".utf8).write(to: root)
+        let sut = PersistenceController(root: root)
+
+        try await sut.saveJobs([.fixture(title: "First")], flush: false)
+        try await Task.sleep(for: .milliseconds(100))
+
+        do {
+            try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
+            XCTFail("Expected a deferred write failure")
+        } catch {
+            XCTAssertEqual(error as? PersistenceControllerError, .deferredWriteFailed)
+        }
+
+        try FileManager.default.removeItem(at: root)
+        try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
+
+        let loaded = try await sut.loadJobs()
+        XCTAssertEqual(loaded.map(\.title), ["Latest"])
+    }
+
+    func testFlushReportsDeferredFailureAfterLatestSnapshotRetriesSuccessfully() async throws {
+        let parent = try temporaryDirectory()
+        let root = parent.appendingPathComponent("blocked-root")
+        try Data("not-a-directory".utf8).write(to: root)
+        let sut = PersistenceController(root: root)
+
+        try await sut.saveJobs([.fixture(title: "First")], flush: false)
+        try await Task.sleep(for: .milliseconds(100))
+        try FileManager.default.removeItem(at: root)
+        try await sut.saveJobs([.fixture(title: "Latest")], flush: false)
+        try await Task.sleep(for: .milliseconds(100))
+
+        do {
+            try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
+            XCTFail("Expected the deferred write failure to be reported")
+        } catch {
+            XCTAssertEqual(error as? PersistenceControllerError, .deferredWriteFailed)
+        }
+
+        try await sut.saveJobs([.fixture(title: "Latest")], flush: true)
+        let loaded = try await sut.loadJobs()
+        XCTAssertEqual(loaded.map(\.title), ["Latest"])
+    }
+
     func testSettingsStoreLoadsLegacySettingsWithDefaultsAndClampsConcurrency() throws {
         let (defaults, key, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -102,9 +149,17 @@ final class PersistenceControllerTests: XCTestCase {
     func testSelectedOutputDirectoryBookmarkIsStoredInDefaultOptions() throws {
         let folder = try temporaryDirectory()
         let bookmark = Data("bookmark".utf8)
+        let scope = SecurityScopeRecorder()
         let bookmarks = OutputDirectoryBookmarkService(
             makeBookmark: { _ in bookmark },
-            resolveBookmark: { _ in .init(url: folder, isStale: false) }
+            resolveBookmark: { _ in .init(url: folder, isStale: false) },
+            startAccessingSecurityScopedResource: { _ in
+                scope.startCount += 1
+                return true
+            },
+            stopAccessingSecurityScopedResource: { _ in
+                scope.stopCount += 1
+            }
         )
         var settings = AppSettings()
 
@@ -112,7 +167,14 @@ final class PersistenceControllerTests: XCTestCase {
 
         XCTAssertEqual(settings.defaultOptions.outputDirectoryBookmark, bookmark)
         XCTAssertEqual(settings.defaultOptions.outputDirectoryDisplayPath, folder.path)
-        XCTAssertEqual(try settings.resolvedDefaultOutputDirectory(bookmarks: bookmarks), folder)
+        let access = try settings.beginDefaultOutputDirectoryAccess(bookmarks: bookmarks)
+        XCTAssertEqual(access.url, folder)
+        XCTAssertEqual(scope.startCount, 1)
+        XCTAssertEqual(scope.stopCount, 0)
+
+        access.stopAccessing()
+        access.stopAccessing()
+        XCTAssertEqual(scope.stopCount, 1)
     }
 
     func testStaleOutputDirectoryBookmarkNeedsReselection() throws {
@@ -124,9 +186,60 @@ final class PersistenceControllerTests: XCTestCase {
         var settings = AppSettings()
         try settings.setDefaultOutputDirectory(URL(fileURLWithPath: "/tmp/stale"), bookmarks: bookmarks)
 
-        XCTAssertThrowsError(try settings.resolvedDefaultOutputDirectory(bookmarks: bookmarks)) { error in
+        XCTAssertThrowsError(try settings.beginDefaultOutputDirectoryAccess(bookmarks: bookmarks)) { error in
             XCTAssertEqual(error as? OutputDirectoryBookmarkError, .needsReselection)
         }
+    }
+
+    func testOutputDirectoryAccessStopsWhenScopeExits() throws {
+        let folder = try temporaryDirectory()
+        let bookmark = Data("scoped-bookmark".utf8)
+        let scope = SecurityScopeRecorder()
+        let bookmarks = OutputDirectoryBookmarkService(
+            makeBookmark: { _ in bookmark },
+            resolveBookmark: { _ in .init(url: folder, isStale: false) },
+            startAccessingSecurityScopedResource: { _ in
+                scope.startCount += 1
+                return true
+            },
+            stopAccessingSecurityScopedResource: { _ in
+                scope.stopCount += 1
+            }
+        )
+        var settings = AppSettings()
+        try settings.setDefaultOutputDirectory(folder, bookmarks: bookmarks)
+
+        try settings.withDefaultOutputDirectoryAccess(bookmarks: bookmarks) { url in
+            XCTAssertEqual(url, folder)
+            XCTAssertEqual(scope.startCount, 1)
+            XCTAssertEqual(scope.stopCount, 0)
+        }
+
+        XCTAssertEqual(scope.stopCount, 1)
+    }
+
+    func testUnreadableOutputDirectoryBookmarkNeedsReselection() throws {
+        let bookmark = Data("unreadable-bookmark".utf8)
+        let scope = SecurityScopeRecorder()
+        let bookmarks = OutputDirectoryBookmarkService(
+            makeBookmark: { _ in bookmark },
+            resolveBookmark: { _ in .init(url: URL(fileURLWithPath: "/tmp/unreadable"), isStale: false) },
+            startAccessingSecurityScopedResource: { _ in
+                scope.startCount += 1
+                return false
+            },
+            stopAccessingSecurityScopedResource: { _ in
+                scope.stopCount += 1
+            }
+        )
+        var settings = AppSettings()
+        try settings.setDefaultOutputDirectory(URL(fileURLWithPath: "/tmp/unreadable"), bookmarks: bookmarks)
+
+        XCTAssertThrowsError(try settings.beginDefaultOutputDirectoryAccess(bookmarks: bookmarks)) { error in
+            XCTAssertEqual(error as? OutputDirectoryBookmarkError, .needsReselection)
+        }
+        XCTAssertEqual(scope.startCount, 1)
+        XCTAssertEqual(scope.stopCount, 0)
     }
 
     private func makeDefaults() throws -> (UserDefaults, String, String) {
@@ -134,4 +247,9 @@ final class PersistenceControllerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         return (defaults, "app-settings", suiteName)
     }
+}
+
+private final class SecurityScopeRecorder: @unchecked Sendable {
+    var startCount = 0
+    var stopCount = 0
 }
