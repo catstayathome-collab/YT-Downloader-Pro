@@ -260,20 +260,21 @@ class NetworkSafetyTests(unittest.TestCase):
         )
 
     def test_download_options_keep_certificate_checks_enabled(self):
-        request = app_module.DownloadRequest(
-            url="https://youtu.be/first",
-            video_format_id="137",
-            audio_format_id="140",
-            audio_only=False,
-            output_directory="/tmp",
-            title="Title",
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/first",
+                video_format_id="137",
+                audio_format_id="140",
+                audio_only=False,
+                output_directory=directory,
+                title="Title",
+            )
 
-        options = self.app.make_download_options(
-            request,
-            "/tmp/helpers",
-            "/app/Contents/Helpers/qjs",
-        )
+            options = self.app.make_download_options(
+                request,
+                "/tmp/helpers",
+                "/app/Contents/Helpers/qjs",
+            )
 
         self.assertNotIn("nocheckcertificate", options)
         self.assertEqual(

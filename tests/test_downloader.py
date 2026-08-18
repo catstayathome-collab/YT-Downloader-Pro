@@ -8,12 +8,14 @@ from ytdp.models import DownloadRequest
 
 class DownloadOptionsTests(unittest.TestCase):
     def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
         self.request = DownloadRequest(
             url="https://youtu.be/example",
             video_format_id="137",
             audio_format_id="140",
             audio_only=False,
-            output_directory="/tmp/downloads",
+            output_directory=self.tempdir.name,
             title="Title",
         )
 
@@ -46,7 +48,10 @@ class DownloadOptionsTests(unittest.TestCase):
 
         self.assertEqual(options["format"], "137+140")
         self.assertEqual(options["merge_output_format"], "mp4")
-        self.assertEqual(options["outtmpl"], "/tmp/downloads/Title.mp4")
+        self.assertEqual(
+            options["outtmpl"],
+            str(Path(self.tempdir.name) / "Title.mp4"),
+        )
         self.assertEqual(options["js_runtimes"], {"deno": {"path": "deno.exe"}})
         self.assertNotIn("nocheckcertificate", options)
 
