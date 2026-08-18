@@ -17,7 +17,7 @@ final class MetadataProbeTests: XCTestCase {
         }
         XCTAssertEqual(video.title, "Deterministic Video")
         XCTAssertEqual(video.duration, 123.5)
-        XCTAssertEqual(video.videoFormats.map(\.id), ["137", "136"])
+        XCTAssertEqual(video.videoFormats.map(\.id), ["137", "hls-1080", "136"])
         XCTAssertEqual(video.audioFormats.map(\.id), ["251", "140"])
         XCTAssertEqual(video.videoFormats.first?.container, "mp4")
         XCTAssertEqual(video.videoFormats.first?.videoCodec, "avc1.640028")
@@ -26,9 +26,14 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertEqual(video.videoFormats.first?.framesPerSecond, 60)
         XCTAssertEqual(video.videoFormats.first?.bitrate, 4500)
         XCTAssertEqual(video.videoFormats.first?.estimatedFileSize, 123_456_789)
+        XCTAssertEqual(video.videoFormats[1].container, "mp4")
+        XCTAssertEqual(video.videoFormats[1].height, 1080)
+        XCTAssertFalse(video.videoFormats.map(\.id).contains("drm-2160"))
+        XCTAssertFalse(video.videoFormats.map(\.id).contains("missing-url"))
         XCTAssertEqual(video.audioFormats.first?.audioCodec, "opus")
         XCTAssertEqual(video.audioFormats.last?.language, "en")
         XCTAssertEqual(video.audioFormats.last?.estimatedFileSize, 5_678_901)
+        XCTAssertFalse(video.audioFormats.map(\.id).contains("drm-audio"))
     }
 
     func testPlaylistFixturePreservesSourceOrderAndUnavailableEntryIdentity() async throws {
@@ -96,7 +101,7 @@ final class MetadataProbeTests: XCTestCase {
         let commands = await runner.commands()
         XCTAssertEqual(commands.count, 2)
         XCTAssertEqual(argument(after: "--extractor-args", in: commands[0]), "youtube:player_client=web_embedded")
-        XCTAssertEqual(argument(after: "--extractor-args", in: commands[1]), "youtube:player_client=tv")
+        XCTAssertFalse(commands[1].arguments.contains("--extractor-args"))
     }
 
     func testRetryStopsAtReviewedFallbackBound() async {

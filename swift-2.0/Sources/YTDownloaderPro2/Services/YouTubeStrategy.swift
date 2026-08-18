@@ -2,7 +2,6 @@ import Foundation
 
 struct YouTubeStrategy: Sendable {
     private static let initialClient = "web_embedded"
-    private static let uncookiedFallbackClient = "tv"
 
     private let toolchain: Toolchain
 
@@ -33,10 +32,12 @@ struct YouTubeStrategy: Sendable {
             selectedFormat(for: job.options),
             "--output",
             outputTemplate(for: job),
+            "--print",
+            "before_dl:ytdp:phase|downloading",
             "--progress-template",
             "download:ytdp:progress|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s",
             "--progress-template",
-            "postprocess:ytdp:phase|%(progress._default_template)s",
+            "postprocess:ytdp:phase|\(postprocessPhase(for: job.options.outputKind))",
             "--print",
             "after_move:ytdp:filepath|%(filepath)s"
         ]
@@ -47,25 +48,25 @@ struct YouTubeStrategy: Sendable {
             arguments += ["--extract-audio", "--audio-format", "mp3"]
         }
 
-        arguments += commonArguments(options: job.options, attempt: attempt)
+        arguments += commonArguments(options: job.options, attempt: attempt, toolchain: toolchain)
         arguments.append(job.sourceURL)
         return arguments
     }
 
-    private func commonArguments(options: DownloadOptions, attempt: Int) -> [String] {
-        [
+    private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil) -> [String] {
+        let selectedToolchain = toolchain ?? self.toolchain
+        var arguments = [
             "--js-runtimes",
-            "quickjs:\(toolchain.qjs.path)",
-            "--extractor-args",
-            "youtube:player_client=\(client(for: options, attempt: attempt))"
-        ] + subtitleArguments(for: options) + metadataArguments(for: options) + cookieArguments(for: options.cookies)
+            "quickjs:\(selectedToolchain.qjs.path)"
+        ]
+        if shouldUseExplicitWebEmbeddedClient(options: options, attempt: attempt) {
+            arguments += ["--extractor-args", "youtube:player_client=\(Self.initialClient)"]
+        }
+        return arguments + subtitleArguments(for: options) + metadataArguments(for: options) + cookieArguments(for: options.cookies)
     }
 
-    private func client(for options: DownloadOptions, attempt: Int) -> String {
-        guard options.cookies == .none else {
-            return Self.initialClient
-        }
-        return attempt == 0 ? Self.initialClient : Self.uncookiedFallbackClient
+    private func shouldUseExplicitWebEmbeddedClient(options: DownloadOptions, attempt: Int) -> Bool {
+        options.cookies != .none || attempt == 0
     }
 
     private func selectedFormat(for options: DownloadOptions) -> String {
@@ -115,6 +116,11 @@ struct YouTubeStrategy: Sendable {
         }
 
         return directory.appendingPathComponent("\(basename).%(ext)s").path
+    }
+
+    private func postprocessPhase(for outputKind: OutputKind) -> String {
+        // yt-dlp exposes a postprocess template but no merge-only hook.
+        outputKind == .mp4 ? "merging" : "postprocessing"
     }
 
     private func subtitleArguments(for options: DownloadOptions) -> [String] {

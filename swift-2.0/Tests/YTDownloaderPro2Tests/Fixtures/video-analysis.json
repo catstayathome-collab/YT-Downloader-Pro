@@ -16,6 +16,7 @@
       "height": 1080,
       "fps": 60,
       "tbr": 4500,
+      "url": "https://video.example.test/videoplayback?id=137",
       "filesize": 123456789
     },
     {
@@ -28,7 +29,8 @@
       "width": 854,
       "height": 480,
       "fps": 30,
-      "tbr": 1100
+      "tbr": 1100,
+      "url": "https://video.example.test/videoplayback?id=137-duplicate"
     },
     {
       "format_id": "136",
@@ -41,6 +43,7 @@
       "height": 720,
       "fps": 30,
       "tbr": 2500,
+      "url": "https://video.example.test/videoplayback?id=136",
       "filesize_approx": 76543210
     },
     {
@@ -51,7 +54,10 @@
       "vcodec": "avc1.640028",
       "acodec": "none",
       "width": 1920,
-      "height": 1080
+      "height": 1080,
+      "fps": 30,
+      "tbr": 3000,
+      "url": "https://video.example.test/hls/1080.m3u8"
     },
     {
       "format_id": "251",
@@ -61,6 +67,7 @@
       "vcodec": "none",
       "acodec": "opus",
       "abr": 160,
+      "url": "https://video.example.test/videoplayback?id=251",
       "language": "original"
     },
     {
@@ -71,6 +78,7 @@
       "vcodec": "none",
       "acodec": "mp4a.40.2",
       "abr": 128,
+      "url": "https://video.example.test/videoplayback?id=140",
       "language": "en",
       "filesize_approx": 5678901
     },
@@ -80,6 +88,36 @@
       "protocol": "https",
       "vcodec": "none",
       "acodec": "none"
+    },
+    {
+      "format_id": "drm-2160",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.640033",
+      "acodec": "none",
+      "width": 3840,
+      "height": 2160,
+      "has_drm": true,
+      "url": "https://video.example.test/videoplayback?id=drm-2160"
+    },
+    {
+      "format_id": "missing-url",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "width": 1440,
+      "height": 810
+    },
+    {
+      "format_id": "drm-audio",
+      "ext": "m4a",
+      "protocol": "https",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 256,
+      "has_drm": true,
+      "url": "https://video.example.test/videoplayback?id=drm-audio"
     }
   ]
 }

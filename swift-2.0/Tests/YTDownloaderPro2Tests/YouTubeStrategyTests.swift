@@ -46,20 +46,28 @@ final class YouTubeStrategyTests: XCTestCase {
         XCTAssertEqual(argument(after: "--cookies-from-browser", in: safariCookies), "safari")
     }
 
-    func testUncookiedFallbackUsesBoundedTVClientWithoutPromisingFormatQuality() {
+    func testUncookiedSecondAttemptUsesBundledDefaultWithoutExtractorArguments() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
         let first = strategy.analysisArguments(url: "https://youtu.be/example", options: .defaults, attempt: 0)
         let fallback = strategy.analysisArguments(url: "https://youtu.be/example", options: .defaults, attempt: 1)
         let outOfRange = strategy.analysisArguments(url: "https://youtu.be/example", options: .defaults, attempt: 99)
 
         XCTAssertEqual(argument(after: "--extractor-args", in: first), "youtube:player_client=web_embedded")
-        XCTAssertEqual(argument(after: "--extractor-args", in: fallback), "youtube:player_client=tv")
+        XCTAssertEqual(fallback, [
+            "--dump-single-json",
+            "--skip-download",
+            "--no-warnings",
+            "--js-runtimes",
+            "quickjs:/tmp/qjs",
+            "https://youtu.be/example"
+        ])
         XCTAssertEqual(outOfRange, fallback)
         XCTAssertEqual(strategy.maximumAttempts(for: .defaults), 2)
+        XCTAssertFalse(fallback.contains("--extractor-args"))
         XCTAssertFalse(fallback.joined(separator: " ").localizedCaseInsensitiveContains("po_token"))
     }
 
-    func testBrowserCookieSelectionDoesNotUseTVFallbackBecauseItsCookieCapabilityIsUnsafe() {
+    func testBrowserCookieSelectionUsesOneWebEmbeddedAttemptOnly() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
         let chromeOptions = DownloadOptions.fixture(cookies: .chrome)
         let initial = strategy.analysisArguments(url: "https://youtu.be/example", options: chromeOptions, attempt: 0)
@@ -70,31 +78,57 @@ final class YouTubeStrategyTests: XCTestCase {
         XCTAssertEqual(strategy.maximumAttempts(for: chromeOptions), 1)
     }
 
-    func testDownloadArgumentsUseBundledFFmpegContinuationAndBestVideoAudioDefaults() {
+    func testUncookiedDownloadSecondAttemptUsesBundledDefaultWithoutExtractorArguments() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
-        let job = DownloadJob.fixture(outputURL: URL(fileURLWithPath: "/tmp/Downloads/Example video.mp4"))
+        let arguments = strategy.downloadArguments(job: .fixture(), toolchain: .fixture(), attempt: 1)
 
-        let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
-
-        XCTAssertEqual(argument(after: "--ffmpeg-location", in: arguments), "/tmp")
-        XCTAssertEqual(argument(after: "--format", in: arguments), "bestvideo*+bestaudio/best")
-        XCTAssertEqual(argument(after: "--output", in: arguments), "/tmp/Downloads/Example video.%(ext)s")
-        XCTAssertTrue(arguments.contains("--continue"))
-        XCTAssertTrue(arguments.contains("--no-overwrites"))
-        XCTAssertTrue(arguments.contains("--progress-template"))
-        XCTAssertTrue(arguments.contains("--print"))
+        XCTAssertFalse(arguments.contains("--extractor-args"))
+        XCTAssertFalse(arguments.joined(separator: " ").localizedCaseInsensitiveContains("android_vr"))
     }
 
-    func testDownloadArgumentsUseSelectedFormatIDsAndMP3Conversion() {
-        let strategy = YouTubeStrategy(toolchain: .fixture())
-        let videoJob = DownloadJob.fixture(
-            outputURL: URL(fileURLWithPath: "/tmp/Downloads/Selected.mp4")
+    func testMP4DownloadArgumentsUsePassedToolchainAndExactStructuredTemplates() {
+        let strategy = YouTubeStrategy(toolchain: .fixture(qjs: URL(fileURLWithPath: "/strategy/qjs")))
+        let downloadToolchain = Toolchain.fixture(
+            ffmpeg: URL(fileURLWithPath: "/bundle/ffmpeg"),
+            qjs: URL(fileURLWithPath: "/bundle/qjs")
         )
-        var selectedVideoJob = videoJob
-        selectedVideoJob.options = DownloadOptions(
-            outputKind: .mp4,
-            videoQuality: .format(id: "137", label: "1080p"),
-            audioQuality: .format(id: "140", label: "128 kbps")
+        let job = DownloadJob.fixture(outputURL: URL(fileURLWithPath: "/tmp/Downloads/Example video.mp4"))
+
+        let arguments = strategy.downloadArguments(job: job, toolchain: downloadToolchain, attempt: 0)
+
+        XCTAssertEqual(arguments, [
+            "--no-warnings",
+            "--continue",
+            "--no-overwrites",
+            "--ffmpeg-location",
+            "/bundle",
+            "--format",
+            "bestvideo*+bestaudio/best",
+            "--output",
+            "/tmp/Downloads/Example video.%(ext)s",
+            "--print",
+            "before_dl:ytdp:phase|downloading",
+            "--progress-template",
+            "download:ytdp:progress|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s",
+            "--progress-template",
+            "postprocess:ytdp:phase|merging",
+            "--print",
+            "after_move:ytdp:filepath|%(filepath)s",
+            "--merge-output-format",
+            "mp4",
+            "--js-runtimes",
+            "quickjs:/bundle/qjs",
+            "--extractor-args",
+            "youtube:player_client=web_embedded",
+            "https://example.com/video"
+        ])
+    }
+
+    func testMP3DownloadArgumentsUsePostprocessingPhaseAndSelectedAudioFormat() {
+        let strategy = YouTubeStrategy(toolchain: .fixture(qjs: URL(fileURLWithPath: "/strategy/qjs")))
+        let downloadToolchain = Toolchain.fixture(
+            ffmpeg: URL(fileURLWithPath: "/bundle/ffmpeg"),
+            qjs: URL(fileURLWithPath: "/bundle/qjs")
         )
         var audioJob = DownloadJob.fixture(
             outputKind: .mp3,
@@ -102,13 +136,35 @@ final class YouTubeStrategyTests: XCTestCase {
         )
         audioJob.options.audioQuality = .format(id: "251", label: "160 kbps")
 
-        let selectedVideoArguments = strategy.downloadArguments(job: selectedVideoJob, toolchain: .fixture(), attempt: 0)
-        let audioArguments = strategy.downloadArguments(job: audioJob, toolchain: .fixture(), attempt: 0)
+        let audioArguments = strategy.downloadArguments(job: audioJob, toolchain: downloadToolchain, attempt: 0)
 
-        XCTAssertEqual(argument(after: "--format", in: selectedVideoArguments), "137+140")
-        XCTAssertEqual(argument(after: "--format", in: audioArguments), "251")
-        XCTAssertTrue(audioArguments.contains("--extract-audio"))
-        XCTAssertEqual(argument(after: "--audio-format", in: audioArguments), "mp3")
+        XCTAssertEqual(audioArguments, [
+            "--no-warnings",
+            "--continue",
+            "--no-overwrites",
+            "--ffmpeg-location",
+            "/bundle",
+            "--format",
+            "251",
+            "--output",
+            "/tmp/Downloads/Audio.%(ext)s",
+            "--print",
+            "before_dl:ytdp:phase|downloading",
+            "--progress-template",
+            "download:ytdp:progress|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s",
+            "--progress-template",
+            "postprocess:ytdp:phase|postprocessing",
+            "--print",
+            "after_move:ytdp:filepath|%(filepath)s",
+            "--extract-audio",
+            "--audio-format",
+            "mp3",
+            "--js-runtimes",
+            "quickjs:/bundle/qjs",
+            "--extractor-args",
+            "youtube:player_client=web_embedded",
+            "https://example.com/video"
+        ])
     }
 
     private func argument(after flag: String, in arguments: [String]) -> String? {

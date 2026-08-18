@@ -117,20 +117,21 @@ actor MetadataProbe {
     }
 
     private func isUsableVideoFormat(_ format: RawFormat) -> Bool {
-        guard let protocolName = format.transportProtocol?.lowercased(), ["http", "https"].contains(protocolName) else {
-            return false
-        }
-        return format.id?.nonEmpty != nil
+        isUsableFormat(format)
             && format.videoCodec?.isMediaCodec == true
             && format.audioCodec?.isNoneCodec == true
-            && (format.width ?? 0) > 0
-            && (format.height ?? 0) > 0
     }
 
     private func isUsableAudioFormat(_ format: RawFormat) -> Bool {
-        format.id?.nonEmpty != nil
+        isUsableFormat(format)
             && format.videoCodec?.isNoneCodec == true
             && format.audioCodec?.isMediaCodec == true
+    }
+
+    private func isUsableFormat(_ format: RawFormat) -> Bool {
+        format.id?.nonEmpty != nil
+            && format.url?.isUsableRemoteURL == true
+            && format.hasDRM != true
     }
 
     private func videoFormat(from format: RawFormat) -> MediaFormat {
@@ -252,7 +253,8 @@ private struct RawFormat: Decodable {
     let id: String?
     let note: String?
     let container: String?
-    let transportProtocol: String?
+    let url: String?
+    let hasDRM: Bool?
     let videoCodec: String?
     let audioCodec: String?
     let width: Int?
@@ -268,7 +270,8 @@ private struct RawFormat: Decodable {
         case id = "format_id"
         case note = "format_note"
         case container = "ext"
-        case transportProtocol = "protocol"
+        case url
+        case hasDRM = "has_drm"
         case videoCodec = "vcodec"
         case audioCodec = "acodec"
         case width
@@ -325,5 +328,12 @@ private extension String {
 
     var isMediaCodec: Bool {
         !isEmpty && !isNoneCodec
+    }
+
+    var isUsableRemoteURL: Bool {
+        guard let url = URL(string: self), let scheme = url.scheme?.lowercased(), let host = url.host else {
+            return false
+        }
+        return ["http", "https"].contains(scheme) && !host.isEmpty
     }
 }
