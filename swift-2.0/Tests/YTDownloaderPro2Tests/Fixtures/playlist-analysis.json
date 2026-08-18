@@ -1,0 +1,29 @@
+{
+  "_type": "playlist",
+  "id": "playlist123",
+  "title": "Deterministic Playlist",
+  "entries": [
+    {
+      "id": "first001",
+      "title": "First available entry",
+      "webpage_url": "https://www.youtube.com/watch?v=first001",
+      "duration": 61.5,
+      "thumbnail": "https://i.ytimg.com/vi/first001/default.jpg",
+      "availability": "public"
+    },
+    {
+      "id": "gone002",
+      "title": "Private video",
+      "webpage_url": "https://www.youtube.com/watch?v=gone002",
+      "availability": "private"
+    },
+    {
+      "id": "third003",
+      "title": "Third available entry",
+      "webpage_url": "https://www.youtube.com/watch?v=third003",
+      "duration": 183,
+      "thumbnail": "https://i.ytimg.com/vi/third003/default.jpg",
+      "availability": "public"
+    }
+  ]
+}

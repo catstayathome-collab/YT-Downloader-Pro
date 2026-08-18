@@ -60,3 +60,10 @@ func collect<Sequence: AsyncSequence>(_ sequence: Sequence) async throws -> [Seq
     }
     return elements
 }
+
+func analysisFixtureData(named name: String) throws -> Data {
+    guard let url = Bundle.module.url(forResource: name, withExtension: nil) else {
+        throw NSError(domain: "Fixtures", code: 1)
+    }
+    return try Data(contentsOf: url)
+}

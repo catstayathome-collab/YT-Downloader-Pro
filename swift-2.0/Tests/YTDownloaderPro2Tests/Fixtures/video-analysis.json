@@ -1,0 +1,85 @@
+{
+  "id": "video123",
+  "webpage_url": "https://www.youtube.com/watch?v=video123",
+  "title": "Deterministic Video",
+  "duration": 123.5,
+  "thumbnail": "https://i.ytimg.com/vi/video123/maxresdefault.jpg",
+  "formats": [
+    {
+      "format_id": "137",
+      "format_note": "1080p60",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "tbr": 4500,
+      "filesize": 123456789
+    },
+    {
+      "format_id": "137",
+      "format_note": "duplicate fallback",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.4d401f",
+      "acodec": "none",
+      "width": 854,
+      "height": 480,
+      "fps": 30,
+      "tbr": 1100
+    },
+    {
+      "format_id": "136",
+      "format_note": "720p",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.4d401f",
+      "acodec": "none",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "tbr": 2500,
+      "filesize_approx": 76543210
+    },
+    {
+      "format_id": "hls-1080",
+      "format_note": "1080p HLS",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "format_id": "251",
+      "format_note": "160k",
+      "ext": "webm",
+      "protocol": "https",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 160,
+      "language": "original"
+    },
+    {
+      "format_id": "140",
+      "format_note": "128k",
+      "ext": "m4a",
+      "protocol": "https",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 128,
+      "language": "en",
+      "filesize_approx": 5678901
+    },
+    {
+      "format_id": "broken",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "none",
+      "acodec": "none"
+    }
+  ]
+}

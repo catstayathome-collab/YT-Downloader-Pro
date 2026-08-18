@@ -16,7 +16,8 @@ let package = Package(
         ),
         .testTarget(
             name: "YTDownloaderPro2Tests",
-            dependencies: ["YTDownloaderPro2"]
+            dependencies: ["YTDownloaderPro2"],
+            resources: [.process("Fixtures")]
         )
     ]
 )
