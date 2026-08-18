@@ -50,3 +50,35 @@ Passed: 11 tests, 0 failures. Coverage includes structured MP4/MP3 phase templat
 ## Concerns
 
 - `Foundation.Process` supplies no stronger atomic PID-liveness primitive than its process state API. Signals are serialized with termination handling and guarded by `isRunning`, but the operating system remains the final authority over a process that exits between checks.
+
+## Fix Round 1: Waiters, Filepaths, And Process-State Signaling
+
+### Root Cause
+
+- `ProcessController` retained one `result()` continuation, so a second concurrent waiter replaced the first and leaked it.
+- The parser split the entire `ytdp:filepath` line on every pipe character, rejecting legal absolute paths that contain `|`.
+- Signal requests checked `Process.isRunning` under a lock but did not retain an explicit observed-termination state.
+
+### RED
+
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ProgressParserTests`
+
+The focused suite executed 13 tests with two failures: the concurrent two-waiter regression timed out after two seconds and Swift reported a leaked continuation; a filepath containing literal pipes produced no output event.
+
+### GREEN
+
+- `result()` retains every pre-completion continuation and resumes every waiter exactly once. A caller after completion receives the stored result immediately.
+- `ytdp:filepath` removes only its known prefix, retaining all later pipe characters.
+- The controller sets `childTerminated` while holding the same lock used for signals. It rejects later signals after that observation, while retaining the unavoidable race between `Foundation.Process.isRunning` and operating-system signal delivery.
+- The deterministic high-volume fixture writes 4,096 lines to each pipe, checks both per-pipe orders, requires one final termination event, and has a five-second timeout.
+
+### Verification
+
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ProgressParserTests`: 13 tests, 0 failures.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --skip-build --filter ProgressParserTests`: 20 consecutive runs, 13 tests each, 0 failures.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`: 64 tests, 0 failures.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --scratch-path /private/tmp/ytdp-task5-fix-round-1-concurrency -Xswiftc -strict-concurrency=complete`: 64 tests, 0 failures.
+
+### Commit
+
+`fix(swift): harden streaming process waits`

@@ -61,9 +61,10 @@ final class ProcessController: @unchecked Sendable {
     private var exitCode: Int32?
     private var stdoutFinished = false
     private var stderrFinished = false
+    private var childTerminated = false
     private var didFinish = false
     private var processResult: Result<ProcessResult, Error>?
-    private var resultContinuation: CheckedContinuation<ProcessResult, Error>?
+    private var resultContinuations: [CheckedContinuation<ProcessResult, Error>] = []
 
     init() {
         var continuation: AsyncStream<ProcessEvent>.Continuation?
@@ -130,7 +131,7 @@ final class ProcessController: @unchecked Sendable {
                 continuation.resume(with: processResult)
                 return
             }
-            resultContinuation = continuation
+            resultContinuations.append(continuation)
             lock.unlock()
         }
     }
@@ -138,7 +139,10 @@ final class ProcessController: @unchecked Sendable {
     private func signal(_ action: (Process) -> Void) {
         lock.lock()
         defer { lock.unlock() }
-        guard let process, process.isRunning else { return }
+        guard !childTerminated, !didFinish, let process, process.isRunning else { return }
+
+        // Foundation has no atomic PID identity/liveness check. This lock prevents requests
+        // after observed termination, but cannot close a process exit race during delivery.
         action(process)
     }
 
@@ -166,6 +170,7 @@ final class ProcessController: @unchecked Sendable {
 
     private func recordExitCode(_ status: Int32) {
         lock.lock()
+        childTerminated = true
         exitCode = status
         let completion = completionIfReady()
         lock.unlock()
@@ -212,11 +217,13 @@ final class ProcessController: @unchecked Sendable {
         }
         didFinish = true
         processResult = .failure(error)
-        let continuation = resultContinuation
-        resultContinuation = nil
+        let continuations = resultContinuations
+        resultContinuations.removeAll()
         lock.unlock()
         eventContinuation.finish()
-        continuation?.resume(throwing: error)
+        for continuation in continuations {
+            continuation.resume(throwing: error)
+        }
     }
 
     private func completionIfReady() -> Completion? {
@@ -237,9 +244,9 @@ final class ProcessController: @unchecked Sendable {
             stderr: String(decoding: stderr, as: UTF8.self)
         )
         processResult = .success(result)
-        let continuation = resultContinuation
-        resultContinuation = nil
-        return Completion(exitCode: exitCode, resultContinuation: continuation, result: result)
+        let continuations = resultContinuations
+        resultContinuations.removeAll()
+        return Completion(exitCode: exitCode, resultContinuations: continuations, result: result)
     }
 
     private func yield(_ events: [ProcessEvent]) {
@@ -252,7 +259,9 @@ final class ProcessController: @unchecked Sendable {
         guard let completion else { return }
         eventContinuation.yield(.terminated(completion.exitCode))
         eventContinuation.finish()
-        completion.resultContinuation?.resume(returning: completion.result)
+        for continuation in completion.resultContinuations {
+            continuation.resume(returning: completion.result)
+        }
     }
 
     private enum PipeKind {
@@ -262,7 +271,7 @@ final class ProcessController: @unchecked Sendable {
 
     private struct Completion {
         let exitCode: Int32
-        let resultContinuation: CheckedContinuation<ProcessResult, Error>?
+        let resultContinuations: [CheckedContinuation<ProcessResult, Error>]
         let result: ProcessResult
     }
 }

@@ -2,6 +2,13 @@ import Foundation
 
 struct ProgressParser: Sendable {
     func parse(line: String) -> [DownloadEvent] {
+        let filepathPrefix = "ytdp:filepath|"
+        if line.hasPrefix(filepathPrefix) {
+            let path = String(line.dropFirst(filepathPrefix.count))
+            guard path.hasPrefix("/") else { return [] }
+            return [.output(URL(fileURLWithPath: path))]
+        }
+
         let fields = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard let marker = fields.first else { return [] }
 
@@ -11,9 +18,6 @@ struct ProgressParser: Sendable {
         case "ytdp:phase":
             guard fields.count == 2, let phase = DownloadPhase(rawValue: fields[1]) else { return [] }
             return [.phase(phase)]
-        case "ytdp:filepath":
-            guard fields.count == 2, fields[1].hasPrefix("/") else { return [] }
-            return [.output(URL(fileURLWithPath: fields[1]))]
         case "ytdp:completed":
             return fields.count == 1 ? [.completed] : []
         default:

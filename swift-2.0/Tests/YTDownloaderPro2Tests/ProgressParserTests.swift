@@ -67,6 +67,10 @@ final class ProgressParserTests: XCTestCase {
             parser.parse(line: "ytdp:filepath|/tmp/video.mp4"),
             [.output(URL(fileURLWithPath: "/tmp/video.mp4"))]
         )
+        XCTAssertEqual(
+            parser.parse(line: "ytdp:filepath|/tmp/folder|literal|pipe.mp4"),
+            [.output(URL(fileURLWithPath: "/tmp/folder|literal|pipe.mp4"))]
+        )
         XCTAssertEqual(parser.parse(line: "ytdp:completed"), [.completed])
     }
 
@@ -153,6 +157,70 @@ final class ProgressParserTests: XCTestCase {
         XCTAssertEqual(emptyEvents, [.terminated(0)])
     }
 
+    func testMultipleResultWaitersReceiveTheSameResultBeforeTimeout() async throws {
+        let executable = try makeScript(
+            """
+            #!/bin/sh
+            sleep 1
+            printf 'shared-result'
+            """
+        )
+        let running = try await SystemProcessLauncher().start(executable: executable, arguments: [])
+
+        let results = try await completeWithin(seconds: 2) {
+            async let first = running.result()
+            async let second = running.result()
+            return try await [first, second]
+        }
+
+        XCTAssertEqual(results, [
+            ProcessResult(exitCode: 0, stdout: "shared-result", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "shared-result", stderr: "")
+        ])
+
+        let lateResult = try await completeWithin(seconds: 1) {
+            try await running.result()
+        }
+        XCTAssertEqual(lateResult, ProcessResult(exitCode: 0, stdout: "shared-result", stderr: ""))
+    }
+
+    func testHighVolumeDualPipeStreamingPreservesOrderBeforeTermination() async throws {
+        let lineCount = 4096
+        let executable = try makeScript(
+            """
+            #!/bin/sh
+            i=0
+            while [ "$i" -lt 4096 ]; do
+                printf 'stdout-%s\\n' "$i"
+                printf 'stderr-%s\\n' "$i" >&2
+                i=$((i + 1))
+            done
+            """
+        )
+        let running = try await SystemProcessLauncher().start(executable: executable, arguments: [])
+        let events = try await completeWithin(seconds: 5) {
+            try await collect(running.events)
+        }
+
+        let stdoutLines = events.compactMap { event -> String? in
+            guard case let .stdoutLine(line) = event else { return nil }
+            return line
+        }
+        let stderrLines = events.compactMap { event -> String? in
+            guard case let .stderrLine(line) = event else { return nil }
+            return line
+        }
+        let expectedIndexes = (0..<lineCount).map(String.init)
+
+        XCTAssertEqual(stdoutLines, expectedIndexes.map { "stdout-\($0)" })
+        XCTAssertEqual(stderrLines, expectedIndexes.map { "stderr-\($0)" })
+        XCTAssertEqual(events.filter { event in
+            if case .terminated = event { return true }
+            return false
+        }, [.terminated(0)])
+        XCTAssertEqual(events.last, .terminated(0))
+    }
+
     func testInterruptIsIdempotent() async throws {
         let running = try await SystemProcessLauncher().start(executable: try longRunningScript(), arguments: [])
 
@@ -196,5 +264,45 @@ final class ProgressParserTests: XCTestCase {
             done
             """
         )
+    }
+
+    private func completeWithin<T: Sendable>(
+        seconds: UInt64,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let state = TimeoutState(continuation: continuation)
+            Task.detached {
+                do {
+                    state.resume(with: .success(try await operation()))
+                } catch {
+                    state.resume(with: .failure(error))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Double(seconds)) {
+                state.resume(with: .failure(TimeoutError.timedOut))
+            }
+        }
+    }
+
+    private enum TimeoutError: Error {
+        case timedOut
+    }
+}
+
+private final class TimeoutState<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+
+    init(continuation: CheckedContinuation<Value, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<Value, Error>) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
     }
 }
