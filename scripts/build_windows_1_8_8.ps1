@@ -92,9 +92,10 @@ Remove-Item -Force -ErrorAction SilentlyContinue $ArchivePath, $SelfTestReport
     --hidden-import yt_dlp_ejs `
     --collect-data yt_dlp_ejs `
     --version-file $VersionFile `
+    --paths $RepoRoot `
     --distpath $PyInstallerDist `
     --workpath $PyInstallerWork `
-    "YT_downloader_188_windows.py"
+    "versions/v1.8.8/YT_downloader_188_windows.py"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller Windows build failed." }
 
 Copy-Item -Recurse (Join-Path $PyInstallerDist "YT Downloader Pro") $PackageRoot

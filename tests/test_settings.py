@@ -11,6 +11,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "versions" / "v1.8.8"))
 
 import YT_downloader_188 as app_module
 
@@ -446,7 +447,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
     def test_build_script_targets_1_8_8_with_bundle_metadata(self):
         script = (ROOT / "scripts" / "build_1_8_8.sh").read_text(encoding="utf-8")
 
-        self.assertIn("YT_downloader_188.py", script)
+        self.assertIn("versions/v1.8.8/YT_downloader_188.py", script)
         self.assertIn("CFBundleShortVersionString", script)
         self.assertIn("1.8.8", script)
         self.assertIn("CFBundleVersion", script)

@@ -404,7 +404,10 @@ class WindowsBuildScriptTests(unittest.TestCase):
             "--version-file",
         ):
             self.assertIn(argument, script)
-        self.assertIn("YT_downloader_188_windows.py", script)
+        self.assertIn(
+            "versions/v1.8.8/YT_downloader_188_windows.py",
+            script,
+        )
         self.assertIn("Helpers", script)
         self.assertIn("README-Windows.txt", script)
         self.assertIn("THIRD_PARTY_NOTICES.txt", script)

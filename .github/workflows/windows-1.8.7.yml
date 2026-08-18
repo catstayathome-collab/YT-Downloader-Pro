@@ -5,7 +5,7 @@ name: Build Windows 1.8.7 test artifact
   pull_request:
     paths:
       - '.github/workflows/windows-1.8.7.yml'
-      - 'YT_downloader_187_windows.py'
+      - 'versions/v1.8.7/YT_downloader_187_windows.py'
       - 'ytdp/**'
       - 'scripts/build_windows_1_8_7.ps1'
       - 'scripts/check_windows_package.py'

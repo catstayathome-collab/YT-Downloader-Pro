@@ -72,12 +72,12 @@ Windows 使用者應從公開 GitHub Release 下載 ZIP 與 SHA-256 檔案、完
 - `v1.8.6`：加入 GitHub Contents API 更新檢查。
 - `v1.8.7`：改善 Apple Silicon 相容性、下載安全性、錯誤訊息與完整尺寸 App 圖示。
 - `v1.8.8`：分析與下載統一使用可正常取得串流的 YouTube client，加入 HTTP 403 本地化提示與 Windows x64 版本。
-- `YT_downloader_188.py`：macOS `1.8.8` 對應的版本化原始碼。
-- `YT_downloader_188_windows.py`：Windows `1.8.8` x64 未簽署版的版本化入口。
-- `YT_downloader_187.py`、`YT_downloader_187_windows.py`：保留的 `1.8.7` 版本原始碼。
+- `versions/v1.8.8/`：macOS 與 Windows `1.8.8` 的版本化入口。
+- `versions/v1.8.7/`：保留的 macOS 與 Windows `1.8.7` 版本化入口。
+- `versions/`：集中保存可用的 Python 版本入口與歷史索引。
 - `develop/v2.0-swift`：原生 SwiftUI 下載中心開發線。
 
-每個 Python 版本保留獨立檔名，方便比較與回復。公開版本會讓 `version.txt`、Git tag 與 GitHub Release 維持相同版本號。
+每個 Python 版本保留獨立檔名並集中在 `versions/v1.8.x/`，方便比較與回復。完整版本仍以 Git tag 為準，因為 1.8.7 之後的入口會共用 `ytdp/`；公開版本會讓 `version.txt`、Git tag 與 GitHub Release 維持相同版本號。
 
 `1.8.8` 的自動驗證結果與雙平台發布門檻記錄於 `docs/RELEASE_1_8_8_VALIDATION.md`。
 

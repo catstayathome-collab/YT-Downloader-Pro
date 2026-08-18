@@ -36,7 +36,7 @@ def make_platform():
             else executable_dir
         )
     else:
-        contents_dir = Path(__file__).resolve().parent
+        contents_dir = Path(__file__).resolve().parents[2]
     return MacOSPlatform(frozen_dir=contents_dir, frozen=getattr(sys, "frozen", False))
 
 

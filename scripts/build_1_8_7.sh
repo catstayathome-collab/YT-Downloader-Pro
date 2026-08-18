@@ -20,7 +20,8 @@ python3 -m PyInstaller \
   --osx-bundle-identifier "com.tachouweng.ytdownloaderpro" \
   --hidden-import yt_dlp_ejs \
   --collect-data yt_dlp_ejs \
-  "$ROOT_DIR/YT_downloader_187.py"
+  --paths "$ROOT_DIR" \
+  "$ROOT_DIR/versions/v1.8.7/YT_downloader_187.py"
 
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.8.7" "$INFO_PLIST" 2>/dev/null || \

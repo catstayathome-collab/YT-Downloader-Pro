@@ -15,6 +15,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "versions" / "v1.8.7"))
+sys.path.insert(0, str(ROOT / "versions" / "v1.8.8"))
 
 
 URL = "https://youtu.be/example"
@@ -136,7 +138,7 @@ class EntrypointTests(unittest.TestCase):
         self.assertIs(module.YTDownloaderApp, self.shared.YTDownloaderApp)
 
     def test_windows_launcher_bootstrap_does_not_import_ui_dependencies(self):
-        source = ROOT / "YT_downloader_188_windows.py"
+        source = ROOT / "versions" / "v1.8.8" / "YT_downloader_188_windows.py"
         spec = importlib.util.spec_from_file_location("isolated_windows_launcher", source)
         module = importlib.util.module_from_spec(spec)
         original_import = builtins.__import__
@@ -173,6 +175,13 @@ class EntrypointTests(unittest.TestCase):
                 self.assertEqual(module.main(), "app")
 
         run.assert_called_once_with(platform, version="1.8.8")
+
+    def test_source_entrypoints_resolve_helpers_from_repository_root(self):
+        macos = importlib.import_module("YT_downloader_188")
+        windows = importlib.import_module("YT_downloader_188_windows")
+
+        self.assertEqual(macos.make_platform().frozen_dir, ROOT)
+        self.assertEqual(windows.make_platform().frozen_dir, ROOT)
 
     def test_windows_normal_launch_rejects_non_windows_hosts(self):
         module = importlib.import_module("YT_downloader_188_windows")

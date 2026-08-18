@@ -1,4 +1,4 @@
-"""Windows 1.8.8 launcher for the shared YT Downloader Pro application."""
+"""Windows 1.8.7 launcher for the shared YT Downloader Pro application."""
 
 import argparse
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 APP_NAME = "YT Downloader Pro"
-VERSION = "1.8.8"
+VERSION = "1.8.7"
 
 
 def _load_ui():
@@ -34,7 +34,11 @@ def make_platform():
     """Build the Windows adapter with the current source or package root."""
     from ytdp.platforms import WindowsPlatform
 
-    root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    root = (
+        Path(sys.executable).resolve().parent
+        if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parents[2]
+    )
     return WindowsPlatform(frozen_dir=root, frozen=getattr(sys, "frozen", False))
 
 
