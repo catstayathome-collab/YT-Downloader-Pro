@@ -259,6 +259,7 @@ class YTDownloaderApp:
         return options
 
     def download_video(self, request):
+        self.current_artifacts = None
         try:
             ffmpeg_dir = self.get_ffmpeg_path()
             js_runtime_path = self.get_js_runtime_path()
@@ -279,7 +280,9 @@ class YTDownloaderApp:
             else:
                 message = self.clean_download_error(e)
                 self.post_to_ui(self.show_download_error, message)
-        finally: self.post_to_ui(self.reset_ui)
+        finally:
+            self.current_artifacts = None
+            self.post_to_ui(self.reset_ui)
 
     def analyze_video(self, request_id, url):
         try:

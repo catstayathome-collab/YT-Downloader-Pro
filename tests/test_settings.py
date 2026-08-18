@@ -349,6 +349,34 @@ class DownloadFailureTests(unittest.TestCase):
             mock.call(app.reset_ui),
         ])
 
+    def test_cancelled_setup_failure_never_cleans_a_previous_download_tracker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path(directory) / "Previous.mp4"
+            tracker = app_module.DownloadArtifactTracker(directory, previous.name)
+            previous.write_bytes(b"completed download")
+            app = object.__new__(app_module.YTDownloaderApp)
+            app.current_artifacts = tracker
+            app.is_cancelled = True
+            app.get_ffmpeg_path = mock.Mock(return_value="helpers")
+            app.get_js_runtime_path = mock.Mock(return_value="deno.exe")
+            app.make_download_options = mock.Mock(side_effect=FileNotFoundError("missing"))
+            app.show_cancelled = mock.Mock()
+            app.reset_ui = mock.Mock()
+            app.post_to_ui = mock.Mock()
+            request = app_module.DownloadRequest(
+                url="https://youtu.be/second",
+                video_format_id="137",
+                audio_format_id="140",
+                audio_only=False,
+                output_directory="missing",
+                title="Second",
+            )
+
+            app.download_video(request)
+
+            self.assertTrue(previous.exists())
+            self.assertIsNone(app.current_artifacts)
+
     def test_youtube_bot_check_is_localized(self):
         message = self.app.clean_download_error(
             Exception("Sign in to confirm you’re not a bot. Use --cookies-from-browser")
