@@ -245,7 +245,7 @@ class EntrypointTests(unittest.TestCase):
                 self.app.show_update_dialog("1.8.8", download_url)
         open_url.assert_called_once_with(download_url)
 
-    def test_windows_update_without_a_safe_matching_asset_reports_manual_failure_only(self):
+    def test_windows_update_without_a_safe_matching_asset_uses_release_page(self):
         manifest_url = "https://api.example/version.txt"
         release_url = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/releases/latest"
         release = json.dumps(
@@ -262,15 +262,11 @@ class EntrypointTests(unittest.TestCase):
         with mock.patch.object(self.shared, "PUBLIC_UPDATE_MANIFEST_URL", manifest_url):
             self._run_update_check({manifest_url: "1.8.8\n", release_url: release}, silent=False)
 
-        callback, message, title = self.app.post_to_ui.call_args.args
-        self.assertIs(callback.__self__, self.app)
-        self.assertIs(callback.__func__, self.app.show_download_error.__func__)
-        self.assertEqual(title, "Update")
-        self.assertIn("matching Windows x64 release asset", message)
-
-        with mock.patch.object(self.shared, "PUBLIC_UPDATE_MANIFEST_URL", manifest_url):
-            self._run_update_check({manifest_url: "1.8.8\n", release_url: release}, silent=True)
-        self.app.post_to_ui.assert_not_called()
+        self.app.post_to_ui.assert_called_once_with(
+            self.app.show_update_dialog,
+            "1.8.8",
+            self.shared.DEFAULT_UPDATE_DOWNLOAD_URL,
+        )
 
     def test_startup_toolchain_validation_runs_in_background(self):
         captured = []

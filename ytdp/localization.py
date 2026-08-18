@@ -19,7 +19,7 @@ LANG_DATA = {
         "tool_validation_failed": "內建轉檔工具驗證失敗，影片解析與下載已停用。請重新下載完整的應用程式，或聯絡開發者。\n\n診斷記錄：{log_path}",
         "tool_ytdlp_error": "內建轉檔工具無法被下載核心使用，因此無法合併影音或轉換 MP3。\n\n請重新下載完整的應用程式，或聯絡開發者取得新版安裝檔。",
         "format_unavailable": "YouTube 回傳的格式已變動，或剛才選到的格式已不可用。\n\n請重新解析影片後再下載；若仍失敗，請改選另一個畫質或音訊選項。",
-        "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認 macOS 日期時間正確，並更新或重新安裝 App。",
+        "certificate_error": "安全憑證驗證失敗，無法建立受保護的連線。請確認電腦日期時間正確，並更新或重新安裝 App。",
         "network_error": "目前無法連上 YouTube。請檢查網路連線後再試一次。",
         "youtube_bot_check": "YouTube 暫時要求登入驗證，這不是影片網址或轉檔工具故障。請先在瀏覽器登入 YouTube，稍後重新解析；若持續出現，請重新啟動 App 或聯絡開發者。",
         "permission_error": "沒有權限寫入選擇的資料夾。請改選其他儲存位置，或在系統設定中允許 App 存取。",
@@ -46,7 +46,7 @@ LANG_DATA = {
         "tool_validation_failed": "Bundled helper validation failed, so analysis and downloads are disabled. Download the complete application again or contact the developer.\n\nDiagnostic log: {log_path}",
         "tool_ytdlp_error": "The bundled converter could not be used by the download engine, so video/audio merging or MP3 conversion cannot continue.\n\nPlease download the complete application again or contact the developer for an updated build.",
         "format_unavailable": "The YouTube format list changed, or the selected format is no longer available.\n\nAnalyze the video again before downloading. If it still fails, choose another video or audio format.",
-        "certificate_error": "The secure certificate check failed. Verify the Mac's date and time, then update or reinstall the app.",
+        "certificate_error": "The secure certificate check failed. Verify the computer's date and time, then update or reinstall the app.",
         "network_error": "YouTube cannot be reached right now. Check the network connection and try again.",
         "youtube_bot_check": "YouTube temporarily requires a sign-in verification. The video URL and converter are not at fault. Sign in to YouTube in your browser and analyze again later. If this continues, restart the app or contact the developer.",
         "permission_error": "The selected folder cannot be written. Choose another location or allow access in System Settings.",
@@ -72,7 +72,7 @@ LANG_DATA = {
         "tool_validation_failed": "内蔵ツールの検証に失敗したため、解析とダウンロードを無効にしました。完全なアプリケーションを再ダウンロードするか、開発者に連絡してください。\n\n診断ログ：{log_path}",
         "tool_ytdlp_error": "内蔵変換ツールをダウンロードエンジンが使用できないため、動画と音声の結合または MP3 変換を続行できません。\n\n完全なアプリケーションを再ダウンロードするか、開発者に新版を依頼してください。",
         "format_unavailable": "YouTube の形式リストが変更されたか、選択した形式を利用できなくなりました。\n\n動画を再解析してから再度ダウンロードしてください。まだ失敗する場合は、別の画質または音声を選択してください。",
-        "certificate_error": "安全な証明書を確認できませんでした。Mac の日付と時刻を確認し、App を更新または再インストールしてください。",
+        "certificate_error": "安全な証明書を確認できませんでした。コンピューターの日付と時刻を確認し、App を更新または再インストールしてください。",
         "network_error": "現在 YouTube に接続できません。ネットワーク接続を確認して、もう一度お試しください。",
         "youtube_bot_check": "YouTube が一時的にログイン確認を求めています。動画 URL や変換ツールの故障ではありません。ブラウザで YouTube にログインし、しばらくしてから再解析してください。続く場合は App を再起動するか、開発者に連絡してください。",
         "permission_error": "選択したフォルダに書き込む権限がありません。別の保存先を選ぶか、システム設定でアクセスを許可してください。",
@@ -131,6 +131,8 @@ def clean_download_error(error, language, log_path=None):
     lowered = message.lower()
     if isinstance(error, PermissionError) or "permission denied" in lowered or "access is denied" in lowered:
         return text["permission_error"]
+    if isinstance(error, FileNotFoundError):
+        return text["invalid_path"]
     if "sign in to confirm you" in lowered and "not a bot" in lowered:
         return text["youtube_bot_check"]
     if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:

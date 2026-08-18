@@ -75,11 +75,17 @@ class WindowsPlatform(PlatformAdapter):
     def helper_name(self, tool) -> str:
         return tool if str(tool).lower().endswith(".exe") else f"{tool}.exe"
 
+    def _user_ui_language_id(self) -> int:
+        return ctypes.windll.kernel32.GetUserDefaultUILanguage()
+
     def language(self) -> str:
         try:
-            language = locale.getlocale()[0] or ""
+            language = locale.windows_locale.get(self._user_ui_language_id(), "")
         except Exception:
-            language = ""
+            try:
+                language = locale.getlocale()[0] or ""
+            except Exception:
+                language = ""
         language = language.lower()
         if language.startswith("ja"):
             return "ja"

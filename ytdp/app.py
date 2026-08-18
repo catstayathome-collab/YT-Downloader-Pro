@@ -58,14 +58,14 @@ class YTDownloaderApp:
         self.platform = platform_adapter
         self.lang = self.platform.language()
         self.text = LANG_DATA[self.lang]
-        
+
         # 狀態控制變數
         self.is_paused = False
         self.is_cancelled = False
         self.download_phase = "idle"
         self.pause_event = threading.Event()
         self.pause_event.set()
-        
+
         self.root.title(f"{self.text['title']} v{VERSION}")
         self.root.geometry("600x720")
         self.settings_path = self.get_settings_path()
@@ -99,12 +99,12 @@ class YTDownloaderApp:
         tk.Label(root, text=self.text['title'], font=("Arial", 18, "bold")).pack(pady=10)
         self.lbl_video_title = tk.Label(root, text="", font=("Arial", 10, "bold"), wraplength=500, fg="black")
         self.lbl_video_title.pack(pady=5)
-        
+
         url_frame = tk.Frame(root)
         url_frame.pack(pady=5, fill="x", padx=30)
         self.url_entry = tk.Entry(url_frame)
         self.url_entry.pack(side="left", fill="x", expand=True, padx=5)
-        
+
         self.url_entry.bind('<Return>', lambda e: self.start_analyze())
         self.url_entry.bind('<KeyRelease>', self.handle_url_change)
         self.root.bind_all('<<Paste>>', lambda e: self.force_paste())
@@ -268,8 +268,8 @@ class YTDownloaderApp:
             self.post_to_ui(self.show_download_error, message, self.text['tool_unavailable_title'])
             self.post_to_ui(self.reset_ui)
             return
-        ydl_opts = self.make_download_options(request, ffmpeg_dir, js_runtime_path)
         try:
+            ydl_opts = self.make_download_options(request, ffmpeg_dir, js_runtime_path)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([request.url])
             self.post_to_ui(self.show_download_success)
         except Exception as e:
@@ -397,7 +397,7 @@ class YTDownloaderApp:
                                 resp.read().decode("utf-8"), "windows"
                             )
                         if not download_url:
-                            raise ValueError("matching Windows x64 release asset is unavailable")
+                            download_url = UPDATE_DOWNLOAD_URL
                     self.post_to_ui(self.show_update_dialog, latest, download_url)
                 elif not silent: self.post_to_ui(messagebox.showinfo, "Update", self.text['is_latest'])
             except Exception as e:
@@ -583,22 +583,22 @@ class YTDownloaderApp:
         self.track_download_artifacts(d)
         if self.is_cancelled: raise Exception("USER_CANCEL")
         self.pause_event.wait()
-        
+
         if d['status'] == 'downloading':
             self.post_to_ui(self.set_download_phase, "downloading")
             # --- 修正點：直接用數值計算百分比，避開彩色字元 ---
             downloaded = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-            
+
             if total > 0:
                 p = (downloaded / total) * 100
             else:
                 p = 0.0 # 避免除以零
-            
+
             speed = format_bytes(d.get('speed')) + "/s" if d.get('speed') else "--"
             size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
             self.post_to_ui(self.update_ui_data, round(p, 1), speed, size)
-            
+
         elif d['status'] == 'finished':
             self.post_to_ui(self.set_download_phase, "merging")
             self.post_to_ui(self.update_ui_data, 100, "0 B/s", self.text['merging'])

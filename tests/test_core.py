@@ -72,6 +72,20 @@ class FilenameTests(unittest.TestCase):
             self.assertEqual(len(result), 180)
             self.assertTrue(result.endswith(" (1)"))
 
+    def test_windows_intermediate_download_files_reserve_the_entire_stem(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "Movie.webm").write_bytes(b"existing audio")
+            Path(directory, "Clip.f137.mp4").write_bytes(b"existing video")
+
+            self.assertEqual(
+                reserve_output_stem(directory, "movie", ".mp3", "windows"),
+                "movie (1)",
+            )
+            self.assertEqual(
+                reserve_output_stem(directory, "clip", ".mp4", "windows"),
+                "clip (1)",
+            )
+
     def test_macos_duplicate_allocation_preserves_existing_behavior(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "Movie.mp4").write_bytes(b"existing")

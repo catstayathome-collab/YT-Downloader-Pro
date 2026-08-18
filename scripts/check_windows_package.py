@@ -19,6 +19,12 @@ ARCHIVE_NAME = f"{PACKAGE_NAME}.zip"
 APP_EXE = "YT Downloader Pro.exe"
 EXPECTED_HELPERS = ("ffmpeg.exe", "ffprobe.exe", "deno.exe")
 EXPECTED_DOCUMENTS = ("THIRD_PARTY_NOTICES.txt", "README-Windows.txt")
+EXPECTED_LICENSES = (
+    "Deno-MIT.txt",
+    "FFmpeg-LGPL-2.1.txt",
+    "LAME-LGPL-2.0.txt",
+    "QuickJS-MIT.txt",
+)
 EXPECTED_EXECUTABLES = {
     APP_EXE,
     *(f"Helpers/{helper}" for helper in EXPECTED_HELPERS),
@@ -107,6 +113,18 @@ def _check_directory(package_root, checked_path=None, check_root_name=True):
     for document in EXPECTED_DOCUMENTS:
         if not (package_root / document).is_file():
             errors.append(f"missing package document: {document}")
+
+    license_root = package_root / "tools" / "licenses"
+    packaged_licenses = (
+        sorted(path.name for path in license_root.iterdir() if path.is_file())
+        if license_root.is_dir()
+        else []
+    )
+    if packaged_licenses != sorted(EXPECTED_LICENSES):
+        errors.append(
+            f"license directory must contain {sorted(EXPECTED_LICENSES)}; "
+            f"found {packaged_licenses}"
+        )
 
     return PackageCheckResult(str(checked_path or package_root), tuple(errors))
 

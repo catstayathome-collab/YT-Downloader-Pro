@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import base64
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -309,6 +310,44 @@ class NetworkSafetyTests(unittest.TestCase):
         message = self.app.clean_download_error(PermissionError("denied"))
 
         self.assertIn("權限", message)
+
+    def test_missing_output_directory_is_localized(self):
+        message = self.app.clean_download_error(FileNotFoundError("missing"))
+
+        self.assertIn("路徑無效", message)
+
+
+class DownloadFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(app_module.YTDownloaderApp)
+        self.app.text = app_module.LANG_DATA["zh"]
+        self.app.browser_cookies = None
+
+    def test_output_setup_failure_reports_error_and_resets_ui(self):
+        app = object.__new__(app_module.YTDownloaderApp)
+        app.is_cancelled = False
+        app.get_ffmpeg_path = mock.Mock(return_value="helpers")
+        app.get_js_runtime_path = mock.Mock(return_value="deno.exe")
+        app.make_download_options = mock.Mock(side_effect=FileNotFoundError("missing"))
+        app.clean_download_error = mock.Mock(return_value="invalid output path")
+        app.show_download_error = mock.Mock()
+        app.reset_ui = mock.Mock()
+        app.post_to_ui = mock.Mock()
+        request = app_module.DownloadRequest(
+            url="https://youtu.be/first",
+            video_format_id="137",
+            audio_format_id="140",
+            audio_only=False,
+            output_directory="missing",
+            title="Title",
+        )
+
+        app.download_video(request)
+
+        app.post_to_ui.assert_has_calls([
+            mock.call(app.show_download_error, "invalid output path"),
+            mock.call(app.reset_ui),
+        ])
 
     def test_youtube_bot_check_is_localized(self):
         message = self.app.clean_download_error(

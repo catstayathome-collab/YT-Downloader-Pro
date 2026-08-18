@@ -104,6 +104,8 @@ Copy-Item (Join-Path $HelperSource "ffprobe.exe") (Join-Path $PackageRoot "Helpe
 Copy-Item (Join-Path $HelperSource "deno.exe") (Join-Path $PackageRoot "Helpers/deno.exe")
 Copy-Item "README-Windows.txt" (Join-Path $PackageRoot "README-Windows.txt")
 Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $PackageRoot "THIRD_PARTY_NOTICES.txt")
+New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot "tools") | Out-Null
+Copy-Item -Recurse "tools/licenses" (Join-Path $PackageRoot "tools/licenses")
 
 & $Python "scripts/check_windows_package.py" $PackageRoot
 if ($LASTEXITCODE -ne 0) { throw "Static Windows package check failed." }

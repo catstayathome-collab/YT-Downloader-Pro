@@ -70,14 +70,20 @@ class WindowsPlatformTests(unittest.TestCase):
                     with mock.patch("ytdp.platforms.windows.Path.home", return_value=home):
                         self.assertEqual(adapter.default_download_dir(), home / "Downloads")
 
-    def test_windows_language_maps_locale_prefixes(self):
+    def test_windows_language_uses_the_user_interface_language(self):
         adapter = WindowsPlatform()
-        with mock.patch("ytdp.platforms.windows.locale.getlocale", return_value=("zh_TW", "UTF-8")):
+        with mock.patch.object(adapter, "_user_ui_language_id", return_value=0x0404):
             self.assertEqual(adapter.language(), "zh")
-        with mock.patch("ytdp.platforms.windows.locale.getlocale", return_value=("ja_JP", "UTF-8")):
+        with mock.patch.object(adapter, "_user_ui_language_id", return_value=0x0411):
             self.assertEqual(adapter.language(), "ja")
-        with mock.patch("ytdp.platforms.windows.locale.getlocale", return_value=("en_US", "UTF-8")):
+        with mock.patch.object(adapter, "_user_ui_language_id", return_value=0x0409):
             self.assertEqual(adapter.language(), "en")
+
+    def test_windows_language_falls_back_to_process_locale(self):
+        adapter = WindowsPlatform()
+        with mock.patch.object(adapter, "_user_ui_language_id", side_effect=OSError):
+            with mock.patch("ytdp.platforms.windows.locale.getlocale", return_value=("ja_JP", "UTF-8")):
+                self.assertEqual(adapter.language(), "ja")
 
     def test_windows_accepts_amd64_pe_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:

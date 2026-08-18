@@ -27,31 +27,35 @@ def sanitize_filename_stem(title, platform_name):
 
 
 def reserve_output_stem(directory, title, extension, platform_name):
-    """Allocate a non-conflicting output stem without creating a file."""
+    """Allocate a stem unused by final, intermediate, or sidecar files."""
     directory = Path(directory)
     stem = sanitize_filename_stem(title, platform_name)
     extension = extension if extension.startswith(".") else f".{extension}"
-    candidate = f"{stem}{extension}"
+    case_insensitive = platform_name.lower() == "windows"
+    occupied = [path.name.casefold() if case_insensitive else path.name for path in directory.iterdir()]
 
-    if platform_name.lower() == "windows":
-        occupied = {path.name.casefold() for path in directory.iterdir()}
-        if candidate.casefold() not in occupied:
+    def stem_is_occupied(candidate_stem):
+        normalized = candidate_stem.casefold() if case_insensitive else candidate_stem
+        prefix = f"{normalized}."
+        return any(name == normalized or name.startswith(prefix) for name in occupied)
+
+    if case_insensitive:
+        if not stem_is_occupied(stem):
             return stem
         counter = 1
         while True:
             suffix = f" ({counter})"
             candidate_stem = f"{stem[:180 - len(suffix)]}{suffix}"
-            candidate = f"{candidate_stem}{extension}"
-            if candidate.casefold() not in occupied:
+            if not stem_is_occupied(candidate_stem):
                 return candidate_stem
             counter += 1
 
-    if not (directory / candidate).exists():
+    if not stem_is_occupied(stem):
         return stem
     counter = 1
     while True:
         candidate_stem = f"{stem} ({counter})"
-        if not (directory / f"{candidate_stem}{extension}").exists():
+        if not stem_is_occupied(candidate_stem):
             return candidate_stem
         counter += 1
 

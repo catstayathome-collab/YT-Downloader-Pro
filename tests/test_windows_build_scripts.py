@@ -62,6 +62,12 @@ EXPECTED_MANIFEST = {
         ],
     },
 }
+EXPECTED_LICENSES = {
+    "Deno-MIT.txt",
+    "FFmpeg-LGPL-2.1.txt",
+    "LAME-LGPL-2.0.txt",
+    "QuickJS-MIT.txt",
+}
 
 
 def load_script(name, path):
@@ -91,6 +97,10 @@ def create_valid_package(parent):
         write_pe(package_root / "Helpers" / helper)
     (package_root / "THIRD_PARTY_NOTICES.txt").write_text("notices", encoding="utf-8")
     (package_root / "README-Windows.txt").write_text("readme", encoding="utf-8")
+    for license_name in EXPECTED_LICENSES:
+        license_path = package_root / "tools" / "licenses" / license_name
+        license_path.parent.mkdir(parents=True, exist_ok=True)
+        license_path.write_text("license", encoding="utf-8")
     return package_root
 
 
@@ -140,6 +150,24 @@ def archive_package(package_root, archive_path):
 
 
 class WindowsBuildScriptTests(unittest.TestCase):
+    def test_package_checker_requires_referenced_license_texts(self):
+        checker = load_script("check_windows_package_licenses", PACKAGE_CHECKER)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            (package_root / "tools" / "licenses" / "Deno-MIT.txt").unlink()
+
+            result = checker.check_package(package_root)
+
+        self.assertTrue(
+            any("Deno-MIT.txt" in error for error in result.errors),
+            result.errors,
+        )
+
+    def test_build_script_copies_the_referenced_license_directory(self):
+        content = BUILD_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('Copy-Item -Recurse "tools/licenses"', content)
+
     def test_windows_tool_manifest_is_immutable_and_complete(self):
         self.assertTrue(MANIFEST.is_file(), "Windows helper manifest is missing")
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
