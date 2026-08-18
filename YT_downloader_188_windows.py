@@ -1,4 +1,4 @@
-"""Windows 1.8.7 launcher for the shared YT Downloader Pro application."""
+"""Windows 1.8.8 launcher for the shared YT Downloader Pro application."""
 
 import argparse
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 APP_NAME = "YT Downloader Pro"
-VERSION = "1.8.7"
+VERSION = "1.8.8"
 
 
 def _load_ui():

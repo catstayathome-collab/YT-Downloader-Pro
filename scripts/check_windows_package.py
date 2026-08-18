@@ -14,7 +14,7 @@ except ImportError:
     from scripts.fetch_windows_tools import validate_amd64_pe
 
 
-PACKAGE_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+PACKAGE_NAME = "YT-Downloader-Pro-v1.8.8-Windows-x64"
 ARCHIVE_NAME = f"{PACKAGE_NAME}.zip"
 APP_EXE = "YT Downloader Pro.exe"
 EXPECTED_HELPERS = ("ffmpeg.exe", "ffprobe.exe", "deno.exe")
@@ -53,11 +53,13 @@ def _check_pe(path, errors):
         errors.append(str(error))
 
 
-def _check_directory(package_root, checked_path=None, check_root_name=True):
+def _check_directory(
+    package_root, checked_path=None, check_root_name=True, package_name=PACKAGE_NAME
+):
     package_root = Path(package_root)
     errors = []
-    if check_root_name and package_root.name != PACKAGE_NAME:
-        errors.append(f"package root must be named {PACKAGE_NAME}")
+    if check_root_name and package_root.name != package_name:
+        errors.append(f"package root must be named {package_name}")
     if not package_root.is_dir():
         errors.append(f"package root is not a directory: {package_root}")
         return PackageCheckResult(str(checked_path or package_root), tuple(errors))
@@ -143,11 +145,12 @@ def _safe_archive_name(name):
     return path
 
 
-def _check_archive(archive_path):
+def _check_archive(archive_path, package_name=PACKAGE_NAME):
     archive_path = Path(archive_path)
     errors = []
-    if archive_path.name != ARCHIVE_NAME:
-        errors.append(f"Windows archive must be named {ARCHIVE_NAME}")
+    archive_name = f"{package_name}.zip"
+    if archive_path.name != archive_name:
+        errors.append(f"Windows archive must be named {archive_name}")
     try:
         with zipfile.ZipFile(archive_path) as archive:
             safe_entries = []
@@ -163,9 +166,9 @@ def _check_archive(archive_path):
                 except ValueError as error:
                     errors.append(str(error))
             top_levels = {path.parts[0] for _info, path in safe_entries if path.parts}
-            if top_levels != {PACKAGE_NAME}:
+            if top_levels != {package_name}:
                 errors.append(
-                    f"archive must contain one {PACKAGE_NAME} top-level directory; found {sorted(top_levels)}"
+                    f"archive must contain one {package_name} top-level directory; found {sorted(top_levels)}"
                 )
             if errors:
                 return PackageCheckResult(str(archive_path), tuple(errors))
@@ -180,9 +183,10 @@ def _check_archive(archive_path):
                     with archive.open(info, "r") as source, destination.open("wb") as output:
                         output.write(source.read())
                 checked = _check_directory(
-                    extraction_root / PACKAGE_NAME,
+                    extraction_root / package_name,
                     checked_path=archive_path,
                     check_root_name=False,
+                    package_name=package_name,
                 )
                 errors.extend(checked.errors)
     except (OSError, zipfile.BadZipFile) as error:
@@ -190,19 +194,20 @@ def _check_archive(archive_path):
     return PackageCheckResult(str(archive_path), tuple(errors))
 
 
-def check_package(path):
+def check_package(path, package_name=PACKAGE_NAME):
     """Return static package diagnostics without executing Windows binaries."""
     path = Path(path)
     if path.suffix.casefold() == ".zip":
-        return _check_archive(path)
-    return _check_directory(path)
+        return _check_archive(path, package_name=package_name)
+    return _check_directory(path, package_name=package_name)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", type=Path)
+    parser.add_argument("--package-name", default=PACKAGE_NAME)
     options = parser.parse_args(argv)
-    result = check_package(options.package)
+    result = check_package(options.package, package_name=options.package_name)
     print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
     return 0 if result.ok else 1
 

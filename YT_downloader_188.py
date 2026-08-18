@@ -1,4 +1,4 @@
-"""macOS 1.8.7 launcher for the shared YT Downloader Pro application."""
+"""macOS 1.8.8 launcher for the shared YT Downloader Pro application."""
 
 import os
 import sys
@@ -19,7 +19,7 @@ from ytdp.app import (
 )
 from ytdp.platforms import MacOSPlatform
 
-VERSION = "1.8.7"
+VERSION = "1.8.8"
 
 
 def run_app(platform_adapter, version=VERSION):

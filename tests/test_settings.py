@@ -12,17 +12,17 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import YT_downloader_187 as app_module
+import YT_downloader_188 as app_module
 
 
 class ReleaseMetadataTests(unittest.TestCase):
-    def test_release_version_is_1_8_7(self):
-        self.assertEqual(app_module.VERSION, "1.8.7")
+    def test_release_version_is_1_8_8(self):
+        self.assertEqual(app_module.VERSION, "1.8.8")
 
-    def test_public_update_manifest_matches_release_version(self):
+    def test_public_update_manifest_stays_on_published_release(self):
         manifest_version = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
 
-        self.assertEqual(manifest_version, app_module.VERSION)
+        self.assertEqual(manifest_version, "1.8.7")
 
     def test_update_page_uses_github_releases(self):
         self.assertEqual(
@@ -443,19 +443,27 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(test_requirements, ["PyYAML==6.0.3"])
 
-    def test_build_script_targets_1_8_7_with_bundle_metadata(self):
-        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+    def test_build_script_targets_1_8_8_with_bundle_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_8.sh").read_text(encoding="utf-8")
 
-        self.assertIn("YT_downloader_187.py", script)
+        self.assertIn("YT_downloader_188.py", script)
         self.assertIn("CFBundleShortVersionString", script)
-        self.assertIn("1.8.7", script)
+        self.assertIn("1.8.8", script)
         self.assertIn("CFBundleVersion", script)
-        self.assertIn("187", script)
-        self.assertIn("Add :CFBundleVersion string 187", script)
+        self.assertIn("188", script)
+        self.assertIn("Add :CFBundleVersion string 188", script)
         self.assertIn("LSMinimumSystemVersion", script)
         self.assertIn("11.0", script)
         self.assertIn("--collect-data yt_dlp_ejs", script)
         self.assertIn('tools/qjs', script)
+        self.assertIn('--expected-version "1.8.8"', script)
+        self.assertIn('--expected-build "188"', script)
+
+    def test_legacy_build_script_keeps_its_own_bundle_check_metadata(self):
+        script = (ROOT / "scripts" / "build_1_8_7.sh").read_text(encoding="utf-8")
+
+        self.assertIn('--expected-version "1.8.7"', script)
+        self.assertIn('--expected-build "187"', script)
 
     def test_bundle_check_rejects_nonfree_tools_and_checks_metadata(self):
         checker = (ROOT / "scripts" / "check_bundle_tools.py").read_text(encoding="utf-8")
@@ -469,6 +477,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("unexpected_dependencies", checker)
         self.assertIn("MAXIMUM_DEPLOYMENT_TARGET", checker)
         self.assertIn("Bundled app icon does not match AppIcon.icns", checker)
+        self.assertIn("--expected-version", checker)
+        self.assertIn("--expected-build", checker)
 
 
 class ReadmeTests(unittest.TestCase):
@@ -476,7 +486,7 @@ class ReadmeTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         for expected in (
-            "1.8.7",
+            "1.8.8",
             "Apple Silicon",
             "MP4",
             "MP3",
@@ -486,12 +496,12 @@ class ReadmeTests(unittest.TestCase):
         ):
             self.assertIn(expected, readme)
 
-    def test_readme_marks_1_8_7_as_released(self):
+    def test_readme_marks_1_8_8_as_a_test_candidate(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("`v1.8.7`", readme)
-        self.assertNotIn("開發中的 `1.8.7`", readme)
-        self.assertNotIn("公開安裝檔會在", readme)
+        self.assertIn("`1.8.8`", readme)
+        self.assertIn("目前最新公開版本為 `1.8.7`", readme)
+        self.assertIn("尚未附加到公開", readme)
 
 class UpdateManifestTests(unittest.TestCase):
     def test_plain_text_manifest_version_is_parsed(self):

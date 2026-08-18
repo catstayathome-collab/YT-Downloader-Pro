@@ -50,7 +50,7 @@ def download_archive(url, destination):
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError(f"helper URL must use HTTPS: {url}")
-    request = urllib.request.Request(url, headers={"User-Agent": "YT-Downloader-Pro-build/1.8.7"})
+    request = urllib.request.Request(url, headers={"User-Agent": "YT-Downloader-Pro-build/1.8.8"})
     destination = Path(destination)
     with build_https_opener().open(request, timeout=120) as response:
         final_url = urllib.parse.urlsplit(response.geturl())

@@ -12,7 +12,7 @@ $ToolRoot = Join-Path $BuildRoot "windows-tools"
 $HelperSource = Join-Path $ToolRoot "Helpers"
 $PyInstallerDist = Join-Path $BuildRoot "windows-pyinstaller-dist"
 $PyInstallerWork = Join-Path $BuildRoot "windows-pyinstaller-work"
-$PackageName = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+$PackageName = "YT-Downloader-Pro-v1.8.8-Windows-x64"
 $PackageRoot = Join-Path $DistRoot $PackageName
 $ArchivePath = Join-Path $DistRoot "$PackageName.zip"
 $SelfTestReport = Join-Path $DistRoot "windows-self-test.json"
@@ -66,15 +66,15 @@ if ($LASTEXITCODE -ne 0) { throw "Windows icon generation failed." }
 
 @"
 VSVersionInfo(
-  ffi=FixedFileInfo(filevers=(1, 8, 7, 0), prodvers=(1, 8, 7, 0), mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  ffi=FixedFileInfo(filevers=(1, 8, 8, 0), prodvers=(1, 8, 8, 0), mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[StringFileInfo([StringTable('040904B0', [
     StringStruct('CompanyName', 'YT Downloader Pro'),
     StringStruct('FileDescription', 'YT Downloader Pro'),
-    StringStruct('FileVersion', '1.8.7.0'),
+    StringStruct('FileVersion', '1.8.8.0'),
     StringStruct('InternalName', 'YT Downloader Pro'),
     StringStruct('OriginalFilename', 'YT Downloader Pro.exe'),
     StringStruct('ProductName', 'YT Downloader Pro'),
-    StringStruct('ProductVersion', '1.8.7')
+    StringStruct('ProductVersion', '1.8.8')
   ])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])]
 )
 "@ | Set-Content -Path $VersionFile -Encoding ascii
@@ -94,7 +94,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue $ArchivePath, $SelfTestReport
     --version-file $VersionFile `
     --distpath $PyInstallerDist `
     --workpath $PyInstallerWork `
-    "YT_downloader_187_windows.py"
+    "YT_downloader_188_windows.py"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller Windows build failed." }
 
 Copy-Item -Recurse (Join-Path $PyInstallerDist "YT Downloader Pro") $PackageRoot
@@ -102,7 +102,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot "Helpers") | O
 Copy-Item (Join-Path $HelperSource "ffmpeg.exe") (Join-Path $PackageRoot "Helpers/ffmpeg.exe")
 Copy-Item (Join-Path $HelperSource "ffprobe.exe") (Join-Path $PackageRoot "Helpers/ffprobe.exe")
 Copy-Item (Join-Path $HelperSource "deno.exe") (Join-Path $PackageRoot "Helpers/deno.exe")
-Copy-Item "README-Windows-1.8.7.txt" (Join-Path $PackageRoot "README-Windows.txt")
+Copy-Item "README-Windows.txt" (Join-Path $PackageRoot "README-Windows.txt")
 Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $PackageRoot "THIRD_PARTY_NOTICES.txt")
 New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot "tools") | Out-Null
 Copy-Item -Recurse "tools/licenses" (Join-Path $PackageRoot "tools/licenses")

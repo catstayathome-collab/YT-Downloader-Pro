@@ -36,7 +36,7 @@ from ytdp.updater import (
     parse_update_manifest as parse_manifest,
 )
 
-VERSION = "1.8.7"
+VERSION = "1.8.8"
 APP_NAME = "YT Downloader Pro"
 DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/version.txt?ref=main"
 DEFAULT_UPDATE_DOWNLOAD_URL = "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/latest"
@@ -53,9 +53,10 @@ LANG_DATA = SHARED_LANG_DATA
 class YTDownloaderApp:
     """Shared Tkinter application driven by a platform adapter."""
 
-    def __init__(self, root, platform_adapter):
+    def __init__(self, root, platform_adapter, version=VERSION):
         self.root = root
         self.platform = platform_adapter
+        self.version = version
         self.lang = self.platform.language()
         self.text = LANG_DATA[self.lang]
 
@@ -66,7 +67,7 @@ class YTDownloaderApp:
         self.pause_event = threading.Event()
         self.pause_event.set()
 
-        self.root.title(f"{self.text['title']} v{VERSION}")
+        self.root.title(f"{self.text['title']} v{self.version}")
         self.root.geometry("600x720")
         self.settings_path = self.get_settings_path()
         self.settings = self.load_settings()
@@ -326,7 +327,7 @@ class YTDownloaderApp:
         messagebox.showwarning("!", self.text['cancelled'])
 
     def show_about(self):
-        messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{VERSION}\nDeveloped by catstayathome")
+        messagebox.showinfo(self.text['about'], f"YT Downloader Pro v{self.version}\nDeveloped by catstayathome")
 
     def is_video_merge_format(self, fmt):
         protocol = fmt.get('protocol')
@@ -374,7 +375,7 @@ class YTDownloaderApp:
     def check_update(self, silent=True):
         if not PUBLIC_UPDATE_MANIFEST_URL:
             if not silent:
-                messagebox.showinfo("Update", self.text['manual_update'].format(version=VERSION))
+                messagebox.showinfo("Update", self.text['manual_update'].format(version=self.version))
             return
 
         def _check():
@@ -388,7 +389,7 @@ class YTDownloaderApp:
                     latest = self.parse_update_manifest(resp.read().decode('utf-8'))
                 if not latest:
                     raise ValueError("missing latest version")
-                if self.is_newer_version(latest, VERSION):
+                if self.is_newer_version(latest, self.version):
                     download_url = UPDATE_DOWNLOAD_URL
                     if self.platform.filename_platform() in {"windows", "win32"}:
                         with urllib.request.urlopen(
@@ -780,9 +781,9 @@ class YTDownloaderApp:
     def get_system_language(self):
         return self.platform.language()
 
-def run_app(platform_adapter):
+def run_app(platform_adapter, version=VERSION):
     """Create and run the shared Tkinter interface for one platform."""
     root = tk.Tk()
-    app = YTDownloaderApp(root, platform_adapter)
+    app = YTDownloaderApp(root, platform_adapter, version=version)
     root.mainloop()
     return app

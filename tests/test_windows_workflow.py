@@ -5,8 +5,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.7.yml"
-ARTIFACT_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.8.yml"
+ARTIFACT_NAME = "YT-Downloader-Pro-v1.8.8-Windows-x64"
 ACTION_REFS = {
     "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
     "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
@@ -18,10 +18,10 @@ ACTION_VERSIONS = {
     "actions/upload-artifact": "v7.0.1",
 }
 PR_PATHS = {
-    ".github/workflows/windows-1.8.7.yml",
-    "YT_downloader_187_windows.py",
+    ".github/workflows/windows-1.8.8.yml",
+    "YT_downloader_188_windows.py",
     "ytdp/**",
-    "scripts/build_windows_1_8_7.ps1",
+    "scripts/build_windows_1_8_8.ps1",
     "scripts/check_windows_package.py",
     "scripts/fetch_windows_tools.py",
     "scripts/generate_windows_icon.py",

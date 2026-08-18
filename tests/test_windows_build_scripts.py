@@ -19,9 +19,11 @@ PACKAGE_CHECKER = ROOT / "scripts" / "check_windows_package.py"
 TOOL_FETCHER = ROOT / "scripts" / "fetch_windows_tools.py"
 ICON_GENERATOR = ROOT / "scripts" / "generate_windows_icon.py"
 TRACKED_ICON = ROOT / "assets" / "AppIcon.ico"
-BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_7.ps1"
-WINDOWS_WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.7.yml"
-PACKAGE_NAME = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_8.ps1"
+WINDOWS_WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.8.yml"
+LEGACY_BUILD_SCRIPT = ROOT / "scripts" / "build_windows_1_8_7.ps1"
+LEGACY_WORKFLOW = ROOT / ".github" / "workflows" / "windows-1.8.7.yml"
+PACKAGE_NAME = "YT-Downloader-Pro-v1.8.8-Windows-x64"
 APP_EXE = "YT Downloader Pro.exe"
 ICON_DIMENSIONS = (16, 24, 32, 48, 64, 128, 256)
 EXPECTED_MANIFEST = {
@@ -192,6 +194,18 @@ class WindowsBuildScriptTests(unittest.TestCase):
             package_root = create_valid_package(tmpdir)
 
             result = checker.check_package(package_root)
+
+        self.assertTrue(result.ok, result.errors)
+
+    def test_package_checker_accepts_an_explicit_legacy_package_name(self):
+        checker = load_script("check_windows_package_legacy", PACKAGE_CHECKER)
+        legacy_name = "YT-Downloader-Pro-v1.8.7-Windows-x64"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package_root = create_valid_package(tmpdir)
+            legacy_root = package_root.with_name(legacy_name)
+            package_root.rename(legacy_root)
+
+            result = checker.check_package(legacy_root, package_name=legacy_name)
 
         self.assertTrue(result.ok, result.errors)
 
@@ -390,13 +404,23 @@ class WindowsBuildScriptTests(unittest.TestCase):
             "--version-file",
         ):
             self.assertIn(argument, script)
-        self.assertIn("YT_downloader_187_windows.py", script)
+        self.assertIn("YT_downloader_188_windows.py", script)
         self.assertIn("Helpers", script)
         self.assertIn("README-Windows.txt", script)
         self.assertIn("THIRD_PARTY_NOTICES.txt", script)
         self.assertIn("Compress-Archive -Path $PackageRoot", script)
         self.assertIn("scripts/check_windows_package.py", script)
         self.assertIn("Set-Content -Path $VersionFile -Encoding ascii", script)
+        self.assertIn("--package-name $PackageName", script)
+
+    def test_legacy_windows_build_and_workflow_pass_the_legacy_package_name(self):
+        build_script = LEGACY_BUILD_SCRIPT.read_text(encoding="utf-8")
+        workflow = LEGACY_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("--package-name $PackageName", build_script)
+        self.assertIn('Copy-Item "README-Windows-1.8.7.txt"', build_script)
+        self.assertIn("--package-name $packageName", workflow)
+        self.assertIn("README-Windows-1.8.7.txt", workflow)
 
     def test_windowed_exe_self_tests_wait_for_process_exit_and_validate_reports_in_both_invocation_sites(self):
         self.assertTrue(BUILD_SCRIPT.is_file(), "Windows PowerShell build script is missing")

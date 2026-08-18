@@ -1,7 +1,7 @@
-YT Downloader Pro 1.8.8 Windows x64 未簽署測試版
+YT Downloader Pro 1.8.7 Windows x64 未簽署測試版
 =================================================
 
-這是一份可攜式 Windows 測試包，不是安裝程式，也尚未附加到公開 v1.8.8 Release。
+這是一份可攜式 Windows 測試包，不是安裝程式，也尚未附加到公開 v1.8.7 Release。
 請只從本專案成功的 GitHub Actions workflow 下載；不要從轉傳連結、網路硬碟或不明網站取得檔案。
 
 支援的系統
@@ -15,14 +15,14 @@ YT Downloader Pro 1.8.8 Windows x64 未簽署測試版
 -----------------------------------
 
 1. 開啟對應提交的成功 GitHub Actions workflow 執行頁面。
-2. 在 Artifacts 區下載名稱為 `YT-Downloader-Pro-v1.8.8-Windows-x64` 的 GitHub Actions artifact。
-3. 解壓 Actions artifact 後，取得 `YT-Downloader-Pro-v1.8.8-Windows-x64.zip`、該 ZIP 的 SHA-256 檔案、Windows self-test JSON、package report 與 Windows tool provenance manifest。
+2. 在 Artifacts 區下載名稱為 `YT-Downloader-Pro-v1.8.7-Windows-x64` 的 GitHub Actions artifact。
+3. 解壓 Actions artifact 後，取得 `YT-Downloader-Pro-v1.8.7-Windows-x64.zip`、該 ZIP 的 SHA-256 檔案、Windows self-test JSON、package report 與 Windows tool provenance manifest。
 4. 在 PowerShell 切換至下載資料夾，執行：
 
-   Get-FileHash -Algorithm SHA256 .\YT-Downloader-Pro-v1.8.8-Windows-x64.zip
+   Get-FileHash -Algorithm SHA256 .\YT-Downloader-Pro-v1.8.7-Windows-x64.zip
 
    將輸出的 Hash 與同一個 Actions artifact 提供的 SHA-256 值逐字比較；兩者不同時請停止，不要解壓或執行。
-5. 對 `YT-Downloader-Pro-v1.8.8-Windows-x64.zip` 按右鍵，選擇「全部解壓縮」，再開啟解壓後的 `YT-Downloader-Pro-v1.8.8-Windows-x64` 資料夾。不要直接在壓縮檔內執行程式，也不要只搬走其中的 EXE。
+5. 對 `YT-Downloader-Pro-v1.8.7-Windows-x64.zip` 按右鍵，選擇「全部解壓縮」，再開啟解壓後的 `YT-Downloader-Pro-v1.8.7-Windows-x64` 資料夾。不要直接在壓縮檔內執行程式，也不要只搬走其中的 EXE。
 
 啟動與 SmartScreen
 ------------------
@@ -38,7 +38,7 @@ YT Downloader Pro 1.8.8 Windows x64 未簽署測試版
 功能與資料位置
 ----------------
 
-Windows 測試版保留 1.8.8 單支影片工作流程：分析 YouTube URL、選擇可用影片/音訊、最高可用品質 MP4 合併、192 kbps MP3、進度/速度/大小顯示、下載期間暫停/繼續/取消、同名檔案以 ` (1)` 避免覆寫，以及記住可用的輸出資料夾。介面會依 Windows 顯示語言使用繁體中文、English 或日本語。
+Windows 測試版保留 1.8.7 單支影片工作流程：分析 YouTube URL、選擇可用影片/音訊、最高可用品質 MP4 合併、192 kbps MP3、進度/速度/大小顯示、下載期間暫停/繼續/取消、同名檔案以 ` (1)` 避免覆寫，以及記住可用的輸出資料夾。介面會依 Windows 顯示語言使用繁體中文、English 或日本語。
 
 - 設定檔：`%APPDATA%\YT Downloader Pro\settings.json`
 - 診斷紀錄：`%LOCALAPPDATA%\YT Downloader Pro\logs`

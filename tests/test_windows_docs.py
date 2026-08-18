@@ -6,20 +6,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_README = ROOT / "README-Windows.txt"
+LEGACY_WINDOWS_README = ROOT / "README-Windows-1.8.7.txt"
 PROJECT_README = ROOT / "README.md"
 NOTICES = ROOT / "THIRD_PARTY_NOTICES.md"
 CHECKLIST = ROOT / "docs" / "WINDOWS_TEST_CHECKLIST.md"
 MANIFEST = ROOT / "tools" / "windows-tools.json"
 RELEASE_GATE = (
     "在 12 項 Windows 11 手動驗收全部完成、結果記錄為 PASS，且發現的阻擋問題已修正並重新測試前，"
-    "Windows ZIP 不得附加到公開 `v1.8.7` Release。"
+    "Windows ZIP 不得附加到公開 `v1.8.8` Release。"
 )
 CHECKLIST_SCENARIOS = (
     "從成功 GitHub Actions artifact 下載 ZIP，完成 SHA-256 比對並解壓。",
     "未簽署 SmartScreen 流程顯示；完成來源與 Hash 確認後，透過 `More info` 與 `Run anyway` 啟動。",
     "啟動 `YT Downloader Pro.exe` 時沒有額外命令列視窗。",
-    "分析指定的公開 YouTube URL。",
-    "下載並合併最高可用品質 MP4。",
+    "分析回歸影片 `https://youtu.be/RIItBfZ6S3Q`。",
+    "下載並合併最高可用品質 MP4，確認跨過 33.6% 並完成至 100%。",
     "轉換為 192 kbps MP3。",
     "重複下載相同內容時建立 ` (1)`，且不覆寫原檔。",
     "變更輸出資料夾後重新啟動，確認資料夾設定仍被保留。",
@@ -39,7 +40,7 @@ class WindowsDocumentationTests(unittest.TestCase):
         text = WINDOWS_README.read_text(encoding="utf-8")
 
         for expected in (
-            "YT-Downloader-Pro-v1.8.7-Windows-x64.zip",
+            "YT-Downloader-Pro-v1.8.8-Windows-x64.zip",
             "YT Downloader Pro.exe",
             "Windows 10 22H2",
             "Windows 11",
@@ -61,12 +62,19 @@ class WindowsDocumentationTests(unittest.TestCase):
         self.assertIn("不會自動更新內建工具", text)
         self.assertIn("不得下載未獲授權的影音內容", text)
 
+    def test_legacy_windows_readme_keeps_1_8_7_package_identity(self):
+        text = LEGACY_WINDOWS_README.read_text(encoding="utf-8")
+
+        self.assertIn("YT Downloader Pro 1.8.7 Windows x64", text)
+        self.assertIn("YT-Downloader-Pro-v1.8.7-Windows-x64.zip", text)
+        self.assertNotIn("v1.8.8", text)
+
     def test_project_readme_keeps_macos_release_separate_from_windows_test_build(self):
         text = PROJECT_README.read_text(encoding="utf-8")
 
         self.assertIn("Apple Silicon Mac", text)
         self.assertIn("Windows 測試版", text)
-        self.assertIn("YT-Downloader-Pro-v1.8.7-Windows-x64.zip", text)
+        self.assertIn("YT-Downloader-Pro-v1.8.8-Windows-x64.zip", text)
         self.assertIn("GitHub Actions artifact", text)
         self.assertIn("尚未附加到公開", text)
 
@@ -108,7 +116,9 @@ class WindowsDocumentationTests(unittest.TestCase):
         self.assertEqual(rows, [(str(number), scenario) for number, scenario in enumerate(CHECKLIST_SCENARIOS, start=1)])
         self.assertIn(RELEASE_GATE, text)
         self.assertIn("Windows 11", text)
-        self.assertIn("YT-Downloader-Pro-v1.8.7-Windows-x64.zip", text)
+        self.assertIn("YT-Downloader-Pro-v1.8.8-Windows-x64.zip", text)
+        self.assertIn("https://youtu.be/RIItBfZ6S3Q", text)
+        self.assertIn("33.6%", text)
 
 
 if __name__ == "__main__":
