@@ -109,6 +109,16 @@ actor OutputNameAllocator {
         })
     }
 
+    func owns(_ reservation: OutputReservation, jobID: UUID) async -> Bool {
+        do {
+            return try await withCandidateLock(for: reservation, operation: {
+                markerBelongsToJob(at: reservation.markerURL, jobID: jobID)
+            })
+        } catch {
+            return false
+        }
+    }
+
     private func validateDestination(_ directory: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue,

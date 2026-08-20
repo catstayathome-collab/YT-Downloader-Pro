@@ -6,6 +6,7 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         case metadataUnavailable
         case networkUnavailable
         case authenticationRequired
+        case formatReselectionRequired
         case unavailableMedia
         case bundledDownloaderUnavailable
         case bundledConverterUnavailable

@@ -1,6 +1,7 @@
 import Foundation
 
 enum DownloadPhase: String, Codable, Equatable, Sendable {
+    case analyzing
     case downloading
     case merging
     case postprocessing
@@ -29,6 +30,7 @@ struct JobProgress: Codable, Equatable, Sendable {
 }
 
 enum DownloadEvent: Codable, Equatable, Sendable {
+    case reservedBasename(String)
     case phase(DownloadPhase)
     case progress(JobProgress)
     case output(URL)
