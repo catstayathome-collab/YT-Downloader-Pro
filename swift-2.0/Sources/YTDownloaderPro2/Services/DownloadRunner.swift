@@ -7,6 +7,23 @@ protocol JobRunning: Sendable {
     func interruptForQuit(jobID: UUID) async
 }
 
+private final class StreamTerminationRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var shouldNotify = true
+
+    func consumeNotification() -> Bool {
+        lock.withLock {
+            guard shouldNotify else { return false }
+            shouldNotify = false
+            return true
+        }
+    }
+
+    func invalidate() {
+        lock.withLock { shouldNotify = false }
+    }
+}
+
 actor DownloadRunner: JobRunning {
     private enum Control: Equatable {
         case none
@@ -19,6 +36,7 @@ actor DownloadRunner: JobRunning {
         let token: UUID
         let job: DownloadJob
         let continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation
+        let terminationRelay: StreamTerminationRelay
         var scope: OutputDirectorySecurityScopedAccess?
         var reservation: OutputReservation?
         var process: RunningProcess?
@@ -37,7 +55,7 @@ actor DownloadRunner: JobRunning {
 
     private var active: [UUID: ActiveDownload] = [:]
     private var cancelledBeforeStart: Set<UUID> = []
-    private var finishedStreams: Set<UUID> = []
+    private var cleanupWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
 
     init(
         toolchain: Toolchain,
@@ -57,13 +75,15 @@ actor DownloadRunner: JobRunning {
 
     nonisolated func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error> {
         let token = UUID()
+        let terminationRelay = StreamTerminationRelay()
         var continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation?
         let stream = AsyncThrowingStream<DownloadEvent, Error> { continuation = $0 }
-        continuation?.onTermination = { [weak self] _ in
+        continuation?.onTermination = { [weak self, terminationRelay] _ in
+            guard terminationRelay.consumeNotification() else { return }
             Task { await self?.consumerTerminated(jobID: job.id, token: token) }
         }
         if let continuation {
-            Task { await self.start(job: job, token: token, continuation: continuation) }
+            Task { await self.start(job: job, token: token, continuation: continuation, terminationRelay: terminationRelay) }
         }
         return stream
     }
@@ -81,6 +101,7 @@ actor DownloadRunner: JobRunning {
         if let process = activeDownload.process {
             await process.terminate()
         }
+        await waitForCleanup(jobID: jobID)
     }
 
     func interruptForQuit(jobID: UUID) async {
@@ -91,30 +112,38 @@ actor DownloadRunner: JobRunning {
                 await process.interrupt()
                 scheduleTerminationIfNeeded(jobID: jobID, token: activeDownload.token, control: .quit)
             }
+            await waitForCleanup(jobID: jobID)
             return
         }
         await requestPause(jobID: jobID, control: .quit)
+        await waitForCleanup(jobID: jobID)
     }
 
     private func start(
         job: DownloadJob,
         token: UUID,
-        continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation,
+        terminationRelay: StreamTerminationRelay
     ) async {
         if cancelledBeforeStart.remove(token) != nil {
-            finishStream(token: token, continuation: continuation, error: nil)
+            finishStream(continuation: continuation, terminationRelay: terminationRelay, error: nil)
             return
         }
         guard active[job.id] == nil else {
             finishStream(
-                token: token,
                 continuation: continuation,
+                terminationRelay: terminationRelay,
                 error: DownloadFailure(category: .unknown, technicalDetail: "This download is already running.")
             )
             return
         }
 
-        active[job.id] = ActiveDownload(token: token, job: job, continuation: continuation)
+        active[job.id] = ActiveDownload(
+            token: token,
+            job: job,
+            continuation: continuation,
+            terminationRelay: terminationRelay
+        )
         await prepareAndRun(jobID: job.id, attempt: 0)
     }
 
@@ -155,8 +184,10 @@ actor DownloadRunner: JobRunning {
         }
 
         var launchedJob = prepared.job
-        launchedJob.reservedOutputBasename = prepared.reservation?.baseURL.lastPathComponent
-        launchedJob.outputURL = nil
+        if let reservation = prepared.reservation {
+            launchedJob.reservedOutputBasename = reservation.baseURL.lastPathComponent
+            launchedJob.outputURL = reservation.baseURL.appendingPathExtension(launchedJob.options.outputKind.rawValue)
+        }
 
         if var latest = active[jobID], latest.phase != .downloading {
             latest.phase = .downloading
@@ -251,26 +282,14 @@ actor DownloadRunner: JobRunning {
             activeDownload.phase = .analyzing
             activeDownload.continuation.yield(.phase(.analyzing))
             active[jobID] = activeDownload
-            do {
-                let analysis = try await metadataProbe.analyze(url: activeDownload.job.sourceURL, options: activeDownload.job.options)
-                guard selectedFormatsRemainAvailable(in: analysis, for: activeDownload.job.options) else {
-                    await finish(
-                        jobID: jobID,
-                        error: DownloadFailure(
-                            category: .formatReselectionRequired,
-                            technicalDetail: "The selected format is no longer available."
-                        ),
-                        removeMarker: false
-                    )
-                    return
-                }
-            } catch let failure as DownloadFailure {
-                await finish(jobID: jobID, error: failure, removeMarker: false)
-                return
-            } catch {
+            guard let analysis = await reanalyze(jobID: jobID, attempt: 0) else { return }
+            guard selectedFormatsRemainAvailable(in: analysis, for: activeDownload.job.options) else {
                 await finish(
                     jobID: jobID,
-                    error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not be refreshed."),
+                    error: DownloadFailure(
+                        category: .formatReselectionRequired,
+                        technicalDetail: "The selected format is no longer available."
+                    ),
                     removeMarker: false
                 )
                 return
@@ -296,19 +315,109 @@ actor DownloadRunner: JobRunning {
         await finish(jobID: jobID, error: nil, removeMarker: true)
     }
 
+    private func reanalyze(jobID: UUID, attempt: Int) async -> AnalysisResult? {
+        guard let activeDownload = active[jobID] else { return nil }
+        let request: MetadataAnalysisRequest
+        do {
+            request = try await metadataProbe.analysisRequest(
+                url: activeDownload.job.sourceURL,
+                options: activeDownload.job.options,
+                attempt: attempt
+            )
+        } catch let failure as DownloadFailure {
+            await finish(jobID: jobID, error: failure, removeMarker: false)
+            return nil
+        } catch {
+            await finish(
+                jobID: jobID,
+                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not be refreshed."),
+                removeMarker: false
+            )
+            return nil
+        }
+
+        let process: RunningProcess
+        do {
+            process = try await processLauncher.start(executable: request.executable, arguments: request.arguments)
+        } catch {
+            await finish(
+                jobID: jobID,
+                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start."),
+                removeMarker: false
+            )
+            return nil
+        }
+
+        guard var running = active[jobID] else {
+            await process.terminate()
+            return nil
+        }
+        running.process = process
+        active[jobID] = running
+        if running.control != .none {
+            await signal(process: process, for: running.control, jobID: jobID, token: running.token)
+        }
+
+        for await event in process.events {
+            if case let .stderrLine(line) = event {
+                for diagnostic in parser.parseDiagnostic(line: line) {
+                    if case .diagnostic = diagnostic {
+                        active[jobID]?.continuation.yield(diagnostic)
+                    }
+                }
+            }
+        }
+
+        let result: ProcessResult
+        do {
+            result = try await process.result()
+        } catch {
+            await finish(
+                jobID: jobID,
+                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start."),
+                removeMarker: false
+            )
+            return nil
+        }
+
+        guard var completed = active[jobID] else { return nil }
+        completed.process = nil
+        active[jobID] = completed
+        if completed.control != .none {
+            await finishForControl(jobID: jobID)
+            return nil
+        }
+        guard result.exitCode == 0 else {
+            let failure = await metadataProbe.analysisFailure(for: result)
+            await finish(jobID: jobID, error: failure, removeMarker: false)
+            return nil
+        }
+        do {
+            return try await metadataProbe.decodeAnalysisOutput(result.stdout, requestedURL: completed.job.sourceURL)
+        } catch let failure as DownloadFailure {
+            await finish(jobID: jobID, error: failure, removeMarker: false)
+            return nil
+        } catch {
+            await finish(
+                jobID: jobID,
+                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not be refreshed."),
+                removeMarker: false
+            )
+            return nil
+        }
+    }
+
     private func pauseRequestedByConsumer(jobID: UUID, token: UUID) async {
         guard let activeDownload = active[jobID], activeDownload.token == token else { return }
         if activeDownload.phase == .merging || activeDownload.phase == .postprocessing {
             await interruptForQuit(jobID: jobID)
         } else {
             await requestPause(jobID: jobID, control: .pause)
+            await waitForCleanup(jobID: jobID)
         }
     }
 
     private func consumerTerminated(jobID: UUID, token: UUID) async {
-        if finishedStreams.remove(token) != nil {
-            return
-        }
         if let activeDownload = active[jobID], activeDownload.token == token {
             await pauseRequestedByConsumer(jobID: jobID, token: token)
         } else {
@@ -358,10 +467,10 @@ actor DownloadRunner: JobRunning {
         guard let activeDownload = active[jobID] else { return }
         switch activeDownload.control {
         case .cancel:
-            removeIncompleteArtifacts(for: activeDownload, includeMergedDestination: false)
+            await removeIncompleteArtifacts(for: activeDownload)
             await finish(jobID: jobID, error: nil, removeMarker: true)
         case .quit where activeDownload.phase == .merging || activeDownload.phase == .postprocessing:
-            removeMergedDestination(for: activeDownload)
+            await removeMergedDestination(for: activeDownload)
             await finish(jobID: jobID, error: nil, removeMarker: false)
         case .pause, .quit:
             await finish(jobID: jobID, error: nil, removeMarker: false)
@@ -374,19 +483,34 @@ actor DownloadRunner: JobRunning {
         guard let activeDownload = active.removeValue(forKey: jobID) else { return }
         await allocator.release(jobID: jobID, removeMarker: removeMarker)
         activeDownload.scope?.stopAccessing()
-        finishStream(token: activeDownload.token, continuation: activeDownload.continuation, error: error)
+        finishStream(
+            continuation: activeDownload.continuation,
+            terminationRelay: activeDownload.terminationRelay,
+            error: error
+        )
+        let waiters = cleanupWaiters.removeValue(forKey: jobID) ?? []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     private func finishStream(
-        token: UUID,
         continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation,
+        terminationRelay: StreamTerminationRelay,
         error: Error?
     ) {
-        finishedStreams.insert(token)
+        terminationRelay.invalidate()
         if let error {
             continuation.finish(throwing: error)
         } else {
             continuation.finish()
+        }
+    }
+
+    private func waitForCleanup(jobID: UUID) async {
+        guard active[jobID] != nil else { return }
+        await withCheckedContinuation { continuation in
+            cleanupWaiters[jobID, default: []].append(continuation)
         }
     }
 
@@ -433,43 +557,69 @@ actor DownloadRunner: JobRunning {
         return await allocator.owns(reservation, jobID: jobID)
     }
 
-    private func removeIncompleteArtifacts(
-        for activeDownload: ActiveDownload,
-        includeMergedDestination: Bool
-    ) {
+    private func removeIncompleteArtifacts(for activeDownload: ActiveDownload) async {
         guard let reservation = activeDownload.reservation else { return }
-        var candidates = incompleteArtifactURLs(for: activeDownload.job, reservation: reservation)
-        if includeMergedDestination {
-            candidates.append(reservation.baseURL.appendingPathExtension(activeDownload.job.options.outputKind.rawValue))
-        }
-        for url in candidates {
-            try? FileManager.default.removeItem(at: url)
-        }
+        _ = await allocator.removeOwnedArtifacts(
+            incompleteArtifactURLs(for: activeDownload.job, reservation: reservation),
+            reservation: reservation,
+            jobID: activeDownload.job.id
+        )
     }
 
-    private func removeMergedDestination(for activeDownload: ActiveDownload) {
+    private func removeMergedDestination(for activeDownload: ActiveDownload) async {
         guard let reservation = activeDownload.reservation else { return }
-        try? FileManager.default.removeItem(
-            at: reservation.baseURL.appendingPathExtension(activeDownload.job.options.outputKind.rawValue)
+        _ = await allocator.removeOwnedArtifacts(
+            [reservation.baseURL.appendingPathExtension(activeDownload.job.options.outputKind.rawValue)],
+            reservation: reservation,
+            jobID: activeDownload.job.id
         )
     }
 
     private func incompleteArtifactURLs(for job: DownloadJob, reservation: OutputReservation) -> [URL] {
         let base = reservation.baseURL
-        let outputExtension = job.options.outputKind.rawValue
-        var urls = [
-            base.appendingPathExtension("\(outputExtension).part"),
-            base.appendingPathExtension("\(outputExtension).ytdl")
-        ]
-        for formatID in selectedFormatIDs(for: job.options) {
-            for fileExtension in ["mp4", "m4a", "webm", "mkv", "mov", "aac", "opus"] {
-                let stream = base.appendingPathExtension("f\(formatID).\(fileExtension)")
-                urls.append(stream)
-                urls.append(stream.appendingPathExtension("part"))
-                urls.append(stream.appendingPathExtension("ytdl"))
+        let basename = base.lastPathComponent
+        let selectedFormatIDs = Set(selectedFormatIDs(for: job.options))
+        let outputPrefix = "\(basename).\(job.options.outputKind.rawValue)"
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: base.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants]
+        )) ?? []
+
+        return contents.filter { url in
+            let name = url.lastPathComponent
+            if name == "\(outputPrefix).part" || name == "\(outputPrefix).ytdl" {
+                return true
+            }
+            if let suffix = name.dropPrefix("\(outputPrefix).part-Frag"), !suffix.isEmpty,
+               suffix.allSatisfy(\.isNumber) {
+                return true
+            }
+            return selectedFormatIDs.contains { formatID in
+                isOwnedFormatArtifact(name, basename: basename, formatID: formatID)
             }
         }
-        return urls
+    }
+
+    private func isOwnedFormatArtifact(_ name: String, basename: String, formatID: String) -> Bool {
+        guard let remainder = name.dropPrefix("\(basename).f\(formatID)."), !remainder.isEmpty else {
+            return false
+        }
+        let components = remainder.split(separator: ".", omittingEmptySubsequences: false)
+        guard let fileExtension = components.first, !fileExtension.isEmpty else { return false }
+        let suffixes = components.dropFirst().map(String.init)
+        if suffixes.isEmpty {
+            return true
+        }
+        guard suffixes.count == 1 else { return false }
+
+        let suffix = suffixes[0]
+        if suffix == "part" || suffix == "ytdl" {
+            return true
+        }
+        guard suffix.hasPrefix("part-Frag") else { return false }
+        let number = suffix.dropFirst("part-Frag".count)
+        return !number.isEmpty && number.allSatisfy { $0.isNumber }
     }
 
     private func selectedFormatsRemainAvailable(in analysis: AnalysisResult, for options: DownloadOptions) -> Bool {
@@ -523,5 +673,12 @@ actor DownloadRunner: JobRunning {
             return failure
         }
         return DownloadFailure(category: .unknown, technicalDetail: "The download could not be prepared.")
+    }
+}
+
+private extension String {
+    func dropPrefix(_ prefix: String) -> String? {
+        guard hasPrefix(prefix) else { return nil }
+        return String(dropFirst(prefix.count))
     }
 }

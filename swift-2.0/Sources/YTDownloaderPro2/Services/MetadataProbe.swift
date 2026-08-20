@@ -5,6 +5,11 @@ enum AnalysisResult: Equatable, Sendable {
     case playlist(PlaylistAnalysis)
 }
 
+struct MetadataAnalysisRequest: Sendable {
+    let executable: URL
+    let arguments: [String]
+}
+
 actor MetadataProbe {
     private let toolchain: Toolchain
     private let processRunner: any ProcessRunning
@@ -18,16 +23,13 @@ actor MetadataProbe {
         guard isSupportedURL(url) else {
             throw DownloadFailure(category: .invalidURL, technicalDetail: "The media address is not supported.")
         }
-
         let strategy = YouTubeStrategy(toolchain: toolchain)
         let maximumAttempts = strategy.maximumAttempts(for: options)
         for attempt in 0..<maximumAttempts {
             let result: ProcessResult
             do {
-                result = try await processRunner.run(
-                    executable: toolchain.ytDLP,
-                    arguments: strategy.analysisArguments(url: url, options: options, attempt: attempt)
-                )
+                let request = try analysisRequest(url: url, options: options, attempt: attempt)
+                result = try await processRunner.run(executable: request.executable, arguments: request.arguments)
             } catch {
                 throw DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start.")
             }
@@ -40,10 +42,28 @@ actor MetadataProbe {
                 throw failure
             }
 
-            return try decode(result.stdout, requestedURL: url)
+            return try decodeAnalysisOutput(result.stdout, requestedURL: url)
         }
 
         throw DownloadFailure(category: .authenticationRequired, technicalDetail: "YouTube client validation did not succeed.")
+    }
+
+    func analysisRequest(url: String, options: DownloadOptions, attempt: Int) throws -> MetadataAnalysisRequest {
+        guard isSupportedURL(url) else {
+            throw DownloadFailure(category: .invalidURL, technicalDetail: "The media address is not supported.")
+        }
+        return MetadataAnalysisRequest(
+            executable: toolchain.ytDLP,
+            arguments: YouTubeStrategy(toolchain: toolchain).analysisArguments(url: url, options: options, attempt: attempt)
+        )
+    }
+
+    func decodeAnalysisOutput(_ output: String, requestedURL: String) throws -> AnalysisResult {
+        try decode(output, requestedURL: requestedURL)
+    }
+
+    func analysisFailure(for result: ProcessResult) -> DownloadFailure {
+        failure(for: result)
     }
 
     private func decode(_ output: String, requestedURL: String) throws -> AnalysisResult {

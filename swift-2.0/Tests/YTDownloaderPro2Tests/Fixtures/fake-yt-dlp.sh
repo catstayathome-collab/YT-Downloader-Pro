@@ -39,6 +39,12 @@ if printf '%s\n' "$@" | grep -q -- '--dump-single-json'; then
         printf 'analysis\n' >> "$state_directory/analysis.fake-trace"
     fi
     case "$url" in
+        *retry-analysis-wait*)
+            : > "$state_directory/analysis-started"
+            trap 'exit 0' INT TERM
+            sleep 2
+            printf '%s\n' '{"id":"fake","title":"Fake","webpage_url":"https://fake.test/video","formats":[{"format_id":"137","url":"https://media.test/137","vcodec":"avc1","acodec":"none","ext":"mp4"},{"format_id":"140","url":"https://media.test/140","vcodec":"none","acodec":"mp4a","ext":"m4a"}]}'
+            ;;
         *missing-format*)
             printf '%s\n' '{"id":"fake","title":"Fake","webpage_url":"https://fake.test/video","formats":[{"format_id":"140","url":"https://media.test/140","vcodec":"none","acodec":"mp4a","ext":"m4a"}]}'
             ;;
@@ -70,6 +76,22 @@ case "$url" in
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
+    *merge-ignore-int*)
+        printf 'ytdp:phase|downloading\n'
+        : > "$base.f137.mp4.part"
+        printf 'ytdp:phase|merging\n'
+        : > "$base.mp4"
+        trap '' INT
+        trap 'exit 0' TERM
+        while :; do sleep 1; done
+        ;;
+    *ignore-int*)
+        printf 'ytdp:phase|downloading\n'
+        : > "$base.mp4.part"
+        trap '' INT
+        trap 'exit 0' TERM
+        while :; do sleep 1; done
+        ;;
     *merge*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.f137.mp4.part"
@@ -82,12 +104,16 @@ case "$url" in
         printf 'ytdp:phase|downloading\n'
         : > "$base.mp4.part"
         : > "$base.f137.mp4"
+        : > "$base.f137.mp4.part-Frag1"
+        : > "$base.f137.mp4.ytdl"
+        : > "$base.f137.mp4.part-FragNotANumber"
+        : > "$directory/Example video2.f137.mp4.part-Frag1"
         : > "$base.mp4"
         : > "$directory/Foreign.mp4.part"
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
-    *retry-403*|*missing-format*)
+    *retry-403*|*missing-format*|*retry-analysis-wait*)
         attempts="$base.fake-download-attempts"
         count=0
         if [ -f "$attempts" ]; then count=$(cat "$attempts"); fi

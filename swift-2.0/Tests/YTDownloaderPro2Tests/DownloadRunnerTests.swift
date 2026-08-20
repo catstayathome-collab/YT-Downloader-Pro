@@ -16,6 +16,15 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertEqual(fixture.scope.stopCount, 1)
     }
 
+    func testDownloadArgumentsUseResolvedReservationDirectoryInsteadOfDisplayPath() async throws {
+        // Clearing outputURL after reservation would send yt-dlp to this stale display path.
+        let fixture = try RunnerFixture(mode: "success", displayDirectory: "/tmp/stale-display-directory")
+        _ = try await collect(fixture.runner.events(for: fixture.job()))
+
+        XCTAssertTrue(fixture.commandLog().contains("\(fixture.directory.path)/Example video.%(ext)s"))
+        XCTAssertFalse(fixture.commandLog().contains("/tmp/stale-display-directory"))
+    }
+
     func testExitZeroWithoutOwnedFinalOutputFailsInsteadOfCompleting() async throws {
         // Removing final-output verification would emit completed for this zero-exit process.
         let fixture = try RunnerFixture(mode: "no-final")
@@ -56,13 +65,20 @@ final class DownloadRunnerTests: XCTestCase {
         // Interrupting a merger through an ordinary pause would destroy a non-resumable output.
         let fixture = try RunnerFixture(mode: "merge")
         let job = fixture.job(videoFormatID: "137")
-        let task = Task { try await collect(fixture.runner.events(for: job)) }
-        try await fixture.waitForFile(fixture.finalURL)
+        let events = EventRecorder()
+        let task = Task { () throws -> [DownloadEvent] in
+            var collected: [DownloadEvent] = []
+            for try await event in fixture.runner.events(for: job) {
+                collected.append(event)
+                await events.record(event)
+            }
+            return collected
+        }
+        await events.wait(for: .phase(.merging))
 
         await fixture.runner.pause(jobID: job.id)
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.finalURL.path))
         XCTAssertEqual(fixture.traceLines().filter { $0 == "download" }.count, 1)
         await fixture.runner.cancel(jobID: job.id)
         _ = try await task.value
@@ -81,9 +97,47 @@ final class DownloadRunnerTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.formatURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.formatPartFragmentURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.formatYTDLURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.finalURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.foreignPartURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.foreignFragmentURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.invalidFragmentURL.path))
+    }
+
+    func testCancelWaitsForTerminationAndSkipsCleanupWhenReservationOwnershipIsReplaced() async throws {
+        // Deleting before an ownership check would remove these artifacts after the marker is replaced.
+        let fixture = try RunnerFixture(mode: "cancel")
+        let job = fixture.job(videoFormatID: "137")
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.partURL)
+        let foreignID = UUID()
+        try foreignID.uuidString.write(to: fixture.markerURL(basename: "Example video"), atomically: true, encoding: .utf8)
+
+        await fixture.runner.cancel(jobID: job.id)
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        _ = try await task.value
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.formatURL.path))
+        XCTAssertEqual(try String(contentsOf: fixture.markerURL(basename: "Example video"), encoding: .utf8), foreignID.uuidString)
+    }
+
+    func testRepeatedCancelCallsShareTerminalCleanup() async throws {
+        // A second caller must wait for the same cleanup instead of racing scope release or deadlocking the actor.
+        let fixture = try RunnerFixture(mode: "cancel")
+        let job = fixture.job(videoFormatID: "137")
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.partURL)
+
+        async let first: Void = fixture.runner.cancel(jobID: job.id)
+        async let second: Void = fixture.runner.cancel(jobID: job.id)
+        _ = await (first, second)
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        _ = try await task.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partURL.path))
     }
 
     func testQuitDuringMergeDeletesOnlyIncompleteDestinationAndPreservesSourcePartial() async throws {
@@ -97,9 +151,31 @@ final class DownloadRunnerTests: XCTestCase {
         await fixture.runner.interruptForQuit(jobID: job.id)
         _ = try await task.value
 
+        XCTAssertEqual(fixture.scope.stopCount, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.formatPartURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
+    }
+
+    func testQuitWaitsForMergeTerminationBeforeReturning() async throws {
+        // Returning after only INT leaves the scoped folder and incomplete merge output live.
+        let fixture = try RunnerFixture(mode: "merge-ignore-int")
+        let job = fixture.job(videoFormatID: "137")
+        let events = EventRecorder()
+        let task = Task { () throws -> [DownloadEvent] in
+            var collected: [DownloadEvent] = []
+            for try await event in fixture.runner.events(for: job) {
+                collected.append(event)
+                await events.record(event)
+            }
+            return collected
+        }
+        await events.wait(for: .phase(.merging))
+
+        await fixture.runner.interruptForQuit(jobID: job.id)
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        _ = try await task.value
     }
 
     func testRetryable403ReanalyzesBeforeOneBoundedRetry() async throws {
@@ -162,6 +238,78 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertEqual(fixture.scope.stopCount, 1)
     }
 
+    func testCancelStopsTrackedReanalysisBeforeReturning() async throws {
+        // Calling MetadataProbe through opaque run leaves this reanalysis process outside cancellation control.
+        let fixture = try RunnerFixture(mode: "retry-analysis-wait")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.analysisStartedURL)
+
+        try await completeWithin(nanoseconds: 500_000_000) {
+            await fixture.runner.cancel(jobID: job.id)
+        }
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        _ = try await task.value
+
+        XCTAssertEqual(fixture.traceLines(), ["download"])
+    }
+
+    func testConsumerCancellationStopsTrackedReanalysis() async throws {
+        // A cancelled stream consumer must interrupt the analysis helper, not only detach from its events.
+        let fixture = try RunnerFixture(mode: "retry-analysis-wait")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.analysisStartedURL)
+
+        task.cancel()
+        _ = await task.result
+        try await fixture.waitForScopeStop(timeoutNanoseconds: 500_000_000)
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+    }
+
+    func testPauseStopsTrackedReanalysis() async throws {
+        // Treating reanalysis as an opaque probe would leave its helper alive after a pause.
+        let fixture = try RunnerFixture(mode: "retry-analysis-wait")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.analysisStartedURL)
+
+        await fixture.runner.pause(jobID: job.id)
+        _ = try await task.value
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: "Example video").path))
+    }
+
+    func testQuitWaitsForTrackedReanalysisTermination() async throws {
+        // Quit must not return while a retry-analysis helper still owns the security scope.
+        let fixture = try RunnerFixture(mode: "retry-analysis-wait")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.analysisStartedURL)
+
+        await fixture.runner.interruptForQuit(jobID: job.id)
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        _ = try await task.value
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: "Example video").path))
+    }
+
+    func testPauseEscalatesToTerminationWhenHelperIgnoresInterrupt() async throws {
+        // Sending only INT leaves this helper running forever.
+        let fixture = try RunnerFixture(mode: "ignore-int")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.partURL)
+
+        await fixture.runner.pause(jobID: job.id)
+        _ = try await task.value
+
+        XCTAssertEqual(fixture.scope.stopCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
+    }
+
     func testLaunchFailureReleasesScopeAndReservation() async throws {
         // A pre-launch failure must not retain a marker or security-scoped folder access.
         let fixture = try RunnerFixture(mode: "success", launchable: false)
@@ -195,7 +343,7 @@ private final class RunnerFixture: @unchecked Sendable {
     let scope = SecurityScopeRecorder()
     let runner: DownloadRunner
 
-    init(mode: String, launchable: Bool = true) throws {
+    init(mode: String, launchable: Bool = true, displayDirectory: String? = nil) throws {
         directory = try temporaryDirectory()
         let fixtureExecutable = try Self.copyFixtureScript(to: directory)
         if !launchable {
@@ -221,18 +369,26 @@ private final class RunnerFixture: @unchecked Sendable {
             interruptGraceNanoseconds: 100_000_000
         )
         try "mode=\(mode)".write(to: directory.appendingPathComponent("fixture-mode"), atomically: true, encoding: .utf8)
+        if let displayDirectory {
+            try displayDirectory.write(to: directory.appendingPathComponent("fixture-display-directory"), atomically: true, encoding: .utf8)
+        }
     }
 
     var finalURL: URL { directory.appendingPathComponent("Example video.mp4") }
     var partURL: URL { directory.appendingPathComponent("Example video.mp4.part") }
     var formatURL: URL { directory.appendingPathComponent("Example video.f137.mp4") }
     var formatPartURL: URL { directory.appendingPathComponent("Example video.f137.mp4.part") }
+    var formatPartFragmentURL: URL { directory.appendingPathComponent("Example video.f137.mp4.part-Frag1") }
+    var formatYTDLURL: URL { directory.appendingPathComponent("Example video.f137.mp4.ytdl") }
+    var invalidFragmentURL: URL { directory.appendingPathComponent("Example video.f137.mp4.part-FragNotANumber") }
     var foreignPartURL: URL { directory.appendingPathComponent("Foreign.mp4.part") }
+    var foreignFragmentURL: URL { directory.appendingPathComponent("Example video2.f137.mp4.part-Frag1") }
+    var analysisStartedURL: URL { directory.appendingPathComponent("analysis-started") }
 
     func job(id: UUID = UUID(), reservedBasename: String? = nil, videoFormatID: String? = nil) -> DownloadJob {
         var options = DownloadOptions.fixture()
         options.outputDirectoryBookmark = Data("fixture-bookmark".utf8)
-        options.outputDirectoryDisplayPath = directory.path
+        options.outputDirectoryDisplayPath = (try? String(contentsOf: directory.appendingPathComponent("fixture-display-directory"), encoding: .utf8)) ?? directory.path
         if let videoFormatID {
             options.videoQuality = .format(id: videoFormatID, label: "fixture")
         }
@@ -278,8 +434,8 @@ private final class RunnerFixture: @unchecked Sendable {
         try await waitUntil { self.traceLines().count >= count }
     }
 
-    func waitForScopeStop() async throws {
-        try await waitUntil { self.scope.stopCount == 1 }
+    func waitForScopeStop(timeoutNanoseconds: UInt64 = 3_000_000_000) async throws {
+        try await waitUntil(timeoutNanoseconds: timeoutNanoseconds) { self.scope.stopCount == 1 }
     }
 
     private static func copyFixtureScript(to directory: URL) throws -> URL {
@@ -320,4 +476,64 @@ private final class SecurityScopeRecorder: @unchecked Sendable {
         get { lock.withLock { stops } }
         set { lock.withLock { stops = newValue } }
     }
+}
+
+private actor EventRecorder {
+    private var events: [DownloadEvent] = []
+    private var waiters: [(DownloadEvent, CheckedContinuation<Void, Never>)] = []
+
+    func record(_ event: DownloadEvent) {
+        events.append(event)
+        let matching = waiters.enumerated().filter { $0.element.0 == event }.map(\.offset)
+        for index in matching.reversed() {
+            waiters.remove(at: index).1.resume()
+        }
+    }
+
+    func wait(for event: DownloadEvent) async {
+        guard !events.contains(event) else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((event, continuation))
+        }
+    }
+}
+
+private func completeWithin<T: Sendable>(
+    nanoseconds: UInt64,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        let state = RunnerTimeoutState(continuation: continuation)
+        Task.detached {
+            do {
+                state.resume(with: .success(try await operation()))
+            } catch {
+                state.resume(with: .failure(error))
+            }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Double(nanoseconds) / 1_000_000_000) {
+            state.resume(with: .failure(RunnerTimeoutError.timedOut))
+        }
+    }
+}
+
+private final class RunnerTimeoutState<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+
+    init(continuation: CheckedContinuation<Value, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<Value, Error>) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
+}
+
+private enum RunnerTimeoutError: Error {
+    case timedOut
 }

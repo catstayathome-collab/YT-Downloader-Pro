@@ -119,6 +119,22 @@ actor OutputNameAllocator {
         }
     }
 
+    func removeOwnedArtifacts(_ urls: [URL], reservation: OutputReservation, jobID: UUID) async -> Bool {
+        do {
+            return try await withCandidateLock(for: reservation, operation: {
+                guard markerBelongsToJob(at: reservation.markerURL, jobID: jobID) else {
+                    return false
+                }
+                for url in urls {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                return true
+            })
+        } catch {
+            return false
+        }
+    }
+
     private func validateDestination(_ directory: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue,
