@@ -99,6 +99,54 @@ final class ThumbnailCacheTests: XCTestCase {
         }
     }
 
+    func testPostMutationMoveFailurePreservesPriorExtensionAndLookup() async throws {
+        let root = try temporaryDirectory()
+        let jobID = UUID()
+        let initialCache = ThumbnailCache(root: root)
+        let originalURL = try await initialCache.store(data: pngData, for: jobID)
+        let originalFileNumber = try fileNumber(at: originalURL)
+        let replacementURL = originalURL.deletingPathExtension().appendingPathExtension("jpg")
+        let cache = ThumbnailCache(
+            root: root,
+            fileSystem: ThumbnailFaultFileSystem(failingOnce: .moveAfterMutation)
+        )
+
+        do {
+            _ = try await cache.store(data: jpegData, for: jobID)
+            XCTFail("Expected post-mutation move failure")
+        } catch {
+            let cachedURL = await initialCache.url(for: jobID)
+            XCTAssertEqual(try Data(contentsOf: originalURL), pngData)
+            XCTAssertEqual(try fileNumber(at: originalURL), originalFileNumber)
+            XCTAssertEqual(cachedURL, originalURL)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: replacementURL.path))
+            XCTAssertEqual(try thumbnailFileNames(in: root), [originalURL.lastPathComponent])
+        }
+    }
+
+    func testPostMutationReplaceFailureRestoresExactPriorThumbnail() async throws {
+        let root = try temporaryDirectory()
+        let jobID = UUID()
+        let initialCache = ThumbnailCache(root: root)
+        let originalURL = try await initialCache.store(data: jpegData, for: jobID)
+        let originalFileNumber = try fileNumber(at: originalURL)
+        let cache = ThumbnailCache(
+            root: root,
+            fileSystem: ThumbnailFaultFileSystem(failingOnce: .replaceAfterMutation)
+        )
+
+        do {
+            _ = try await cache.store(data: replacementJPEGData, for: jobID)
+            XCTFail("Expected post-mutation replace failure")
+        } catch {
+            let cachedURL = await initialCache.url(for: jobID)
+            XCTAssertEqual(try Data(contentsOf: originalURL), jpegData)
+            XCTAssertEqual(cachedURL, originalURL)
+            XCTAssertEqual(try fileNumber(at: originalURL), originalFileNumber)
+            XCTAssertEqual(try thumbnailFileNames(in: root), [originalURL.lastPathComponent])
+        }
+    }
+
     func testDirectorySymlinkIsRejectedForStoreLookupAndRemoval() async throws {
         let lookup = try makeDirectorySymlinkFixture()
         let lookupURL = await lookup.cache.url(for: lookup.jobID)
@@ -135,6 +183,34 @@ final class ThumbnailCacheTests: XCTestCase {
             try await removal.cache.remove(jobID: removal.jobID)
         }
         XCTAssertEqual(try Data(contentsOf: removal.outsideFile), pngData)
+    }
+
+    func testStoreRejectsConfiguredRootSymlink() async throws {
+        let fixture = try makeRootSymlinkFixture()
+
+        await assertUnsafeCachePath {
+            _ = try await fixture.cache.store(data: jpegData, for: fixture.jobID)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.outsideFile), pngData)
+    }
+
+    func testLookupRejectsConfiguredRootSymlink() async throws {
+        let fixture = try makeRootSymlinkFixture()
+        let cachedURL = await fixture.cache.url(for: fixture.jobID)
+
+        XCTAssertNil(cachedURL)
+        XCTAssertEqual(try Data(contentsOf: fixture.outsideFile), pngData)
+    }
+
+    func testRemovalRejectsConfiguredRootSymlink() async throws {
+        let fixture = try makeRootSymlinkFixture()
+
+        await assertUnsafeCachePath {
+            try await fixture.cache.remove(jobID: fixture.jobID)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.outsideFile), pngData)
     }
 
     func testFetchRejectsNonHTTPURLWithoutCallingInjectedLoader() async throws {
@@ -218,17 +294,21 @@ private func makeJPEGData(pixel: [UInt8]) -> Data {
 
 private enum ThumbnailFileFault: Equatable, CustomStringConvertible {
     case move
+    case moveAfterMutation
     case read
     case remove
     case replace
+    case replaceAfterMutation
     case write
 
     var description: String {
         switch self {
         case .move: "move"
+        case .moveAfterMutation: "move after mutation"
         case .read: "read"
         case .remove: "remove"
         case .replace: "replace"
+        case .replaceAfterMutation: "replace after mutation"
         case .write: "write"
         }
     }
@@ -264,11 +344,19 @@ private final class ThumbnailFaultFileSystem: ThumbnailFileSystem, @unchecked Se
     }
 
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        if try shouldFailAfterMutation(.moveAfterMutation) {
+            try live.moveItem(at: sourceURL, to: destinationURL)
+            throw CocoaError(.fileWriteUnknown)
+        }
         try failIfNeeded(.move)
         try live.moveItem(at: sourceURL, to: destinationURL)
     }
 
     func replaceItem(at originalURL: URL, withItemAt newURL: URL, backupItemName: String) throws -> URL? {
+        if try shouldFailAfterMutation(.replaceAfterMutation) {
+            _ = try live.replaceItem(at: originalURL, withItemAt: newURL, backupItemName: backupItemName)
+            throw CocoaError(.fileWriteUnknown)
+        }
         try failIfNeeded(.replace)
         return try live.replaceItem(at: originalURL, withItemAt: newURL, backupItemName: backupItemName)
     }
@@ -291,6 +379,14 @@ private final class ThumbnailFaultFileSystem: ThumbnailFileSystem, @unchecked Se
         guard matchingOperationCount == failureIndex else { return }
         hasFailed = true
         throw CocoaError(.fileWriteUnknown)
+    }
+
+    private func shouldFailAfterMutation(_ operation: ThumbnailFileFault) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasFailed, operation == fault else { return false }
+        hasFailed = true
+        return true
     }
 }
 
@@ -326,6 +422,31 @@ private func makeLeafSymlinkFixture() throws -> ThumbnailSymlinkFixture {
         withDestinationURL: outsideFile
     )
     return ThumbnailSymlinkFixture(cache: ThumbnailCache(root: root), jobID: jobID, outsideFile: outsideFile)
+}
+
+private func makeRootSymlinkFixture() throws -> ThumbnailSymlinkFixture {
+    let parent = try temporaryDirectory()
+    let outside = try temporaryDirectory()
+    let thumbnails = outside.appendingPathComponent("Thumbnails", isDirectory: true)
+    try FileManager.default.createDirectory(at: thumbnails, withIntermediateDirectories: true)
+    let jobID = UUID()
+    let outsideFile = thumbnails.appendingPathComponent("\(jobID.uuidString).png")
+    try pngData.write(to: outsideFile)
+    let root = parent.appendingPathComponent("CacheRoot", isDirectory: true)
+    try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
+    return ThumbnailSymlinkFixture(cache: ThumbnailCache(root: root), jobID: jobID, outsideFile: outsideFile)
+}
+
+private func thumbnailFileNames(in root: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(
+        at: root.appendingPathComponent("Thumbnails", isDirectory: true),
+        includingPropertiesForKeys: nil
+    ).map(\.lastPathComponent).sorted()
+}
+
+private func fileNumber(at url: URL) throws -> UInt64 {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    return (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
 }
 
 private func assertUnsafeCachePath(

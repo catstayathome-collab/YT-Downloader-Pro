@@ -99,6 +99,7 @@ actor ThumbnailCache {
         }
     }
 
+    private let configuredRoot: URL
     private let canonicalRoot: URL
     private let fileSystem: any ThumbnailFileSystem
     private let loader: ThumbnailDataLoader
@@ -108,7 +109,8 @@ actor ThumbnailCache {
         fileSystem: any ThumbnailFileSystem = LiveThumbnailFileSystem(),
         loader: ThumbnailDataLoader = .live
     ) {
-        canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        configuredRoot = root.standardizedFileURL
+        canonicalRoot = configuredRoot.resolvingSymlinksInPath().standardizedFileURL
         self.fileSystem = fileSystem
         self.loader = loader
     }
@@ -126,7 +128,8 @@ actor ThumbnailCache {
         let temporaryURL = directory.appendingPathComponent(".thumbnail-stage-\(transactionID).\(imageType.rawValue)")
         let backupName = ".thumbnail-backup-\(transactionID).\(imageType.rawValue)"
         let backupURL = directory.appendingPathComponent(backupName)
-        var installationStarted = false
+        let destinationExisted = existing.contains(destination)
+        var installationAttempted = false
 
         do {
             try validateMutationTarget(temporaryURL, in: directory, mustNotExist: true)
@@ -139,12 +142,12 @@ actor ThumbnailCache {
 
             try recheckDirectory(directory)
             try validateMutationTarget(destination, in: directory, mustNotExist: false)
+            installationAttempted = true
             if fileSystem.fileExists(at: destination) {
                 _ = try fileSystem.replaceItem(at: destination, withItemAt: temporaryURL, backupItemName: backupName)
             } else {
                 try fileSystem.moveItem(at: temporaryURL, to: destination)
             }
-            installationStarted = true
             try validateMutationTarget(destination, in: directory, mustNotExist: false)
 
             for obsoleteURL in existing where obsoleteURL != destination {
@@ -156,17 +159,24 @@ actor ThumbnailCache {
                 try fileSystem.removeItem(at: backupURL)
             }
             return destination
-        } catch {
-            if installationStarted {
-                try? restore(snapshots: snapshots, jobID: jobID, in: directory)
+        } catch let operationError {
+            if installationAttempted {
+                do {
+                    try rollbackInstallation(
+                        snapshots: snapshots,
+                        destination: destination,
+                        destinationExisted: destinationExisted,
+                        backupURL: backupURL,
+                        in: directory
+                    )
+                } catch {
+                    throw error
+                }
             }
             if fileSystem.fileExists(at: temporaryURL), (try? fileSystem.isSymbolicLink(at: temporaryURL)) != true {
                 try? fileSystem.removeItem(at: temporaryURL)
             }
-            if fileSystem.fileExists(at: backupURL), (try? fileSystem.isSymbolicLink(at: backupURL)) != true {
-                try? fileSystem.removeItem(at: backupURL)
-            }
-            throw error
+            throw operationError
         }
     }
 
@@ -200,15 +210,31 @@ actor ThumbnailCache {
         }
     }
 
-    private func restore(snapshots: [URL: Data], jobID: UUID, in directory: URL) throws {
+    private func rollbackInstallation(
+        snapshots: [URL: Data],
+        destination: URL,
+        destinationExisted: Bool,
+        backupURL: URL,
+        in directory: URL
+    ) throws {
         try recheckDirectory(directory)
-        for imageType in ImageType.allCases {
-            let candidate = thumbnailURL(for: jobID, type: imageType, in: directory)
-            guard fileSystem.fileExists(at: candidate) else { continue }
-            try validateMutationTarget(candidate, in: directory, mustNotExist: false)
-            try fileSystem.removeItem(at: candidate)
+
+        if fileSystem.fileExists(at: backupURL) {
+            try validateMutationTarget(backupURL, in: directory, mustNotExist: false)
+            if fileSystem.fileExists(at: destination) {
+                try validateMutationTarget(destination, in: directory, mustNotExist: false)
+                try fileSystem.removeItem(at: destination)
+            }
+            try recheckDirectory(directory)
+            try validateMutationTarget(destination, in: directory, mustNotExist: true)
+            try fileSystem.moveItem(at: backupURL, to: destination)
+        } else if !destinationExisted, fileSystem.fileExists(at: destination) {
+            try validateMutationTarget(destination, in: directory, mustNotExist: false)
+            try fileSystem.removeItem(at: destination)
         }
+
         for (url, data) in snapshots {
+            guard !fileSystem.fileExists(at: url) else { continue }
             try recheckDirectory(directory)
             try validateMutationTarget(url, in: directory, mustNotExist: true)
             try fileSystem.writeData(data, to: url)
@@ -216,6 +242,7 @@ actor ThumbnailCache {
     }
 
     private func validatedThumbnailsDirectory(createIfMissing: Bool) throws -> URL {
+        try validateConfiguredRoot()
         let directory = canonicalRoot.appendingPathComponent("Thumbnails", isDirectory: true).standardizedFileURL
         guard contains(directory, in: canonicalRoot) else {
             throw ThumbnailCacheError.unsafeCachePath
@@ -231,9 +258,20 @@ actor ThumbnailCache {
     }
 
     private func recheckDirectory(_ directory: URL) throws {
+        try validateConfiguredRoot()
         guard contains(directory, in: canonicalRoot),
               directory.resolvingSymlinksInPath().standardizedFileURL == directory,
               (try? fileSystem.isSymbolicLink(at: directory)) != true else {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+    }
+
+    private func validateConfiguredRoot() throws {
+        guard configuredRoot == canonicalRoot,
+              configuredRoot.resolvingSymlinksInPath().standardizedFileURL == canonicalRoot else {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+        if fileSystem.fileExists(at: configuredRoot), try fileSystem.isSymbolicLink(at: configuredRoot) {
             throw ThumbnailCacheError.unsafeCachePath
         }
     }

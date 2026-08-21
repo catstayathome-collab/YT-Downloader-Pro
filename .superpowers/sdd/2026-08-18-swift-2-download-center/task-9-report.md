@@ -92,3 +92,42 @@ Before production code existed, the focused build failed because `ThumbnailCache
 
 - No Task 9 review finding remains open. Recovery from a second independent filesystem failure during an already-failing thumbnail rollback is necessarily best-effort; normal single-failure boundaries are deterministic and covered.
 - DownloadStore integration remains Task 10 scope, as noted above.
+
+## Fix Round 2
+
+### Changed Files
+
+- `swift-2.0/Sources/YTDownloaderPro2/Services/ThumbnailCache.swift`
+- `swift-2.0/Tests/YTDownloaderPro2Tests/ThumbnailCacheTests.swift`
+- `.superpowers/sdd/2026-08-18-swift-2-download-center/task-9-report.md`
+
+### Remaining Findings Addressed
+
+- Thumbnail installation intent is recorded before move/replace. Rollback now inspects the destination and replacement backup after any thrown mutation: a newly moved alternate extension is removed without touching the old file, while a same-extension replacement moves the preserved live backup back to the original destination. The backup remains available until the full transaction commits.
+- Failed cross-extension and same-extension stores preserve the original bytes, file identity, extension/path, and lookup result; no new alternate thumbnail remains selectable.
+- The cache retains both the configured root identity and canonical root. Every store, lookup, and deletion path revalidates the original configured root and rejects root symlinks or changed symlink resolution before touching `Thumbnails`.
+
+### RED Evidence
+
+- After correcting test-harness compile errors, `ThumbnailCacheTests` executed 16 tests and failed the five new behavior tests with 10 assertions: post-mutation move left `.jpg` and `.png` while lookup selected `.jpg`; post-mutation replace changed both bytes and file identity; configured-root symlinks were accepted by store, lookup, and deletion and mutated the outside target.
+- The move and replace fault injectors call the live filesystem mutation first and throw only afterward, matching the re-review probes rather than simulating a pre-mutation error.
+
+### GREEN And Verification
+
+- `ThumbnailCacheTests`: 16 tests, 0 failures in three consecutive focused runs.
+- `DiagnosticsLoggerTests`: 7 tests, 0 failures.
+- `ModelsTests`: 13 tests, 0 failures.
+- Full suite: 143 tests, 0 failures.
+- Fresh full strict-concurrency suite using `-Xswiftc -strict-concurrency=complete`: 143 tests, 0 failures.
+- Fresh `arm64-apple-macosx13.0` build: passed.
+- Thumbnail network paths remain injected and deterministic in tests; the suite makes no thumbnail network requests.
+- Final `git diff --check`: clean before commit.
+
+### Commit
+
+`fix(swift): preserve thumbnails after failed install`
+
+### Concerns
+
+- No scoped Task 9 re-review finding remains open. If rollback itself encounters a second independent filesystem failure, its error propagates and any live backup is deliberately retained for recovery instead of being deleted.
+- DownloadStore integration remains Task 10 scope.
