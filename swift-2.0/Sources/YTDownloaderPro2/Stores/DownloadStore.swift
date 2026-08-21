@@ -226,6 +226,19 @@ final class DownloadStore: ObservableObject {
         await coordinator.enqueue(queuedJobs)
     }
 
+    func start(_ jobID: UUID) async {
+        guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status == .queued else { return }
+        if coordinatorManagedJobIDs.contains(jobID) {
+            await coordinator.startNow(jobID)
+        } else {
+            coordinatorManagedJobIDs.insert(jobID)
+            await coordinator.enqueue([job])
+            await coordinator.startNow(jobID)
+        }
+    }
+
     func pauseAll() async {
         guard !isPreparingToQuit else { return }
         let pausableIDs = jobs.compactMap { job -> UUID? in
@@ -291,6 +304,15 @@ final class DownloadStore: ObservableObject {
             await coordinator.cancel(jobID)
         case .completed, .failed, .cancelled:
             return
+        }
+    }
+
+    func cancelActiveAndWaiting() async {
+        let jobIDs = jobs
+            .filter { $0.status == .queued || $0.status.isActive }
+            .map(\.id)
+        for jobID in jobIDs {
+            await cancel(jobID)
         }
     }
 
@@ -395,6 +417,22 @@ final class DownloadStore: ObservableObject {
                 await recordDiagnostic(jobID: jobID, stage: "thumbnail-removal", detail: String(describing: error))
             }
         }
+    }
+
+    func reAdd(_ jobID: UUID) async {
+        guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status == .cancelled else { return }
+        let replacement = DownloadJob(
+            sourceURL: job.sourceURL,
+            playlistID: job.playlistID,
+            title: job.title,
+            duration: job.duration,
+            sourceMetadata: job.sourceMetadata,
+            options: job.options
+        )
+        jobs.append(replacement)
+        await persist(flush: true)
     }
 
     /// All callers join one shutdown barrier; a final persistence failure is returned to the app delegate.

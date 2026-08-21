@@ -10,7 +10,7 @@ enum DownloadStatus: String, CaseIterable, Codable, Sendable {
     case failed
     case cancelled
 
-    enum SidebarSection: String, CaseIterable, Codable, Sendable {
+    enum SidebarSection: String, CaseIterable, Codable, Sendable, Hashable {
         case all
         case running
         case stopped

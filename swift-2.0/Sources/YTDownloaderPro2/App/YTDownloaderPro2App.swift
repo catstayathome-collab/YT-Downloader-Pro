@@ -7,7 +7,13 @@ struct YTDownloaderPro2App: App {
 
     var body: some Scene {
         WindowGroup {
-            Text("YT Downloader Pro")
+            DownloadCenterView()
+                .environmentObject(appLifecycle.store)
+                .frame(minWidth: 760, minHeight: 540)
+        }
+
+        Settings {
+            SettingsContentView()
                 .environmentObject(appLifecycle.store)
         }
     }
