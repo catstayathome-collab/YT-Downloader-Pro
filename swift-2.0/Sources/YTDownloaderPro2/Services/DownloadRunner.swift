@@ -2,7 +2,8 @@ import Foundation
 
 protocol JobRunning: Sendable {
     func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error>
-    func pause(jobID: UUID) async
+    /// Returns true only when a user pause was atomically accepted in a resumable phase.
+    @discardableResult func pause(jobID: UUID) async -> Bool
     func cancel(jobID: UUID) async
     func interruptForQuit(jobID: UUID) async
 }
@@ -88,11 +89,17 @@ actor DownloadRunner: JobRunning {
         return stream
     }
 
-    func pause(jobID: UUID) async {
-        guard let activeDownload = active[jobID], activeDownload.phase != .merging else {
-            return
+    @discardableResult
+    func pause(jobID: UUID) async -> Bool {
+        guard let activeDownload = active[jobID], activeDownload.control == .none,
+              activeDownload.phase != .merging, activeDownload.phase != .postprocessing else {
+            return false
         }
-        await requestPause(jobID: jobID, control: .pause)
+        active[jobID]?.control = .pause
+        if let process = activeDownload.process {
+            await signal(process: process, for: .pause, jobID: jobID, token: activeDownload.token)
+        }
+        return true
     }
 
     func cancel(jobID: UUID) async {

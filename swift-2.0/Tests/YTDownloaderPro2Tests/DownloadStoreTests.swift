@@ -666,7 +666,11 @@ private actor StoreRunner: JobRunning {
 
     func startedIDs() -> [UUID] { starts }
 
-    func pause(jobID: UUID) async { finish(jobID) }
+    func pause(jobID: UUID) async -> Bool {
+        guard continuations[jobID] != nil else { return false }
+        finish(jobID)
+        return true
+    }
     func cancel(jobID: UUID) async {
         cancellations.append(jobID)
         finish(jobID)

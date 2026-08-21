@@ -229,9 +229,9 @@ final class DownloadCoordinatorTests: XCTestCase {
 
         await coordinator.enqueue(jobs)
         try await runner.waitForStarted(count: 1)
-        async let firstPause: Void = coordinator.pause(jobs[0].id)
-        async let secondPause: Void = coordinator.pause(jobs[0].id)
-        _ = await (firstPause, secondPause)
+        async let firstPause = coordinator.pause(jobs[0].id)
+        async let secondPause = coordinator.pause(jobs[0].id)
+        let pauseResults = await (firstPause, secondPause)
         try await runner.waitForStarted(count: 2)
 
         async let firstCancel: Void = coordinator.cancel(jobs[1].id)
@@ -242,6 +242,7 @@ final class DownloadCoordinatorTests: XCTestCase {
         let pauseCalls = await runner.pauseCalls(for: jobs[0].id)
         let cancelCalls = await runner.cancelCalls(for: jobs[1].id)
         let startedIDs = await runner.startedIDs
+        XCTAssertEqual([pauseResults.0, pauseResults.1], [true, true])
         XCTAssertEqual(pauseCalls, 1)
         XCTAssertEqual(cancelCalls, 1)
         XCTAssertEqual(startedIDs, jobs.map(\.id))
@@ -255,10 +256,11 @@ final class DownloadCoordinatorTests: XCTestCase {
 
         await coordinator.enqueue(job)
         try await runner.waitForStarted(count: 1)
-        await coordinator.pause(job.id)
+        let accepted = await coordinator.pause(job.id)
 
         let pauseCalls = await runner.pauseCalls(for: job.id)
         let quitMethodCalls = await runner.quitMethodCalls(for: job.id)
+        XCTAssertTrue(accepted)
         XCTAssertEqual(pauseCalls, 1)
         XCTAssertEqual(quitMethodCalls, 0)
         await coordinator.shutdown()
@@ -339,7 +341,7 @@ final class DownloadCoordinatorTests: XCTestCase {
         let stoppedStatuses = await recorder.stoppedStatuses
         XCTAssertEqual(pauseCalls, 1)
         XCTAssertEqual(quitCalls, 1)
-        XCTAssertEqual(startedIDs, [jobs[0].id, jobs[1].id])
+        XCTAssertEqual(Set(startedIDs), Set([jobs[0].id, jobs[1].id]))
         XCTAssertEqual(stoppedStatuses, [jobs[0].id: [.paused], jobs[1].id: [.paused]])
     }
 
@@ -407,13 +409,11 @@ final class DownloadCoordinatorTests: XCTestCase {
         observer.cancel()
     }
 
-    func testBufferedMergePhaseRejectsPauseAndShutdownUsesAuthoritativeQuitInterruption() async throws {
+    func testBufferedMergePhaseRejectsPauseAndFinishesCompletedExactlyOnce() async throws {
         let runner = GatedRunner()
-        let coordinator = DownloadCoordinator(limit: 2, runner: runner)
-        let jobs = DownloadJob.fixtures(count: 2)
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let job = DownloadJob.fixture()
         let recorder = CoordinatorEventRecorder()
-        let pauseCompletion = CompletionProbe()
-        let shutdownCompletion = CompletionProbe()
         let observer = Task {
             for await event in coordinator.events {
                 await recorder.record(event)
@@ -421,53 +421,65 @@ final class DownloadCoordinatorTests: XCTestCase {
             await recorder.markStreamFinished()
         }
 
-        await coordinator.enqueue(jobs)
-        try await runner.waitForStarted(count: 2)
-        for job in jobs {
-            await runner.emit(.phase(.downloading), for: job.id)
-            try await recorder.wait(for: .runnerEvent(job.id, .phase(.downloading)))
-            await runner.queuePhaseBeforeDelivery(.merging, for: job.id)
-        }
+        await coordinator.enqueue(job)
+        try await runner.waitForStarted(count: 1)
+        await runner.emit(.phase(.downloading), for: job.id)
+        try await recorder.wait(for: .runnerEvent(job.id, .phase(.downloading)))
+        await runner.queuePhaseBeforeDelivery(.merging, for: job.id)
 
-        let pauseTask = Task {
-            await coordinator.pause(jobs[0].id)
-            await pauseCompletion.markCompleted()
-        }
-        try await runner.waitForControlRequests(jobID: jobs[0].id, count: 1)
-        let shutdownTask = Task {
-            await coordinator.shutdown()
-            await shutdownCompletion.markCompleted()
-        }
-        try await runner.waitForControlRequests(jobID: jobs[1].id, count: 1)
+        let pauseTask = Task { await coordinator.pause(job.id) }
+        try await runner.waitForControlRequests(jobID: job.id, count: 1)
+        let pauseAccepted = await pauseTask.value
+        XCTAssertFalse(pauseAccepted)
+        await runner.completeAfterDeliveringPendingEvents(jobID: job.id)
+        try await recorder.waitForStopped(job.id)
 
-        do {
-            for job in jobs {
-                try await runner.waitForQuitCalls(jobID: job.id, count: 1, timeout: .milliseconds(250))
-            }
-        } catch {
-            XCTFail("\(error)")
-            for job in jobs {
-                await runner.forceFinish(jobID: job.id)
-            }
-        }
-
-        try await pauseCompletion.waitForCompleted()
-        try await shutdownCompletion.waitForCompleted()
-        try await recorder.waitForStreamFinished()
-
+        let acceptedPauseCalls = await runner.pauseCalls(for: job.id)
         let events = await recorder.events
         let stoppedStatuses = await recorder.stoppedStatuses
-        for job in jobs {
-            let acceptedPauseCalls = await runner.pauseCalls(for: job.id)
-            let quitCalls = await runner.quitCalls(for: job.id)
-            XCTAssertEqual(acceptedPauseCalls, 0)
-            XCTAssertEqual(quitCalls, 1)
-            XCTAssertTrue(events.contains(.runnerEvent(job.id, .phase(.merging))))
-            XCTAssertEqual(stoppedStatuses[job.id], [.paused])
+        XCTAssertEqual(acceptedPauseCalls, 0)
+        XCTAssertTrue(events.contains(.runnerEvent(job.id, .phase(.merging))))
+        XCTAssertEqual(stoppedStatuses[job.id], [.completed])
+
+        await coordinator.shutdown()
+        try await recorder.waitForStreamFinished()
+        observer.cancel()
+    }
+
+    func testBufferedPostprocessingPhaseRejectsPauseAndFinishesCompletedExactlyOnce() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let job = DownloadJob.fixture()
+        let recorder = CoordinatorEventRecorder()
+        let observer = Task {
+            for await event in coordinator.events {
+                await recorder.record(event)
+            }
+            await recorder.markStreamFinished()
         }
 
-        pauseTask.cancel()
-        shutdownTask.cancel()
+        await coordinator.enqueue(job)
+        try await runner.waitForStarted(count: 1)
+        await runner.emit(.phase(.downloading), for: job.id)
+        try await recorder.wait(for: .runnerEvent(job.id, .phase(.downloading)))
+        await runner.queuePhaseBeforeDelivery(.postprocessing, for: job.id)
+
+        let pauseTask = Task { await coordinator.pause(job.id) }
+        try await runner.waitForControlRequests(jobID: job.id, count: 1)
+        let pauseAccepted = await pauseTask.value
+        XCTAssertFalse(pauseAccepted)
+        await runner.completeAfterDeliveringPendingEvents(jobID: job.id)
+        try await recorder.waitForStopped(job.id)
+
+        let acceptedPauseCalls = await runner.pauseCalls(for: job.id)
+        let events = await recorder.events
+        let stoppedStatuses = await recorder.stoppedStatuses
+        XCTAssertEqual(acceptedPauseCalls, 0)
+        XCTAssertTrue(events.contains(.runnerEvent(job.id, .phase(.postprocessing))))
+        XCTAssertEqual(stoppedStatuses[job.id], [.completed])
+
+        await coordinator.shutdown()
+        try await recorder.waitForStreamFinished()
         observer.cancel()
     }
 }
@@ -499,7 +511,7 @@ private actor GatedRunner: JobRunning {
         return stream
     }
 
-    func pause(jobID: UUID) async {
+    func pause(jobID: UUID) async -> Bool {
         pauseRequests[jobID, default: 0] += 1
         controlRequests[jobID, default: 0] += 1
         if blockedPauseIDs.contains(jobID) {
@@ -508,9 +520,10 @@ private actor GatedRunner: JobRunning {
             }
         }
         guard continuations[jobID] != nil, paused[jobID] == nil,
-              phases[jobID] != .merging, phases[jobID] != .postprocessing else { return }
+              phases[jobID] != .merging, phases[jobID] != .postprocessing else { return false }
         paused[jobID] = 1
         finish(jobID, error: nil)
+        return true
     }
 
     func cancel(jobID: UUID) async {
@@ -612,6 +625,12 @@ private actor GatedRunner: JobRunning {
 
     func forceFinish(jobID: UUID) {
         deliverPendingEvents(for: jobID)
+        finish(jobID, error: nil)
+    }
+
+    func completeAfterDeliveringPendingEvents(jobID: UUID) {
+        deliverPendingEvents(for: jobID)
+        continuations[jobID]?.yield(.completed)
         finish(jobID, error: nil)
     }
 

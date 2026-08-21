@@ -100,6 +100,13 @@ case "$url" in
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
+    *postprocess*)
+        printf 'ytdp:phase|downloading\n'
+        : > "$base.mp4.part"
+        printf 'ytdp:phase|postprocessing\n'
+        trap 'exit 0' INT TERM
+        while :; do sleep 1; done
+        ;;
     *cancel*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.mp4.part"

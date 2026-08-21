@@ -15,9 +15,16 @@ actor DownloadCoordinator {
         case shutdown
     }
 
+    /// Keeps one runner pause decision joinable without treating it as accepted early.
+    private struct PendingPause {
+        let generation: UUID
+        let task: Task<Bool, Never>
+    }
+
     private struct ActiveJob {
         let token: UUID
         var requestedStop: RequestedStop
+        var pendingPause: PendingPause?
         var controlTask: Task<Void, Never>?
         let task: Task<Void, Never>
     }
@@ -45,6 +52,7 @@ actor DownloadCoordinator {
 
     deinit {
         for worker in active.values {
+            worker.pendingPause?.task.cancel()
             worker.controlTask?.cancel()
             worker.task.cancel()
         }
@@ -79,22 +87,42 @@ actor DownloadCoordinator {
         startAvailableJobs()
     }
 
-    func pause(_ jobID: UUID) async {
-        guard !isShuttingDown else { return }
+    @discardableResult
+    func pause(_ jobID: UUID) async -> Bool {
+        guard !isShuttingDown else { return false }
 
         if removeQueued(jobID) {
             setStatus(.paused, for: jobID)
             continuation.yield(.stopped(jobID, .paused))
-            return
+            return true
         }
 
-        guard let worker = active[jobID], worker.requestedStop == .none else { return }
-        active[jobID]?.requestedStop = .pause
-        let runner = self.runner
-        let controlTask = Task { await runner.pause(jobID: jobID) }
-        active[jobID]?.controlTask = controlTask
-        await controlTask.value
-        await worker.task.value
+        guard let worker = active[jobID], worker.requestedStop == .none, worker.controlTask == nil else {
+            return active[jobID]?.requestedStop == .pause
+        }
+        let pendingPause: PendingPause
+        if let existing = worker.pendingPause {
+            pendingPause = existing
+        } else {
+            let runner = self.runner
+            let request = PendingPause(
+                generation: UUID(),
+                task: Task { await runner.pause(jobID: jobID) }
+            )
+            active[jobID]?.pendingPause = request
+            pendingPause = request
+        }
+
+        let accepted = await settlePause(
+            jobID: jobID,
+            workerToken: worker.token,
+            generation: pendingPause.generation,
+            task: pendingPause.task
+        )
+        if accepted {
+            await worker.task.value
+        }
+        return accepted
     }
 
     func resume(_ jobID: UUID) {
@@ -117,7 +145,7 @@ actor DownloadCoordinator {
             return
         }
 
-        guard let worker = active[jobID], worker.requestedStop == .none else { return }
+        guard let worker = active[jobID], worker.requestedStop == .none, worker.pendingPause == nil else { return }
         active[jobID]?.requestedStop = .cancel
         let runner = self.runner
         let controlTask = Task { await runner.cancel(jobID: jobID) }
@@ -188,7 +216,7 @@ actor DownloadCoordinator {
             await self?.workerFinished(jobID: job.id, token: token, result: result)
         }
 
-        active[job.id] = ActiveJob(token: token, requestedStop: .none, controlTask: nil, task: task)
+        active[job.id] = ActiveJob(token: token, requestedStop: .none, pendingPause: nil, controlTask: nil, task: task)
         setStatus(.analyzing, for: job.id)
         continuation.yield(.started(job.id))
     }
@@ -204,7 +232,16 @@ actor DownloadCoordinator {
 
     private func workerFinished(jobID: UUID, token: UUID, result: Result<Void, DownloadFailure>) async {
         guard let current = active[jobID], current.token == token else { return }
-        if let controlTask = current.controlTask {
+        if let pendingPause = current.pendingPause {
+            _ = await settlePause(
+                jobID: jobID,
+                workerToken: token,
+                generation: pendingPause.generation,
+                task: pendingPause.task
+            )
+        }
+        guard let settled = active[jobID], settled.token == token else { return }
+        if let controlTask = settled.controlTask {
             await controlTask.value
         }
         guard let worker = active[jobID], worker.token == token else { return }
@@ -232,7 +269,16 @@ actor DownloadCoordinator {
 
     private func prepareForShutdown(jobID: UUID, token: UUID) async {
         guard let worker = active[jobID], worker.token == token else { return }
-        if let controlTask = worker.controlTask {
+        if let pendingPause = worker.pendingPause {
+            _ = await settlePause(
+                jobID: jobID,
+                workerToken: token,
+                generation: pendingPause.generation,
+                task: pendingPause.task
+            )
+        }
+        guard let settled = active[jobID], settled.token == token else { return }
+        if let controlTask = settled.controlTask {
             await controlTask.value
             guard let latest = active[jobID], latest.token == token else { return }
             if latest.requestedStop == .cancel {
@@ -245,6 +291,25 @@ actor DownloadCoordinator {
         let controlTask = Task { await runner.interruptForQuit(jobID: jobID) }
         active[jobID]?.controlTask = controlTask
         await controlTask.value
+    }
+
+    private func settlePause(
+        jobID: UUID,
+        workerToken: UUID,
+        generation: UUID,
+        task: Task<Bool, Never>
+    ) async -> Bool {
+        let accepted = await task.value
+        guard var worker = active[jobID], worker.token == workerToken,
+              worker.pendingPause?.generation == generation else {
+            return accepted
+        }
+        worker.pendingPause = nil
+        if accepted, worker.requestedStop == .none {
+            worker.requestedStop = .pause
+        }
+        active[jobID] = worker
+        return accepted
     }
 
     private func removeQueued(_ jobID: UUID) -> Bool {

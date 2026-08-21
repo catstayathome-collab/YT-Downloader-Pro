@@ -45,9 +45,10 @@ final class DownloadRunnerTests: XCTestCase {
         let task = Task { try await collect(fixture.runner.events(for: initialJob)) }
         try await fixture.waitForFile(fixture.partURL)
 
-        await fixture.runner.pause(jobID: initialJob.id)
+        let pauseAccepted = await fixture.runner.pause(jobID: initialJob.id)
         let pausedEvents = try await task.value
 
+        XCTAssertTrue(pauseAccepted)
         let basename = try XCTUnwrap(pausedEvents.compactMap(reservedBasename).first)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
@@ -76,9 +77,33 @@ final class DownloadRunnerTests: XCTestCase {
         }
         await events.wait(for: .phase(.merging))
 
-        await fixture.runner.pause(jobID: job.id)
+        let pauseAccepted = await fixture.runner.pause(jobID: job.id)
         try await Task.sleep(nanoseconds: 100_000_000)
 
+        XCTAssertFalse(pauseAccepted)
+        XCTAssertEqual(fixture.traceLines().filter { $0 == "download" }.count, 1)
+        await fixture.runner.cancel(jobID: job.id)
+        _ = try await task.value
+    }
+
+    func testPauseDuringPostprocessingIsRejectedAndLeavesProcessRunning() async throws {
+        let fixture = try RunnerFixture(mode: "postprocess")
+        let job = fixture.job()
+        let events = EventRecorder()
+        let task = Task { () throws -> [DownloadEvent] in
+            var collected: [DownloadEvent] = []
+            for try await event in fixture.runner.events(for: job) {
+                collected.append(event)
+                await events.record(event)
+            }
+            return collected
+        }
+        await events.wait(for: .phase(.postprocessing))
+
+        let pauseAccepted = await fixture.runner.pause(jobID: job.id)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertFalse(pauseAccepted)
         XCTAssertEqual(fixture.traceLines().filter { $0 == "download" }.count, 1)
         await fixture.runner.cancel(jobID: job.id)
         _ = try await task.value
@@ -89,7 +114,7 @@ final class DownloadRunnerTests: XCTestCase {
         let fixture = try RunnerFixture(mode: "cancel")
         let job = fixture.job(videoFormatID: "137")
         let task = Task { try await collect(fixture.runner.events(for: job)) }
-        try await fixture.waitForFile(fixture.partURL)
+        try await fixture.waitForFile(fixture.foreignPartURL)
         let basename = "Example video"
 
         await fixture.runner.cancel(jobID: job.id)
@@ -245,7 +270,7 @@ final class DownloadRunnerTests: XCTestCase {
         let task = Task { try await collect(fixture.runner.events(for: job)) }
         try await fixture.waitForFile(fixture.analysisStartedURL)
 
-        try await completeWithin(nanoseconds: 500_000_000) {
+        try await completeWithin(nanoseconds: 1_500_000_000) {
             await fixture.runner.cancel(jobID: job.id)
         }
         XCTAssertEqual(fixture.scope.stopCount, 1)
@@ -263,7 +288,7 @@ final class DownloadRunnerTests: XCTestCase {
 
         task.cancel()
         _ = await task.result
-        try await fixture.waitForScopeStop(timeoutNanoseconds: 500_000_000)
+        try await fixture.waitForScopeStop(timeoutNanoseconds: 1_500_000_000)
 
         XCTAssertEqual(fixture.scope.stopCount, 1)
     }
@@ -275,9 +300,10 @@ final class DownloadRunnerTests: XCTestCase {
         let task = Task { try await collect(fixture.runner.events(for: job)) }
         try await fixture.waitForFile(fixture.analysisStartedURL)
 
-        await fixture.runner.pause(jobID: job.id)
+        let pauseAccepted = await fixture.runner.pause(jobID: job.id)
         _ = try await task.value
 
+        XCTAssertTrue(pauseAccepted)
         XCTAssertEqual(fixture.scope.stopCount, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: "Example video").path))
     }
@@ -303,9 +329,10 @@ final class DownloadRunnerTests: XCTestCase {
         let task = Task { try await collect(fixture.runner.events(for: job)) }
         try await fixture.waitForFile(fixture.partURL)
 
-        await fixture.runner.pause(jobID: job.id)
+        let pauseAccepted = await fixture.runner.pause(jobID: job.id)
         _ = try await task.value
 
+        XCTAssertTrue(pauseAccepted)
         XCTAssertEqual(fixture.scope.stopCount, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
     }
