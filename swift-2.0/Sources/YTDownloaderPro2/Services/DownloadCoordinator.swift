@@ -16,8 +16,8 @@ actor DownloadCoordinator {
 
     private struct ActiveJob {
         let token: UUID
-        var phase: DownloadPhase?
         var requestedStop: RequestedStop
+        var controlTask: Task<Void, Never>?
         let task: Task<Void, Never>
     }
 
@@ -31,6 +31,7 @@ actor DownloadCoordinator {
     private var limit: Int
     private var isShuttingDown = false
     private var didFinishEvents = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(limit: Int = 5, runner: any JobRunning) {
         self.runner = runner
@@ -43,6 +44,7 @@ actor DownloadCoordinator {
 
     deinit {
         for worker in active.values {
+            worker.controlTask?.cancel()
             worker.task.cancel()
         }
         if !didFinishEvents {
@@ -85,12 +87,12 @@ actor DownloadCoordinator {
             return
         }
 
-        guard let worker = active[jobID], worker.requestedStop == .none,
-              worker.phase != .merging, worker.phase != .postprocessing else {
-            return
-        }
+        guard let worker = active[jobID], worker.requestedStop == .none else { return }
         active[jobID]?.requestedStop = .pause
-        await runner.pause(jobID: jobID)
+        let runner = self.runner
+        let controlTask = Task { await runner.interruptForQuit(jobID: jobID) }
+        active[jobID]?.controlTask = controlTask
+        await controlTask.value
         await worker.task.value
     }
 
@@ -116,45 +118,44 @@ actor DownloadCoordinator {
 
         guard let worker = active[jobID], worker.requestedStop == .none else { return }
         active[jobID]?.requestedStop = .cancel
-        await runner.cancel(jobID: jobID)
+        let runner = self.runner
+        let controlTask = Task { await runner.cancel(jobID: jobID) }
+        active[jobID]?.controlTask = controlTask
+        await controlTask.value
         await worker.task.value
     }
 
     func shutdown() async {
-        guard !isShuttingDown else { return }
+        if didFinishEvents {
+            return
+        }
+        if isShuttingDown {
+            await withCheckedContinuation { continuation in
+                shutdownWaiters.append(continuation)
+            }
+            return
+        }
         isShuttingDown = true
 
-        let workers = active
-        var commands: [(jobID: UUID, useQuitInterruption: Bool)] = []
-        var childTasks: [Task<Void, Never>] = []
-        for (jobID, worker) in workers {
-            guard active[jobID]?.token == worker.token, worker.requestedStop == .none else { continue }
-            active[jobID]?.requestedStop = .shutdown
-            commands.append((
-                jobID: jobID,
-                useQuitInterruption: worker.phase == .merging || worker.phase == .postprocessing
-            ))
-            childTasks.append(worker.task)
-        }
-
-        let runner = self.runner
+        let workers = active.map { (jobID: $0.key, token: $0.value.token, task: $0.value.task) }
         await withTaskGroup(of: Void.self) { group in
-            for command in commands {
+            for worker in workers {
                 group.addTask {
-                    if command.useQuitInterruption {
-                        await runner.interruptForQuit(jobID: command.jobID)
-                    } else {
-                        await runner.pause(jobID: command.jobID)
-                    }
+                    await self.prepareForShutdown(jobID: worker.jobID, token: worker.token)
                 }
             }
             await group.waitForAll()
         }
-        for task in childTasks {
-            await task.value
+        for worker in workers {
+            await worker.task.value
         }
 
         finishEvents()
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     private func startAvailableJobs() {
@@ -182,23 +183,25 @@ actor DownloadCoordinator {
             await self?.workerFinished(jobID: job.id, token: token, completedNormally: completedNormally)
         }
 
-        active[job.id] = ActiveJob(token: token, phase: nil, requestedStop: .none, task: task)
+        active[job.id] = ActiveJob(token: token, requestedStop: .none, controlTask: nil, task: task)
         setStatus(.analyzing, for: job.id)
         continuation.yield(.started(job.id))
     }
 
     private func receive(_ event: DownloadEvent, for jobID: UUID, token: UUID) {
-        guard var worker = active[jobID], worker.token == token else { return }
+        guard active[jobID]?.token == token else { return }
 
         if case let .phase(phase) = event {
-            worker.phase = phase
-            active[jobID] = worker
             setStatus(status(for: phase), for: jobID)
         }
         continuation.yield(.runnerEvent(jobID, event))
     }
 
-    private func workerFinished(jobID: UUID, token: UUID, completedNormally: Bool) {
+    private func workerFinished(jobID: UUID, token: UUID, completedNormally: Bool) async {
+        guard let current = active[jobID], current.token == token else { return }
+        if let controlTask = current.controlTask {
+            await controlTask.value
+        }
         guard let worker = active[jobID], worker.token == token else { return }
         active[jobID] = nil
 
@@ -214,6 +217,20 @@ actor DownloadCoordinator {
         setStatus(finalStatus, for: jobID)
         continuation.yield(.stopped(jobID, finalStatus))
         startAvailableJobs()
+    }
+
+    private func prepareForShutdown(jobID: UUID, token: UUID) async {
+        guard let worker = active[jobID], worker.token == token else { return }
+        if let controlTask = worker.controlTask {
+            await controlTask.value
+            return
+        }
+
+        active[jobID]?.requestedStop = .shutdown
+        let runner = self.runner
+        let controlTask = Task { await runner.interruptForQuit(jobID: jobID) }
+        active[jobID]?.controlTask = controlTask
+        await controlTask.value
     }
 
     private func removeQueued(_ jobID: UUID) -> Bool {
