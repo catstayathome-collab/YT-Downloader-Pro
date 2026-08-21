@@ -181,11 +181,24 @@ actor ThumbnailCache {
     }
 
     func fetch(remoteURL: URL, for jobID: UUID) async throws -> URL {
+        let download = try await download(remoteURL: remoteURL)
+        return try install(download, for: jobID)
+    }
+
+    func download(remoteURL: URL) async throws -> ThumbnailDownload {
         guard let scheme = remoteURL.scheme?.lowercased(), ["http", "https"].contains(scheme), remoteURL.host != nil else {
             throw ThumbnailCacheError.unsupportedRemoteURL
         }
 
         let download = try await loader.load(remoteURL)
+        guard let mimeType = download.mimeType?.lowercased(), mimeType.hasPrefix("image/"),
+              let imageType = Self.imageType(for: download.data), imageType.mimeTypes.contains(mimeType) else {
+            throw ThumbnailCacheError.unsupportedImageType
+        }
+        return download
+    }
+
+    func install(_ download: ThumbnailDownload, for jobID: UUID) throws -> URL {
         guard let mimeType = download.mimeType?.lowercased(), mimeType.hasPrefix("image/"),
               let imageType = Self.imageType(for: download.data), imageType.mimeTypes.contains(mimeType) else {
             throw ThumbnailCacheError.unsupportedImageType

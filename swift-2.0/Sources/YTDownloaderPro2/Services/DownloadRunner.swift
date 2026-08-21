@@ -283,7 +283,7 @@ actor DownloadRunner: JobRunning {
             activeDownload.continuation.yield(.phase(.analyzing))
             active[jobID] = activeDownload
             guard let analysis = await reanalyze(jobID: jobID, attempt: 0) else { return }
-            guard selectedFormatsRemainAvailable(in: analysis, for: activeDownload.job.options) else {
+            guard activeDownload.job.options.selectedFormatsRemainAvailable(in: analysis) else {
                 await finish(
                     jobID: jobID,
                     error: DownloadFailure(
@@ -620,19 +620,6 @@ actor DownloadRunner: JobRunning {
         guard suffix.hasPrefix("part-Frag") else { return false }
         let number = suffix.dropFirst("part-Frag".count)
         return !number.isEmpty && number.allSatisfy { $0.isNumber }
-    }
-
-    private func selectedFormatsRemainAvailable(in analysis: AnalysisResult, for options: DownloadOptions) -> Bool {
-        guard case let .video(video) = analysis else { return false }
-        let videoIDs = Set(video.videoFormats.map(\.id))
-        let audioIDs = Set(video.audioFormats.map(\.id))
-        if case let .format(id, _) = options.videoQuality, options.outputKind == .mp4, !videoIDs.contains(id) {
-            return false
-        }
-        if case let .format(id, _) = options.audioQuality, !audioIDs.contains(id) {
-            return false
-        }
-        return true
     }
 
     private func selectedFormatIDs(for options: DownloadOptions) -> [String] {

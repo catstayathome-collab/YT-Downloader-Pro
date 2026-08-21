@@ -5,12 +5,16 @@ enum AnalysisResult: Equatable, Sendable {
     case playlist(PlaylistAnalysis)
 }
 
+protocol MetadataAnalyzing: Sendable {
+    func analyze(url: String, options: DownloadOptions) async throws -> AnalysisResult
+}
+
 struct MetadataAnalysisRequest: Sendable {
     let executable: URL
     let arguments: [String]
 }
 
-actor MetadataProbe {
+actor MetadataProbe: MetadataAnalyzing {
     private let toolchain: Toolchain
     private let processRunner: any ProcessRunning
 
@@ -29,7 +33,7 @@ actor MetadataProbe {
             let result: ProcessResult
             do {
                 let request = try analysisRequest(url: url, options: options, attempt: attempt)
-                result = try await processRunner.run(executable: request.executable, arguments: request.arguments)
+                result = try await runAnalysisProcess(request)
             } catch {
                 throw DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start.")
             }
@@ -46,6 +50,19 @@ actor MetadataProbe {
         }
 
         throw DownloadFailure(category: .authenticationRequired, technicalDetail: "YouTube client validation did not succeed.")
+    }
+
+    private func runAnalysisProcess(_ request: MetadataAnalysisRequest) async throws -> ProcessResult {
+        guard let launcher = processRunner as? any ProcessLaunching else {
+            return try await processRunner.run(executable: request.executable, arguments: request.arguments)
+        }
+
+        let process = try await launcher.start(executable: request.executable, arguments: request.arguments)
+        return try await withTaskCancellationHandler {
+            try await process.result()
+        } onCancel: {
+            Task { await process.terminate() }
+        }
     }
 
     func analysisRequest(url: String, options: DownloadOptions, attempt: Int) throws -> MetadataAnalysisRequest {

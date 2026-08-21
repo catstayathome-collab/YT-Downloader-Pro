@@ -3,34 +3,54 @@ import SwiftUI
 
 @main
 struct YTDownloaderPro2App: App {
-    @NSApplicationDelegateAdaptor(QuitPreparationDelegate.self) private var quitPreparationDelegate
-    @StateObject private var store = DownloadStore.live()
+    @NSApplicationDelegateAdaptor(AppLifecycle.self) private var appLifecycle
 
     var body: some Scene {
         WindowGroup {
             Text("YT Downloader Pro")
-                .environmentObject(store)
-                .task {
-                    quitPreparationDelegate.store = store
-                }
+                .environmentObject(appLifecycle.store)
+        }
+    }
+}
+
+enum TerminationSafetyPolicy {
+    static func shouldTerminate(after result: Result<Void, Error>) -> Bool {
+        switch result {
+        case .success:
+            true
+        case .failure:
+            false
         }
     }
 }
 
 @MainActor
-private final class QuitPreparationDelegate: NSObject, NSApplicationDelegate {
-    weak var store: DownloadStore?
-    private var isPreparing = false
+final class AppLifecycle: NSObject, NSApplicationDelegate {
+    let store: DownloadStore
+    private var terminationTask: Task<Void, Never>?
+
+    override convenience init() {
+        self.init(store: DownloadStore.live())
+    }
+
+    init(store: DownloadStore) {
+        self.store = store
+        super.init()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let store else { return .terminateNow }
-        guard !isPreparing else { return .terminateLater }
-        isPreparing = true
+        guard terminationTask == nil else { return .terminateLater }
 
-        Task { @MainActor [weak self] in
-            await store.prepareToQuit()
-            sender.reply(toApplicationShouldTerminate: true)
-            self?.isPreparing = false
+        terminationTask = Task { @MainActor [weak self, store] in
+            let result: Result<Void, Error>
+            do {
+                try await store.prepareToQuit()
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+            sender.reply(toApplicationShouldTerminate: TerminationSafetyPolicy.shouldTerminate(after: result))
+            self?.terminationTask = nil
         }
         return .terminateLater
     }

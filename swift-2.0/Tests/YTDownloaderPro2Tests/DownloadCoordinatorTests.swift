@@ -145,6 +145,43 @@ final class DownloadCoordinatorTests: XCTestCase {
         await coordinator.shutdown()
     }
 
+    func testFailureEventPreservesTypedSanitizedDownloadFailureBeforeStopped() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let job = DownloadJob.fixture()
+        let recorder = CoordinatorEventRecorder()
+        let observer = Task {
+            for await event in coordinator.events {
+                await recorder.record(event)
+            }
+        }
+        let failure = DownloadFailure(
+            category: .diskFull,
+            technicalDetail: "authorization=secret no space",
+            toolExitCode: 28
+        )
+
+        await coordinator.enqueue(job)
+        try await runner.waitForStarted(count: 1)
+        await runner.fail(job.id, with: failure)
+        try await recorder.waitForStopped(job.id)
+        await coordinator.shutdown()
+        observer.cancel()
+
+        let expected = DownloadFailure(
+            category: .diskFull,
+            technicalDetail: "authorization=[REDACTED] no space",
+            toolExitCode: 28,
+            occurredAt: failure.occurredAt
+        )
+        let events = await recorder.events
+        XCTAssertEqual(events, [
+            .started(job.id),
+            .failure(job.id, expected),
+            .stopped(job.id, .failed)
+        ])
+    }
+
     func testDuplicateEnqueueAndControlCommandsAreIdempotent() async throws {
         let runner = GatedRunner()
         let coordinator = DownloadCoordinator(limit: 1, runner: runner)
@@ -208,6 +245,22 @@ final class DownloadCoordinatorTests: XCTestCase {
         XCTAssertEqual(pauseCalls, 1)
         XCTAssertEqual(cancelCalls, 1)
         XCTAssertEqual(startedIDs, jobs.map(\.id))
+        await coordinator.shutdown()
+    }
+
+    func testActivePauseUsesOrdinaryPauseInsteadOfQuitInterruption() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let job = DownloadJob.fixture()
+
+        await coordinator.enqueue(job)
+        try await runner.waitForStarted(count: 1)
+        await coordinator.pause(job.id)
+
+        let pauseCalls = await runner.pauseCalls(for: job.id)
+        let quitMethodCalls = await runner.quitMethodCalls(for: job.id)
+        XCTAssertEqual(pauseCalls, 1)
+        XCTAssertEqual(quitMethodCalls, 0)
         await coordinator.shutdown()
     }
 
@@ -426,6 +479,7 @@ private actor GatedRunner: JobRunning {
     private var paused: [UUID: Int] = [:]
     private var cancelled: [UUID: Int] = [:]
     private var quit: [UUID: Int] = [:]
+    private var quitMethods: [UUID: Int] = [:]
     private var pauseRequests: [UUID: Int] = [:]
     private var cancelRequests: [UUID: Int] = [:]
     private var controlRequests: [UUID: Int] = [:]
@@ -473,6 +527,7 @@ private actor GatedRunner: JobRunning {
     }
 
     func interruptForQuit(jobID: UUID) async {
+        quitMethods[jobID, default: 0] += 1
         guard continuations[jobID] != nil else { return }
         controlRequests[jobID, default: 0] += 1
         if blockedPauseIDs.contains(jobID) {
@@ -497,6 +552,7 @@ private actor GatedRunner: JobRunning {
     func pauseCalls(for jobID: UUID) -> Int { paused[jobID, default: 0] }
     func cancelCalls(for jobID: UUID) -> Int { cancelled[jobID, default: 0] }
     func quitCalls(for jobID: UUID) -> Int { quit[jobID, default: 0] }
+    func quitMethodCalls(for jobID: UUID) -> Int { quitMethods[jobID, default: 0] }
 
     func blockPause(jobID: UUID) {
         blockedPauseIDs.insert(jobID)
@@ -566,6 +622,10 @@ private actor GatedRunner: JobRunning {
 
     func fail(_ jobID: UUID) {
         finish(jobID, error: DownloadFailure(category: .unknown, technicalDetail: "forced failure"))
+    }
+
+    func fail(_ jobID: UUID, with failure: DownloadFailure) {
+        finish(jobID, error: failure)
     }
 
     private func start(job: DownloadJob, continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation) {

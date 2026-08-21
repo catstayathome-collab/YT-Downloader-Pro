@@ -81,6 +81,110 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.jobs[0].options, originalOptions)
     }
 
+    func testRetryRemovalAndReorderingCannotMutateSurvivingRecord() async throws {
+        let failed = DownloadJob.fixture(title: "Retry target", status: .failed)
+        let survivor = DownloadJob.fixture(title: "Completed survivor", status: .completed)
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(jobs: [failed, survivor], analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+
+        let retry = Task { await fixture.store.retry(failed.id) }
+        try await analysis.waitForRequestCount(1)
+        await fixture.store.removeRecord(failed.id)
+        try await analysis.waitForCancellationCount(1)
+        await analysis.succeed(request: 0, with: .video(.fixture(sourceURL: failed.sourceURL, title: "Refreshed target")))
+        await retry.value
+
+        XCTAssertEqual(fixture.store.jobs, [survivor])
+    }
+
+    func testRetryRemovalWithNoSurvivorDoesNotApplyStaleResult() async throws {
+        let failed = DownloadJob.fixture(title: "Only record", status: .failed)
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(jobs: [failed], analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+
+        let retry = Task { await fixture.store.retry(failed.id) }
+        try await analysis.waitForRequestCount(1)
+        await fixture.store.removeRecord(failed.id)
+        try await analysis.waitForCancellationCount(1)
+        await analysis.succeed(request: 0, with: .video(.fixture(sourceURL: failed.sourceURL)))
+        await retry.value
+
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+    }
+
+    func testRepeatedRetryInvalidatesEarlierOperation() async throws {
+        let failed = DownloadJob.fixture(title: "Original", status: .failed)
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(jobs: [failed], analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+
+        let first = Task { await fixture.store.retry(failed.id) }
+        try await analysis.waitForRequestCount(1)
+        let second = Task { await fixture.store.retry(failed.id) }
+        try await analysis.waitForRequestCount(2)
+        try await analysis.waitForCancellationCount(1)
+        await analysis.succeed(request: 1, with: .video(.fixture(sourceURL: failed.sourceURL, title: "Newest")))
+        await second.value
+        await analysis.succeed(request: 0, with: .video(.fixture(sourceURL: failed.sourceURL, title: "Stale")))
+        await first.value
+
+        XCTAssertEqual(fixture.store.jobs.first?.title, "Newest")
+        XCTAssertEqual(fixture.store.jobs.first?.retryCount, 1)
+        XCTAssertEqual(fixture.store.jobs.first?.status, .queued)
+    }
+
+    func testRetryRequiresStoredVideoAndAudioFormatsToRemainAvailable() async throws {
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.options = .fixture(
+            videoQuality: .format(id: "video-137", label: "1080p"),
+            audioQuality: .format(id: "audio-251", label: "Opus")
+        )
+        let refreshed = VideoAnalysis.fixture(
+            sourceURL: failed.sourceURL,
+            videoFormats: [.fixture(id: "video-136")],
+            audioFormats: [.fixture(id: "audio-140")]
+        )
+        let fixture = try StoreFixture(jobs: [failed], analysis: .video(refreshed))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.retry(failed.id)
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first?.failure?.category, .formatReselectionRequired)
+        XCTAssertEqual(fixture.store.jobs.first?.retryCount, 0)
+    }
+
+    func testNewestAnalysisResultWinsWhenEarlierRequestFinishesLast() async throws {
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+
+        let first = Task { await fixture.store.analyzeURL("https://youtube.test/old") }
+        try await analysis.waitForRequestCount(1)
+        let second = Task { await fixture.store.analyzeURL("https://youtube.test/new") }
+        await analysis.succeed(request: 0, with: .video(.fixture(sourceURL: "https://youtube.test/old", title: "Old")))
+        await first.value
+        try await analysis.waitForRequestCount(2)
+        XCTAssertEqual(fixture.store.analysisState, .analyzing)
+        await analysis.succeed(request: 1, with: .video(.fixture(sourceURL: "https://youtube.test/new", title: "New")))
+        await second.value
+
+        guard case let .video(video) = fixture.store.analysisState else {
+            return XCTFail("Expected latest video analysis")
+        }
+        XCTAssertEqual(video.title, "New")
+    }
+
     func testQueueChangesPersistImmediately() async throws {
         let fixture = try StoreFixture(analysis: .video(.fixture()))
         defer { fixture.cleanUp() }
@@ -92,12 +196,76 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(persisted.map(\.status), [.queued])
     }
 
+    func testCoordinatorStartedImmediatelyTransitionsAndPersistsAnalyzing() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        try await waitUntil("store to apply coordinator start") {
+            fixture.store.jobs.first?.status == .analyzing
+        }
+
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.status, .paused)
+        XCTAssertNotNil(fixture.store.jobs.first?.startedAt)
+    }
+
+    func testCoordinatorPreservesTypedSanitizedFailure() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        let failure = DownloadFailure(
+            category: .diskFull,
+            technicalDetail: "token=secret disk is full",
+            toolExitCode: 28
+        )
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.fail(failure, for: job.id)
+        try await waitUntil("store to receive typed failure") {
+            fixture.store.jobs.first?.status == .failed
+        }
+
+        let expected = DownloadFailure(
+            category: .diskFull,
+            technicalDetail: "token=[REDACTED] disk is full",
+            toolExitCode: 28,
+            occurredAt: failure.occurredAt
+        )
+        XCTAssertEqual(fixture.store.jobs.first?.failure, expected)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.failure, expected)
+    }
+
+    func testUserPauseDoesNotInterruptVisibleMergingJob() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.emit(.phase(.merging), for: job.id)
+        try await waitUntil("store to receive merge phase") {
+            fixture.store.jobs.first?.status == .merging
+        }
+
+        await fixture.store.pause(job.id)
+        await fixture.store.pauseAll()
+
+        let quitInterruptedIDs = await fixture.runner.quitInterruptedIDs()
+        XCTAssertEqual(quitInterruptedIDs, [])
+        XCTAssertEqual(fixture.store.jobs.first?.status, .merging)
+    }
+
     func testPrepareToQuitPersistsPausedActiveJobAfterCoordinatorShutdown() async throws {
         let activeJob = DownloadJob.fixture(status: .downloading)
         let fixture = try StoreFixture(jobs: [activeJob])
         defer { fixture.cleanUp() }
 
-        await fixture.store.prepareToQuit()
+        try await fixture.store.prepareToQuit()
 
         let persisted = try await fixture.persistence.loadJobs()
         XCTAssertEqual(persisted.map(\.status), [.paused])
@@ -115,7 +283,7 @@ final class DownloadStoreTests: XCTestCase {
             fixture.store.jobs.first?.status == .downloading
         }
 
-        await fixture.store.prepareToQuit()
+        try await fixture.store.prepareToQuit()
 
         let persisted = try await fixture.persistence.loadJobs()
         XCTAssertEqual(persisted.map(\.status), [.paused])
@@ -133,9 +301,251 @@ final class DownloadStoreTests: XCTestCase {
             fixture.store.jobs.first?.status == .merging
         }
 
-        await fixture.store.prepareToQuit()
+        try await fixture.store.prepareToQuit()
 
         XCTAssertEqual(fixture.store.jobs.map(\.status), [.paused])
+    }
+
+    func testConcurrentQuitCallersJoinOneShutdownOperation() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.runner.blockQuit()
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+
+        let firstCompletion = CompletionProbe()
+        let secondCompletion = CompletionProbe()
+        let first = Task {
+            try await fixture.store.prepareToQuit()
+            await firstCompletion.complete()
+        }
+        try await fixture.runner.waitForQuitRequest()
+        let second = Task {
+            try await fixture.store.prepareToQuit()
+            await secondCompletion.complete()
+        }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let firstCompletedEarly = await firstCompletion.value()
+        let secondCompletedEarly = await secondCompletion.value()
+        XCTAssertFalse(firstCompletedEarly)
+        XCTAssertFalse(secondCompletedEarly)
+        await fixture.runner.releaseQuit()
+        try await first.value
+        try await second.value
+        let firstCompleted = await firstCompletion.value()
+        let secondCompleted = await secondCompletion.value()
+        XCTAssertTrue(firstCompleted)
+        XCTAssertTrue(secondCompleted)
+    }
+
+    func testQuitDrainsBufferedEventsBeforeFinalFlush() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        let output = fixture.root.appendingPathComponent("finished.mp4")
+        await fixture.runner.setQuitEvents([
+            .reservedBasename("must-survive"),
+            .phase(.merging),
+            .progress(JobProgress(
+                fraction: 0.95,
+                downloadedBytes: 95,
+                totalBytes: 100,
+                bytesPerSecond: 10,
+                etaSeconds: 1
+            )),
+            .output(output)
+        ])
+        await fixture.runner.blockQuitAfterEvents()
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+
+        let quit = Task { try await fixture.store.prepareToQuit() }
+        try await fixture.runner.waitForQuitEvents()
+        try await waitUntil("store to drain the shutdown phase") {
+            fixture.store.jobs.first?.status == .merging
+                && fixture.store.jobs.first?.reservedOutputBasename == "must-survive"
+                && fixture.store.jobs.first?.outputURL == output
+                && fixture.store.jobs.first?.progress == 0.95
+        }
+        await fixture.runner.releaseQuitAfterEvents()
+        try await quit.value
+
+        let retained = try XCTUnwrap(fixture.store.jobs.first)
+        XCTAssertEqual(retained.status, .paused)
+        XCTAssertEqual(retained.reservedOutputBasename, "must-survive")
+        XCTAssertEqual(retained.outputURL, output)
+        XCTAssertEqual(retained.progress, 0.95)
+        XCTAssertEqual(retained.downloadedBytes, 95)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.reservedOutputBasename, "must-survive")
+        XCTAssertEqual(persisted.first?.outputURL, output)
+        XCTAssertEqual(persisted.first?.progress, 0.95)
+    }
+
+    func testQuitCancelsAndJoinsActiveAnalysisWithoutApplyingItsResult() async throws {
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+        let analysisTask = Task { await fixture.store.analyzeURL("https://youtube.test/video") }
+        try await analysis.waitForRequestCount(1)
+        let quitCompletion = CompletionProbe()
+        let quit = Task {
+            try await fixture.store.prepareToQuit()
+            await quitCompletion.complete()
+        }
+
+        try await analysis.waitForCancellationCount(1)
+        try await Task.sleep(for: .milliseconds(20))
+        let quitCompletedEarly = await quitCompletion.value()
+        XCTAssertFalse(quitCompletedEarly)
+        await analysis.succeed(request: 0, with: .video(.fixture(title: "Too late")))
+        try await quit.value
+        await analysisTask.value
+        XCTAssertNotEqual(fixture.store.analysisState, .video(.fixture(title: "Too late")))
+    }
+
+    func testQuitFinalFlushFailureIsThrown() async throws {
+        let parent = try temporaryDirectory()
+        let blockedRoot = parent.appendingPathComponent("blocked")
+        try Data("not a directory".utf8).write(to: blockedRoot)
+        let fixture = try StoreFixture(root: blockedRoot)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        do {
+            try await fixture.store.prepareToQuit()
+            XCTFail("Expected final persistence flush to fail")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+    }
+
+    func testTerminationSafetyPolicyApprovesOnlySuccessfulPreparation() {
+        XCTAssertTrue(TerminationSafetyPolicy.shouldTerminate(after: .success(())))
+        XCTAssertFalse(TerminationSafetyPolicy.shouldTerminate(after: .failure(StoreTestWaitError.timedOut("flush"))))
+    }
+
+    func testAppLifecycleOwnsStoreSynchronously() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanUp() }
+
+        let lifecycle = AppLifecycle(store: fixture.store)
+
+        XCTAssertTrue(lifecycle.store === fixture.store)
+        try await fixture.store.prepareToQuit()
+    }
+
+    func testQuitStopsRecordMutations() async throws {
+        let active = DownloadJob.fixture()
+        let completed = DownloadJob.fixture(status: .completed)
+        let fixture = try StoreFixture(jobs: [active, completed])
+        defer { fixture.cleanUp() }
+        await fixture.runner.blockQuit()
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: active.id)
+        let quit = Task { try await fixture.store.prepareToQuit() }
+        try await fixture.runner.waitForQuitRequest()
+
+        await fixture.store.removeRecord(completed.id)
+
+        XCTAssertTrue(fixture.store.jobs.contains(where: { $0.id == completed.id }))
+        await fixture.runner.releaseQuit()
+        try await quit.value
+    }
+
+    func testRemovalJoinsThumbnailWorkAndCannotRecreateCache() async throws {
+        let loader = ControlledThumbnailLoader()
+        let fixture = try StoreFixture(
+            analysis: .video(.fixture(thumbnailURL: URL(string: "https://images.test/thumb.png"))),
+            thumbnailLoader: ThumbnailDataLoader { url in try await loader.load(url) }
+        )
+        defer { fixture.cleanUp() }
+        await fixture.store.analyzeURL("https://youtube.test/video")
+        await fixture.store.addVideo(options: .defaults)
+        let jobID = try XCTUnwrap(fixture.store.jobs.first?.id)
+        try await loader.waitForRequest()
+        await fixture.store.cancel(jobID)
+        let removalCompletion = CompletionProbe()
+        let removal = Task {
+            await fixture.store.removeRecord(jobID)
+            await removalCompletion.complete()
+        }
+
+        try await loader.waitForCancellation()
+        try await Task.sleep(for: .milliseconds(20))
+        let removalCompletedEarly = await removalCompletion.value()
+        XCTAssertFalse(removalCompletedEarly)
+        await loader.release()
+        await removal.value
+        try await loader.waitForCompletion()
+        let cachedURL = await fixture.thumbnailCache.url(for: jobID)
+        XCTAssertNil(cachedURL)
+    }
+
+    func testQuitJoinsThumbnailWorkBeforeReturning() async throws {
+        let loader = ControlledThumbnailLoader()
+        let fixture = try StoreFixture(
+            analysis: .video(.fixture(thumbnailURL: URL(string: "https://images.test/thumb.png"))),
+            thumbnailLoader: ThumbnailDataLoader { url in try await loader.load(url) }
+        )
+        defer { fixture.cleanUp() }
+        await fixture.store.analyzeURL("https://youtube.test/video")
+        await fixture.store.addVideo(options: .defaults)
+        try await loader.waitForRequest()
+        let quitCompletion = CompletionProbe()
+        let quit = Task {
+            try await fixture.store.prepareToQuit()
+            await quitCompletion.complete()
+        }
+
+        try await loader.waitForCancellation()
+        try await Task.sleep(for: .milliseconds(20))
+        let quitCompletedEarly = await quitCompletion.value()
+        XCTAssertFalse(quitCompletedEarly)
+        await loader.release()
+        try await quit.value
+        try await loader.waitForCompletion()
+        let quitCompleted = await quitCompletion.value()
+        XCTAssertTrue(quitCompleted)
+    }
+
+    func testDeinitCancelsThumbnailWorkWithoutRecreatingCache() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let loader = ControlledThumbnailLoader()
+        let runner = StoreRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let thumbnailCache = ThumbnailCache(
+            root: root,
+            loader: ThumbnailDataLoader { url in try await loader.load(url) }
+        )
+        var store: DownloadStore? = DownloadStore(
+            coordinator: coordinator,
+            persistence: PersistenceController(root: root),
+            thumbnailCache: thumbnailCache,
+            diagnostics: DiagnosticsLogger(root: root),
+            metadataAnalyzer: ClosureMetadataAnalyzer { _, _ in
+                .video(.fixture(thumbnailURL: URL(string: "https://images.test/thumb.png")))
+            }
+        )
+        await store?.analyzeURL("https://youtube.test/video")
+        await store?.addVideo(options: .defaults)
+        let jobID = try XCTUnwrap(store?.jobs.first?.id)
+        try await loader.waitForRequest()
+        let weakStore = WeakStoreReference(store)
+
+        store = nil
+
+        try await waitUntil("store deinitialization") { weakStore.value == nil }
+        try await loader.waitForCancellation()
+        await loader.release()
+        try await loader.waitForCompletion()
+        let cachedURL = await thumbnailCache.url(for: jobID)
+        XCTAssertNil(cachedURL)
+        await coordinator.shutdown()
     }
 
     func testCancelStopsJobAlreadyStartedBeforeItsFirstPhaseEvent() async throws {
@@ -173,38 +583,51 @@ private final class StoreFixture {
     let runner: StoreRunner
     let coordinator: DownloadCoordinator
     let persistence: PersistenceController
+    let thumbnailCache: ThumbnailCache
     let store: DownloadStore
 
-    init(
+    convenience init(
         jobs: [DownloadJob] = [],
-        analysis: AnalysisResult = .video(.fixture())
+        analysis: AnalysisResult = .video(.fixture()),
+        thumbnailLoader: ThumbnailDataLoader = .live
     ) throws {
-        root = try temporaryDirectory()
-        runner = StoreRunner()
-        coordinator = DownloadCoordinator(limit: 1, runner: runner)
-        persistence = PersistenceController(root: root)
-        store = DownloadStore(
+        try self.init(
+            root: temporaryDirectory(),
             jobs: jobs,
-            coordinator: coordinator,
-            persistence: persistence,
-            thumbnailCache: ThumbnailCache(root: root),
-            diagnostics: DiagnosticsLogger(root: root),
-            analyze: { _, _ in analysis }
+            analysis: { _, _ in analysis },
+            thumbnailLoader: thumbnailLoader
         )
     }
 
-    init(jobs: [DownloadJob], analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult) throws {
-        root = try temporaryDirectory()
+    convenience init(
+        jobs: [DownloadJob] = [],
+        analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult
+    ) throws {
+        try self.init(root: temporaryDirectory(), jobs: jobs, analysis: analysis)
+    }
+
+    convenience init(root: URL, jobs: [DownloadJob] = []) throws {
+        try self.init(root: root, jobs: jobs, analysis: { _, _ in .video(.fixture()) })
+    }
+
+    private init(
+        root: URL,
+        jobs: [DownloadJob],
+        analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
+        thumbnailLoader: ThumbnailDataLoader = .live
+    ) throws {
+        self.root = root
         runner = StoreRunner()
         coordinator = DownloadCoordinator(limit: 1, runner: runner)
         persistence = PersistenceController(root: root)
+        thumbnailCache = ThumbnailCache(root: root, loader: thumbnailLoader)
         store = DownloadStore(
             jobs: jobs,
             coordinator: coordinator,
             persistence: persistence,
-            thumbnailCache: ThumbnailCache(root: root),
+            thumbnailCache: thumbnailCache,
             diagnostics: DiagnosticsLogger(root: root),
-            analyze: analysis
+            metadataAnalyzer: ClosureMetadataAnalyzer(analysis)
         )
     }
 
@@ -225,7 +648,15 @@ private final class StoreFixture {
 private actor StoreRunner: JobRunning {
     private var starts: [UUID] = []
     private var cancellations: [UUID] = []
+    private var quitInterruptions: [UUID] = []
     private var continuations: [UUID: AsyncThrowingStream<DownloadEvent, Error>.Continuation] = [:]
+    private var quitEvents: [DownloadEvent] = []
+    private var quitIsBlocked = false
+    private var quitRequestCount = 0
+    private var quitWaiters: [CheckedContinuation<Void, Never>] = []
+    private var quitAfterEventsIsBlocked = false
+    private var didEmitQuitEvents = false
+    private var quitAfterEventsWaiters: [CheckedContinuation<Void, Never>] = []
 
     nonisolated func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -240,7 +671,25 @@ private actor StoreRunner: JobRunning {
         cancellations.append(jobID)
         finish(jobID)
     }
-    func interruptForQuit(jobID: UUID) async { finish(jobID) }
+    func interruptForQuit(jobID: UUID) async {
+        quitInterruptions.append(jobID)
+        quitRequestCount += 1
+        if quitIsBlocked {
+            await withCheckedContinuation { continuation in
+                quitWaiters.append(continuation)
+            }
+        }
+        for event in quitEvents {
+            continuations[jobID]?.yield(event)
+        }
+        didEmitQuitEvents = true
+        if quitAfterEventsIsBlocked {
+            await withCheckedContinuation { continuation in
+                quitAfterEventsWaiters.append(continuation)
+            }
+        }
+        finish(jobID)
+    }
 
     func emit(_ event: DownloadEvent, for jobID: UUID) {
         continuations[jobID]?.yield(event)
@@ -258,6 +707,59 @@ private actor StoreRunner: JobRunning {
     }
 
     func cancelledIDs() -> [UUID] { cancellations }
+    func quitInterruptedIDs() -> [UUID] { quitInterruptions }
+
+    func fail(_ failure: DownloadFailure, for jobID: UUID) {
+        continuations.removeValue(forKey: jobID)?.finish(throwing: failure)
+    }
+
+    func setQuitEvents(_ events: [DownloadEvent]) {
+        quitEvents = events
+    }
+
+    func blockQuit() {
+        quitIsBlocked = true
+    }
+
+    func blockQuitAfterEvents() {
+        quitAfterEventsIsBlocked = true
+    }
+
+    func releaseQuit() {
+        quitIsBlocked = false
+        let waiters = quitWaiters
+        quitWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func releaseQuitAfterEvents() {
+        quitAfterEventsIsBlocked = false
+        let waiters = quitAfterEventsWaiters
+        quitAfterEventsWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitForQuitRequest() async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while quitRequestCount == 0 {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("runner quit request")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    func waitForQuitEvents() async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !didEmitQuitEvents {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("runner quit events")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
 
     private func recordStart(
         _ jobID: UUID,
@@ -288,16 +790,164 @@ private actor AnalysisRecorder {
     func recordedURLs() -> [String] { requestedURLs }
 }
 
+private struct ClosureMetadataAnalyzer: MetadataAnalyzing {
+    let handler: @Sendable (String, DownloadOptions) async throws -> AnalysisResult
+
+    init(_ handler: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult) {
+        self.handler = handler
+    }
+
+    func analyze(url: String, options: DownloadOptions) async throws -> AnalysisResult {
+        try await handler(url, options)
+    }
+}
+
+private actor ControlledAnalysis {
+    private struct Request {
+        let url: String
+        let continuation: CheckedContinuation<AnalysisResult, Error>
+    }
+
+    private var requests: [Request] = []
+    private var cancellationCount = 0
+
+    func analyze(url: String, options: DownloadOptions) async throws -> AnalysisResult {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                requests.append(Request(url: url, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.recordCancellation() }
+        }
+    }
+
+    func succeed(request index: Int, with result: AnalysisResult) {
+        requests[index].continuation.resume(returning: result)
+    }
+
+    func waitForRequestCount(_ count: Int) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while requests.count < count {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("analysis request count \(count)")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    func waitForCancellationCount(_ count: Int) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while cancellationCount < count {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("analysis cancellation count \(count)")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    private func recordCancellation() {
+        cancellationCount += 1
+    }
+}
+
+private actor ControlledThumbnailLoader {
+    private var requestCount = 0
+    private var completionCount = 0
+    private var cancellationCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func load(_ url: URL) async throws -> ThumbnailDownload {
+        requestCount += 1
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        } onCancel: {
+            Task { await self.recordCancellation() }
+        }
+        completionCount += 1
+        return ThumbnailDownload(data: storePNGData, mimeType: "image/png")
+    }
+
+    func release() {
+        let current = waiters
+        waiters.removeAll()
+        current.forEach { $0.resume() }
+    }
+
+    func waitForRequest() async throws {
+        try await waitUntil("thumbnail request") { requestCount > 0 }
+    }
+
+    func waitForCompletion() async throws {
+        try await waitUntil("thumbnail completion") { completionCount > 0 }
+    }
+
+    func waitForCancellation() async throws {
+        try await waitUntil("thumbnail cancellation") { cancellationCount > 0 }
+    }
+
+    private func recordCancellation() {
+        cancellationCount += 1
+    }
+
+    private func waitUntil(_ description: String, condition: () -> Bool) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !condition() {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut(description)
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+}
+
+private actor CompletionProbe {
+    private var isComplete = false
+
+    func complete() {
+        isComplete = true
+    }
+
+    func value() -> Bool {
+        isComplete
+    }
+}
+
+@MainActor
+private final class WeakStoreReference {
+    weak var value: DownloadStore?
+
+    init(_ value: DownloadStore?) {
+        self.value = value
+    }
+}
+
 private extension VideoAnalysis {
-    static func fixture(sourceURL: String = "https://youtube.test/video") -> VideoAnalysis {
+    static func fixture(
+        sourceURL: String = "https://youtube.test/video",
+        title: String = "Fixture video",
+        thumbnailURL: URL? = nil,
+        videoFormats: [MediaFormat] = [],
+        audioFormats: [MediaFormat] = []
+    ) -> VideoAnalysis {
         VideoAnalysis(
             sourceURL: sourceURL,
-            title: "Fixture video",
+            title: title,
             duration: 30,
-            thumbnailURL: nil,
-            videoFormats: [],
-            audioFormats: []
+            thumbnailURL: thumbnailURL,
+            videoFormats: videoFormats,
+            audioFormats: audioFormats
         )
+    }
+}
+
+private extension MediaFormat {
+    static func fixture(id: String) -> MediaFormat {
+        MediaFormat(id: id, label: id)
     }
 }
 
@@ -329,3 +979,7 @@ private enum StoreTestWaitError: Error, CustomStringConvertible {
         }
     }
 }
+
+private let storePNGData = Data(
+    base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)!

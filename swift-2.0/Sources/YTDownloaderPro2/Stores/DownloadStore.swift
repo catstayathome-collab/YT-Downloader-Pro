@@ -11,14 +11,13 @@ enum AnalysisState: Equatable {
 
 @MainActor
 final class DownloadStore: ObservableObject {
-    typealias AnalysisHandler = @Sendable (String, DownloadOptions) async throws -> AnalysisResult
-
     @Published private(set) var jobs: [DownloadJob]
     @Published var selection: Set<UUID>
     @Published var sidebarSection: DownloadStatus.SidebarSection
     @Published private(set) var analysisState: AnalysisState
     @Published var settings: AppSettings {
         didSet {
+            guard !isPreparingToQuit else { return }
             settingsStore.save(settings)
             Task { [coordinator, settings] in
                 await coordinator.setLimit(settings.maximumConcurrentDownloads)
@@ -31,16 +30,35 @@ final class DownloadStore: ObservableObject {
         return jobs.filter { $0.status.sidebarSection == sidebarSection }
     }
 
+    private struct RetryOperation {
+        let generation: UInt64
+        let task: Task<AnalysisResult, Error>
+    }
+
+    private struct ThumbnailOperation {
+        let generation: UInt64
+        let task: Task<Void, Never>
+    }
+
     private let coordinator: DownloadCoordinator
     private let persistence: PersistenceController
     private let thumbnailCache: ThumbnailCache
     private let diagnostics: DiagnosticsLogger
     private let settingsStore: AppSettingsStore
-    private let analyze: AnalysisHandler
+    private let metadataAnalyzer: any MetadataAnalyzing
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
     private var isPreparingToQuit = false
+    private var quitTask: Task<Void, Error>?
+    // Stable generations invalidate suspended work even when cancellation is not cooperative.
+    private var nextOperationGeneration: UInt64 = 0
+    private var analysisGeneration: UInt64 = 0
+    private var analysisTask: Task<AnalysisResult, Error>?
+    private var currentRetryGeneration: [UUID: UInt64] = [:]
+    private var retryOperations: [UUID: [UInt64: RetryOperation]] = [:]
+    private var currentThumbnailGeneration: [UUID: UInt64] = [:]
+    private var thumbnailOperations: [UUID: [UInt64: ThumbnailOperation]] = [:]
 
     init(
         jobs: [DownloadJob] = [],
@@ -53,7 +71,7 @@ final class DownloadStore: ObservableObject {
         thumbnailCache: ThumbnailCache,
         diagnostics: DiagnosticsLogger,
         settingsStore: AppSettingsStore = AppSettingsStore(),
-        analyze: @escaping AnalysisHandler
+        metadataAnalyzer: any MetadataAnalyzing
     ) {
         self.jobs = Self.recoveredJobs(from: jobs)
         self.selection = selection
@@ -65,15 +83,31 @@ final class DownloadStore: ObservableObject {
         self.thumbnailCache = thumbnailCache
         self.diagnostics = diagnostics
         self.settingsStore = settingsStore
-        self.analyze = analyze
+        self.metadataAnalyzer = metadataAnalyzer
         consumeCoordinatorEvents()
     }
 
     deinit {
         eventConsumptionTask?.cancel()
+        analysisTask?.cancel()
+        let retries = retryOperations.values.flatMap(\.values).map(\.task)
+        let thumbnails = thumbnailOperations.values.flatMap(\.values).map(\.task)
+        retries.forEach { $0.cancel() }
+        thumbnails.forEach { $0.cancel() }
+
+        let analysis = analysisTask
+        Task.detached {
+            _ = await analysis?.result
+            for task in retries {
+                _ = await task.result
+            }
+            for task in thumbnails {
+                await task.value
+            }
+        }
     }
 
-    /// Builds the app-owned store and restores retained records without starting queued work.
+    /// Builds the app-owned Store and restores retained records without submitting queued work.
     static func live(
         bundle: Bundle = .main,
         applicationSupportRoot: URL? = nil,
@@ -91,27 +125,43 @@ final class DownloadStore: ObservableObject {
             thumbnailCache: ThumbnailCache(root: root),
             diagnostics: DiagnosticsLogger(root: root),
             settingsStore: settingsStore,
-            analyze: { url, options in
-                try await probe.analyze(url: url, options: options)
-            }
+            metadataAnalyzer: probe
         )
         store.restorePersistedJobsInBackground()
         return store
     }
 
+    /// Replaces any prior URL analysis; only the latest generation may publish a result.
     func analyzeURL(_ url: String) async {
         guard !isPreparingToQuit else { return }
+        let generation = makeGeneration()
+        analysisGeneration = generation
         analysisState = .analyzing
 
-        do {
-            let result = try await analyze(url, settings.defaultOptions)
-            switch result {
+        let previousTask = analysisTask
+        previousTask?.cancel()
+        if let previousTask {
+            _ = await previousTask.result
+        }
+        guard ownsAnalysis(generation) else { return }
+
+        let options = settings.defaultOptions
+        let analyzer = metadataAnalyzer
+        let task = Task { try await analyzer.analyze(url: url, options: options) }
+        analysisTask = task
+        let result = await task.result
+        guard ownsAnalysis(generation) else { return }
+        analysisTask = nil
+
+        switch result {
+        case let .success(analysis):
+            switch analysis {
             case let .video(video):
                 analysisState = .video(video)
             case let .playlist(playlist):
                 analysisState = .playlist(playlist)
             }
-        } catch {
+        case let .failure(error):
             let failure = failure(from: error)
             analysisState = .failed(failure)
             await recordDiagnostic(jobID: nil, stage: "analysis", detail: failure.technicalDetail)
@@ -120,7 +170,6 @@ final class DownloadStore: ObservableObject {
 
     func addVideo(options: DownloadOptions) async {
         guard case let .video(video) = analysisState, !isPreparingToQuit else { return }
-
         let job = DownloadJob(
             sourceURL: video.sourceURL,
             title: video.title,
@@ -136,7 +185,6 @@ final class DownloadStore: ObservableObject {
 
     func addPlaylistEntries(selectedIDs: Set<String>, options: DownloadOptions) async {
         guard case let .playlist(playlist) = analysisState, !isPreparingToQuit else { return }
-
         let newJobs = playlist.entries.compactMap { entry -> (DownloadJob, URL?)? in
             guard selectedIDs.contains(entry.id), entry.isAvailable else { return nil }
             return (
@@ -152,7 +200,6 @@ final class DownloadStore: ObservableObject {
             )
         }
         guard !newJobs.isEmpty else { return }
-
         jobs.append(contentsOf: newJobs.map(\.0))
         analysisState = .idle
         await persist(flush: true)
@@ -162,16 +209,16 @@ final class DownloadStore: ObservableObject {
     }
 
     func editQueuedJob(_ jobID: UUID, options: DownloadOptions) async -> Bool {
-        guard let index = jobs.firstIndex(where: { $0.id == jobID }), jobs[index].status == .queued else {
-            return false
-        }
+        guard !isPreparingToQuit,
+              let index = jobs.firstIndex(where: { $0.id == jobID }),
+              jobs[index].status == .queued else { return false }
         jobs[index].options = options
         jobs[index].updatedAt = .now
         await persist(flush: true)
         return true
     }
 
-    /// Submits retained queued records to the coordinator; newly added records stay queued until this command.
+    /// Submits retained queued records; restoration and record creation never auto-start work.
     func startAll() async {
         guard !isPreparingToQuit else { return }
         let queuedJobs = jobs.filter { $0.status == .queued }
@@ -180,8 +227,14 @@ final class DownloadStore: ObservableObject {
     }
 
     func pauseAll() async {
-        for job in jobs where job.status.canPause || coordinatorManagedJobIDs.contains(job.id) {
-            await coordinator.pause(job.id)
+        guard !isPreparingToQuit else { return }
+        let pausableIDs = jobs.compactMap { job -> UUID? in
+            if job.status.canPause { return job.id }
+            if job.status == .queued, coordinatorManagedJobIDs.contains(job.id) { return job.id }
+            return nil
+        }
+        for jobID in pausableIDs {
+            await coordinator.pause(jobID)
         }
     }
 
@@ -199,10 +252,12 @@ final class DownloadStore: ObservableObject {
     }
 
     func pause(_ jobID: UUID) async {
-        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
-        if coordinatorManagedJobIDs.contains(jobID) || jobs[index].status.canPause {
+        guard !isPreparingToQuit,
+              let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        let status = jobs[index].status
+        if status.canPause || (status == .queued && coordinatorManagedJobIDs.contains(jobID)) {
             await coordinator.pause(jobID)
-        } else if jobs[index].status == .queued {
+        } else if status == .queued {
             transitionJob(at: index, to: .paused)
             await persist(flush: true)
         }
@@ -214,12 +269,16 @@ final class DownloadStore: ObservableObject {
               jobs[index].status == .paused else { return }
         transitionJob(at: index, to: .queued)
         await persist(flush: true)
+        guard !isPreparingToQuit,
+              let refreshedIndex = jobs.firstIndex(where: { $0.id == jobID }),
+              jobs[refreshedIndex].status == .queued else { return }
         coordinatorManagedJobIDs.insert(jobID)
-        await coordinator.enqueue(jobs[index])
+        await coordinator.enqueue(jobs[refreshedIndex])
     }
 
     func cancel(_ jobID: UUID) async {
-        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        guard !isPreparingToQuit,
+              let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         switch jobs[index].status {
         case .queued, .paused:
             if coordinatorManagedJobIDs.contains(jobID) {
@@ -235,49 +294,84 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    /// Refreshes metadata before returning a failed record to the queue, preserving its original options.
+    /// Re-analyzes by stable ID; generation checks prevent stale retries from mutating retained history.
     func retry(_ jobID: UUID) async {
         guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status == .failed else { return }
+        let generation = makeGeneration()
+        currentRetryGeneration[jobID] = generation
+        retryOperations[jobID]?.values.forEach { $0.task.cancel() }
+        let analyzer = metadataAnalyzer
+        let task = Task { try await analyzer.analyze(url: job.sourceURL, options: job.options) }
+        retryOperations[jobID, default: [:]][generation] = RetryOperation(generation: generation, task: task)
+        let result = await task.result
+        retryOperations[jobID]?[generation] = nil
+        if retryOperations[jobID]?.isEmpty == true {
+            retryOperations[jobID] = nil
+        }
+
+        guard ownsRetry(jobID: jobID, generation: generation),
               let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].status == .failed else { return }
-
-        let existing = jobs[index]
-        do {
-            guard case let .video(video) = try await analyze(existing.sourceURL, existing.options) else {
-                throw DownloadFailure(
-                    category: .metadataUnavailable,
-                    technicalDetail: "Retry analysis returned a playlist instead of the requested media."
+        switch result {
+        case let .success(analysis):
+            guard case let .video(video) = analysis else {
+                await retainRetryFailure(
+                    DownloadFailure(
+                        category: .metadataUnavailable,
+                        technicalDetail: "Retry analysis returned a playlist instead of the requested media."
+                    ),
+                    for: jobID,
+                    generation: generation
                 )
+                return
             }
-            jobs[index].sourceURL = video.sourceURL
-            jobs[index].title = video.title
-            jobs[index].duration = video.duration
-            jobs[index].sourceMetadata = video.sourceURL
-            jobs[index].failure = nil
-            jobs[index].retryCount += 1
-            jobs[index].progress = 0
-            jobs[index].downloadedBytes = nil
-            jobs[index].totalBytes = nil
-            jobs[index].speedBytesPerSecond = nil
-            jobs[index].estimatedTimeRemaining = nil
-            transitionJob(at: index, to: .queued)
+            guard job.options.selectedFormatsRemainAvailable(in: analysis) else {
+                await retainRetryFailure(
+                    DownloadFailure(
+                        category: .formatReselectionRequired,
+                        technicalDetail: "The selected format is no longer available."
+                    ),
+                    for: jobID,
+                    generation: generation
+                )
+                return
+            }
+            guard ownsRetry(jobID: jobID, generation: generation),
+                  let refreshedIndex = jobs.firstIndex(where: { $0.id == jobID }),
+                  jobs[refreshedIndex].status == .failed else { return }
+            jobs[refreshedIndex].sourceURL = video.sourceURL
+            jobs[refreshedIndex].title = video.title
+            jobs[refreshedIndex].duration = video.duration
+            jobs[refreshedIndex].sourceMetadata = video.sourceURL
+            jobs[refreshedIndex].failure = nil
+            jobs[refreshedIndex].retryCount += 1
+            jobs[refreshedIndex].progress = 0
+            jobs[refreshedIndex].downloadedBytes = nil
+            jobs[refreshedIndex].totalBytes = nil
+            jobs[refreshedIndex].speedBytesPerSecond = nil
+            jobs[refreshedIndex].estimatedTimeRemaining = nil
+            transitionJob(at: refreshedIndex, to: .queued)
+            currentRetryGeneration[jobID] = nil
             await persist(flush: true)
-            cacheThumbnail(from: video.thumbnailURL, for: existing.id)
-        } catch {
-            let failure = failure(from: error)
-            jobs[index].failure = failure
-            jobs[index].updatedAt = .now
-            await persist(flush: true)
-            await recordDiagnostic(jobID: jobID, stage: "retry-analysis", detail: failure.technicalDetail)
+            guard !isPreparingToQuit, jobs.contains(where: { $0.id == jobID }) else { return }
+            cacheThumbnail(from: video.thumbnailURL, for: jobID)
+        case let .failure(error):
+            await retainRetryFailure(failure(from: error), for: jobID, generation: generation)
         }
     }
 
-    /// Removes only the retained record and its job-scoped thumbnail cache; completed media remains untouched.
+    /// Removes retained state and owned cache metadata, never a completed media output.
     func removeRecord(_ jobID: UUID) async {
-        guard let job = jobs.first(where: { $0.id == jobID }), job.status.isTerminal else { return }
+        guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status.isTerminal else { return }
+        invalidateRetry(for: jobID)
         jobs.removeAll { $0.id == jobID }
         selection.remove(jobID)
         await persist(flush: true)
+        await cancelThumbnailOperations(for: jobID)
         do {
             try await thumbnailCache.remove(jobID: jobID)
         } catch {
@@ -286,12 +380,15 @@ final class DownloadStore: ObservableObject {
     }
 
     func clearCompleted() async {
+        guard !isPreparingToQuit else { return }
         let completedIDs = jobs.filter { $0.status == .completed }.map(\.id)
         guard !completedIDs.isEmpty else { return }
+        completedIDs.forEach(invalidateRetry)
         jobs.removeAll { $0.status == .completed }
         selection.subtract(completedIDs)
         await persist(flush: true)
         for jobID in completedIDs {
+            await cancelThumbnailOperations(for: jobID)
             do {
                 try await thumbnailCache.remove(jobID: jobID)
             } catch {
@@ -300,15 +397,21 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    /// Waits for coordinator shutdown and flushes the final recoverable snapshot before termination.
-    func prepareToQuit() async {
-        guard !isPreparingToQuit else { return }
+    /// All callers join one shutdown barrier; a final persistence failure is returned to the app delegate.
+    func prepareToQuit() async throws {
+        if let quitTask {
+            return try await quitTask.value
+        }
         isPreparingToQuit = true
-        await coordinator.shutdown()
-        await persist(flush: true)
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await self.performQuit()
+        }
+        quitTask = task
+        try await task.value
     }
 
-    // Loading is asynchronous so app construction remains synchronous; restored jobs are never auto-submitted.
+    // Loading stays asynchronous, but a quit that wins the race prevents late restoration.
     private func restorePersistedJobsInBackground() {
         Task { [weak self] in
             await self?.restorePersistedJobs()
@@ -316,17 +419,19 @@ final class DownloadStore: ObservableObject {
     }
 
     private func restorePersistedJobs() async {
-        guard !didRestorePersistedJobs else { return }
+        guard !didRestorePersistedJobs, !isPreparingToQuit else { return }
         didRestorePersistedJobs = true
         do {
-            jobs = Self.recoveredJobs(from: try await persistence.loadJobs())
+            let restored = Self.recoveredJobs(from: try await persistence.loadJobs())
+            guard !isPreparingToQuit else { return }
+            jobs = restored
             selection = selection.intersection(Set(jobs.map(\.id)))
         } catch {
             await recordDiagnostic(jobID: nil, stage: "persistence-recovery", detail: String(describing: error))
         }
     }
 
-    // One cancellable task owns the coordinator stream for the store's lifetime.
+    /// The consumer lives until coordinator stream completion so shutdown can drain every accepted event.
     private func consumeCoordinatorEvents() {
         eventConsumptionTask = Task { [weak self, coordinator] in
             for await event in coordinator.events {
@@ -337,13 +442,19 @@ final class DownloadStore: ObservableObject {
     }
 
     private func consume(_ event: CoordinatorEvent) async {
-        guard !isPreparingToQuit || isCoordinatorStop(event) else { return }
         switch event {
         case let .started(jobID):
             coordinatorManagedJobIDs.insert(jobID)
-            return
+            guard let index = jobs.firstIndex(where: { $0.id == jobID }), jobs[index].status == .queued else { return }
+            transitionJob(at: index, to: .analyzing)
+            await persist(flush: true)
         case let .runnerEvent(jobID, event):
             await consumeRunnerEvent(event, for: jobID)
+        case let .failure(jobID, failure):
+            guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+            jobs[index].failure = failure
+            jobs[index].updatedAt = .now
+            await persist(flush: true)
         case let .stopped(jobID, status):
             guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
             coordinatorManagedJobIDs.remove(jobID)
@@ -364,7 +475,6 @@ final class DownloadStore: ObservableObject {
 
     private func consumeRunnerEvent(_ event: DownloadEvent, for jobID: UUID) async {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
-
         switch event {
         case let .reservedBasename(basename):
             jobs[index].reservedOutputBasename = basename
@@ -392,6 +502,44 @@ final class DownloadStore: ObservableObject {
         }
     }
 
+    private func performQuit() async throws {
+        analysisGeneration = makeGeneration()
+        let analysis = analysisTask
+        analysisTask = nil
+        analysis?.cancel()
+
+        currentRetryGeneration.removeAll()
+        let retries = retryOperations.values.flatMap(\.values).map(\.task)
+        retries.forEach { $0.cancel() }
+
+        currentThumbnailGeneration.removeAll()
+        let thumbnails = thumbnailOperations.values.flatMap(\.values).map(\.task)
+        thumbnails.forEach { $0.cancel() }
+
+        _ = await analysis?.result
+        for task in retries {
+            _ = await task.result
+        }
+        for task in thumbnails {
+            await task.value
+        }
+
+        await coordinator.shutdown()
+        await eventConsumptionTask?.value
+        try await persistence.saveJobs(jobs, flush: true)
+    }
+
+    private func retainRetryFailure(_ failure: DownloadFailure, for jobID: UUID, generation: UInt64) async {
+        guard ownsRetry(jobID: jobID, generation: generation),
+              let index = jobs.firstIndex(where: { $0.id == jobID }),
+              jobs[index].status == .failed else { return }
+        jobs[index].failure = failure
+        jobs[index].updatedAt = .now
+        currentRetryGeneration[jobID] = nil
+        await persist(flush: true)
+        await recordDiagnostic(jobID: jobID, stage: "retry-analysis", detail: failure.technicalDetail)
+    }
+
     private func transitionJob(at index: Int, to status: DownloadStatus) {
         do {
             try jobs[index].transition(to: status)
@@ -406,13 +554,13 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    // Shutdown is an interruption boundary, not a user-requested merge pause.
+    // Relaunch and quit interruption are recovery boundaries, including non-pausable merge work.
     private func markInterruptedJobPaused(at index: Int) {
         jobs[index].status = .paused
         jobs[index].updatedAt = .now
     }
 
-    // Queue, state, output, and failures flush now; high-frequency progress coalesces in PersistenceController.
+    /// Durable lifecycle/output/failure saves are immediate; progress-only saves are coalesced.
     private func persist(flush: Bool) async {
         do {
             try await persistence.saveJobs(jobs, flush: flush)
@@ -422,22 +570,58 @@ final class DownloadStore: ObservableObject {
     }
 
     private func cacheThumbnail(from url: URL?, for jobID: UUID) {
-        guard let url else { return }
-        Task { [weak self, thumbnailCache] in
+        guard let url, !isPreparingToQuit, jobs.contains(where: { $0.id == jobID }) else { return }
+        let generation = makeGeneration()
+        currentThumbnailGeneration[jobID] = generation
+        thumbnailOperations[jobID]?.values.forEach { $0.task.cancel() }
+        let cache = thumbnailCache
+        let task = Task { @MainActor [weak self] in
             do {
-                let cachedURL = try await thumbnailCache.fetch(remoteURL: url, for: jobID)
-                await self?.applyThumbnailPath(cachedURL.path, to: jobID)
+                let download = try await cache.download(remoteURL: url)
+                guard let self else { return }
+                guard self.ownsThumbnail(jobID: jobID, generation: generation) else {
+                    self.finishThumbnailOperation(jobID: jobID, generation: generation)
+                    return
+                }
+                let cachedURL = try await cache.install(download, for: jobID)
+                guard self.ownsThumbnail(jobID: jobID, generation: generation) else {
+                    self.finishThumbnailOperation(jobID: jobID, generation: generation)
+                    return
+                }
+                await self.applyThumbnailPath(cachedURL.path, to: jobID)
             } catch {
-                await self?.recordDiagnostic(jobID: jobID, stage: "thumbnail", detail: String(describing: error))
+                if !Task.isCancelled {
+                    await self?.recordDiagnostic(jobID: jobID, stage: "thumbnail", detail: String(describing: error))
+                }
             }
+            self?.finishThumbnailOperation(jobID: jobID, generation: generation)
         }
+        thumbnailOperations[jobID, default: [:]][generation] = ThumbnailOperation(generation: generation, task: task)
     }
 
     private func applyThumbnailPath(_ path: String, to jobID: UUID) async {
-        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        guard !isPreparingToQuit,
+              let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         jobs[index].thumbnailCachePath = path
         jobs[index].updatedAt = .now
         await persist(flush: true)
+    }
+
+    private func cancelThumbnailOperations(for jobID: UUID) async {
+        currentThumbnailGeneration[jobID] = nil
+        let tasks = thumbnailOperations[jobID]?.values.map(\.task) ?? []
+        tasks.forEach { $0.cancel() }
+        for task in tasks {
+            await task.value
+        }
+        thumbnailOperations[jobID] = nil
+    }
+
+    private func finishThumbnailOperation(jobID: UUID, generation: UInt64) {
+        thumbnailOperations[jobID]?[generation] = nil
+        if thumbnailOperations[jobID]?.isEmpty == true {
+            thumbnailOperations[jobID] = nil
+        }
     }
 
     private func recordDiagnostic(jobID: UUID?, stage: String, detail: String?) async {
@@ -446,6 +630,30 @@ final class DownloadStore: ObservableObject {
 
     private func failure(from error: Error) -> DownloadFailure {
         error as? DownloadFailure ?? DownloadFailure(category: .unknown, technicalDetail: String(describing: error))
+    }
+
+    private func makeGeneration() -> UInt64 {
+        nextOperationGeneration &+= 1
+        return nextOperationGeneration
+    }
+
+    private func ownsAnalysis(_ generation: UInt64) -> Bool {
+        !isPreparingToQuit && analysisGeneration == generation
+    }
+
+    private func ownsRetry(jobID: UUID, generation: UInt64) -> Bool {
+        !isPreparingToQuit && currentRetryGeneration[jobID] == generation
+    }
+
+    private func ownsThumbnail(jobID: UUID, generation: UInt64) -> Bool {
+        !isPreparingToQuit
+            && currentThumbnailGeneration[jobID] == generation
+            && jobs.contains(where: { $0.id == jobID })
+    }
+
+    private func invalidateRetry(for jobID: UUID) {
+        currentRetryGeneration[jobID] = nil
+        retryOperations[jobID]?.values.forEach { $0.task.cancel() }
     }
 
     private func status(for phase: DownloadPhase) -> DownloadStatus {
@@ -457,11 +665,6 @@ final class DownloadStore: ObservableObject {
         case .merging, .postprocessing:
             .merging
         }
-    }
-
-    private func isCoordinatorStop(_ event: CoordinatorEvent) -> Bool {
-        if case .stopped = event { return true }
-        return false
     }
 
     private static func recoveredJobs(from jobs: [DownloadJob]) -> [DownloadJob] {

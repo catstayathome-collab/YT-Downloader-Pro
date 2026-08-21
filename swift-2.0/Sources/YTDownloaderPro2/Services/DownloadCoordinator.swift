@@ -3,6 +3,7 @@ import Foundation
 enum CoordinatorEvent: Equatable, Sendable {
     case started(UUID)
     case runnerEvent(UUID, DownloadEvent)
+    case failure(UUID, DownloadFailure)
     case stopped(UUID, DownloadStatus)
 }
 
@@ -90,7 +91,7 @@ actor DownloadCoordinator {
         guard let worker = active[jobID], worker.requestedStop == .none else { return }
         active[jobID]?.requestedStop = .pause
         let runner = self.runner
-        let controlTask = Task { await runner.interruptForQuit(jobID: jobID) }
+        let controlTask = Task { await runner.pause(jobID: jobID) }
         active[jobID]?.controlTask = controlTask
         await controlTask.value
         await worker.task.value
@@ -172,15 +173,19 @@ actor DownloadCoordinator {
         let token = UUID()
         let runner = self.runner
         let task = Task { [weak self, runner, job] in
-            var completedNormally = true
+            var result: Result<Void, DownloadFailure> = .success(())
             do {
                 for try await event in runner.events(for: job) {
                     await self?.receive(event, for: job.id, token: token)
                 }
             } catch {
-                completedNormally = false
+                let failure = error as? DownloadFailure ?? DownloadFailure(
+                    category: .unknown,
+                    technicalDetail: String(describing: error)
+                )
+                result = .failure(failure)
             }
-            await self?.workerFinished(jobID: job.id, token: token, completedNormally: completedNormally)
+            await self?.workerFinished(jobID: job.id, token: token, result: result)
         }
 
         active[job.id] = ActiveJob(token: token, requestedStop: .none, controlTask: nil, task: task)
@@ -197,7 +202,7 @@ actor DownloadCoordinator {
         continuation.yield(.runnerEvent(jobID, event))
     }
 
-    private func workerFinished(jobID: UUID, token: UUID, completedNormally: Bool) async {
+    private func workerFinished(jobID: UUID, token: UUID, result: Result<Void, DownloadFailure>) async {
         guard let current = active[jobID], current.token == token else { return }
         if let controlTask = current.controlTask {
             await controlTask.value
@@ -212,7 +217,13 @@ actor DownloadCoordinator {
         case .cancel:
             finalStatus = .cancelled
         case .none:
-            finalStatus = completedNormally ? .completed : .failed
+            switch result {
+            case .success:
+                finalStatus = .completed
+            case let .failure(failure):
+                finalStatus = .failed
+                continuation.yield(.failure(jobID, failure))
+            }
         }
         setStatus(finalStatus, for: jobID)
         continuation.yield(.stopped(jobID, finalStatus))
@@ -223,7 +234,10 @@ actor DownloadCoordinator {
         guard let worker = active[jobID], worker.token == token else { return }
         if let controlTask = worker.controlTask {
             await controlTask.value
-            return
+            guard let latest = active[jobID], latest.token == token else { return }
+            if latest.requestedStop == .cancel {
+                return
+            }
         }
 
         active[jobID]?.requestedStop = .shutdown

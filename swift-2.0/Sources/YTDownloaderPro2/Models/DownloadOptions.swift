@@ -75,4 +75,17 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         self.outputDirectoryBookmark = outputDirectoryBookmark
         self.outputDirectoryDisplayPath = outputDirectoryDisplayPath
     }
+
+    func selectedFormatsRemainAvailable(in analysis: AnalysisResult) -> Bool {
+        guard case let .video(video) = analysis else { return false }
+        let videoIDs = Set(video.videoFormats.map(\.id))
+        let audioIDs = Set(video.audioFormats.map(\.id))
+        if case let .format(id, _) = videoQuality, outputKind == .mp4, !videoIDs.contains(id) {
+            return false
+        }
+        if case let .format(id, _) = audioQuality, !audioIDs.contains(id) {
+            return false
+        }
+        return true
+    }
 }
