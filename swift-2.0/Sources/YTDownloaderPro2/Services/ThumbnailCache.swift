@@ -1,9 +1,12 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 enum ThumbnailCacheError: Error, Equatable, Sendable {
     case invalidImageData
     case unsupportedImageType
     case unsupportedRemoteURL
+    case unsafeCachePath
 }
 
 struct ThumbnailDownload: Sendable {
@@ -22,6 +25,56 @@ struct ThumbnailDataLoader: Sendable {
         let (data, response) = try await URLSession.shared.data(from: url)
         let mimeType = (response as? HTTPURLResponse)?.mimeType
         return ThumbnailDownload(data: data, mimeType: mimeType)
+    }
+}
+
+protocol ThumbnailFileSystem: Sendable {
+    func createDirectory(at url: URL) throws
+    func fileExists(at url: URL) -> Bool
+    func readData(at url: URL) throws -> Data
+    func writeData(_ data: Data, to url: URL) throws
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws
+    func replaceItem(at originalURL: URL, withItemAt newURL: URL, backupItemName: String) throws -> URL?
+    func removeItem(at url: URL) throws
+    func isSymbolicLink(at url: URL) throws -> Bool
+}
+
+struct LiveThumbnailFileSystem: ThumbnailFileSystem {
+    func createDirectory(at url: URL) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func readData(at url: URL) throws -> Data {
+        try Data(contentsOf: url)
+    }
+
+    func writeData(_ data: Data, to url: URL) throws {
+        try data.write(to: url, options: .atomic)
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func replaceItem(at originalURL: URL, withItemAt newURL: URL, backupItemName: String) throws -> URL? {
+        try FileManager.default.replaceItemAt(
+            originalURL,
+            withItemAt: newURL,
+            backupItemName: backupItemName,
+            options: .withoutDeletingBackupItem
+        )
+    }
+
+    func removeItem(at url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
+
+    func isSymbolicLink(at url: URL) throws -> Bool {
+        try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true
     }
 }
 
@@ -46,13 +99,17 @@ actor ThumbnailCache {
         }
     }
 
-    private let root: URL
-    private let fileManager: FileManager
+    private let canonicalRoot: URL
+    private let fileSystem: any ThumbnailFileSystem
     private let loader: ThumbnailDataLoader
 
-    init(root: URL, fileManager: FileManager = .default, loader: ThumbnailDataLoader = .live) {
-        self.root = root
-        self.fileManager = fileManager
+    init(
+        root: URL,
+        fileSystem: any ThumbnailFileSystem = LiveThumbnailFileSystem(),
+        loader: ThumbnailDataLoader = .live
+    ) {
+        canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        self.fileSystem = fileSystem
         self.loader = loader
     }
 
@@ -61,11 +118,56 @@ actor ThumbnailCache {
             throw ThumbnailCacheError.invalidImageData
         }
 
-        try fileManager.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
-        try remove(jobID: jobID)
-        let destination = thumbnailsDirectory.appendingPathComponent("\(jobID.uuidString).\(imageType.rawValue)")
-        try data.write(to: destination, options: .atomic)
-        return destination
+        let directory = try validatedThumbnailsDirectory(createIfMissing: true)
+        let existing = try existingThumbnails(for: jobID, in: directory)
+        let snapshots = try Dictionary(uniqueKeysWithValues: existing.map { ($0, try fileSystem.readData(at: $0)) })
+        let destination = thumbnailURL(for: jobID, type: imageType, in: directory)
+        let transactionID = UUID().uuidString
+        let temporaryURL = directory.appendingPathComponent(".thumbnail-stage-\(transactionID).\(imageType.rawValue)")
+        let backupName = ".thumbnail-backup-\(transactionID).\(imageType.rawValue)"
+        let backupURL = directory.appendingPathComponent(backupName)
+        var installationStarted = false
+
+        do {
+            try validateMutationTarget(temporaryURL, in: directory, mustNotExist: true)
+            try fileSystem.writeData(data, to: temporaryURL)
+            try validateMutationTarget(temporaryURL, in: directory, mustNotExist: false)
+            let stagedData = try fileSystem.readData(at: temporaryURL)
+            guard Self.imageType(for: stagedData) == imageType else {
+                throw ThumbnailCacheError.invalidImageData
+            }
+
+            try recheckDirectory(directory)
+            try validateMutationTarget(destination, in: directory, mustNotExist: false)
+            if fileSystem.fileExists(at: destination) {
+                _ = try fileSystem.replaceItem(at: destination, withItemAt: temporaryURL, backupItemName: backupName)
+            } else {
+                try fileSystem.moveItem(at: temporaryURL, to: destination)
+            }
+            installationStarted = true
+            try validateMutationTarget(destination, in: directory, mustNotExist: false)
+
+            for obsoleteURL in existing where obsoleteURL != destination {
+                try validateMutationTarget(obsoleteURL, in: directory, mustNotExist: false)
+                try fileSystem.removeItem(at: obsoleteURL)
+            }
+            if fileSystem.fileExists(at: backupURL) {
+                try validateMutationTarget(backupURL, in: directory, mustNotExist: false)
+                try fileSystem.removeItem(at: backupURL)
+            }
+            return destination
+        } catch {
+            if installationStarted {
+                try? restore(snapshots: snapshots, jobID: jobID, in: directory)
+            }
+            if fileSystem.fileExists(at: temporaryURL), (try? fileSystem.isSymbolicLink(at: temporaryURL)) != true {
+                try? fileSystem.removeItem(at: temporaryURL)
+            }
+            if fileSystem.fileExists(at: backupURL), (try? fileSystem.isSymbolicLink(at: backupURL)) != true {
+                try? fileSystem.removeItem(at: backupURL)
+            }
+            throw error
+        }
     }
 
     func fetch(remoteURL: URL, for jobID: UUID) async throws -> URL {
@@ -82,43 +184,109 @@ actor ThumbnailCache {
     }
 
     func url(for jobID: UUID) -> URL? {
-        for imageType in ImageType.allCases {
-            let candidate = thumbnailsDirectory.appendingPathComponent("\(jobID.uuidString).\(imageType.rawValue)")
-            if fileManager.fileExists(atPath: candidate.path) {
-                return candidate
-            }
+        guard let directory = try? validatedThumbnailsDirectory(createIfMissing: false),
+              let thumbnails = try? existingThumbnails(for: jobID, in: directory) else {
+            return nil
         }
-        return nil
+        return thumbnails.first
     }
 
     func remove(jobID: UUID) throws {
-        for imageType in ImageType.allCases {
-            let candidate = thumbnailsDirectory.appendingPathComponent("\(jobID.uuidString).\(imageType.rawValue)")
-            if fileManager.fileExists(atPath: candidate.path) {
-                try fileManager.removeItem(at: candidate)
-            }
+        let directory = try validatedThumbnailsDirectory(createIfMissing: false)
+        for candidate in try existingThumbnails(for: jobID, in: directory) {
+            try recheckDirectory(directory)
+            try validateMutationTarget(candidate, in: directory, mustNotExist: false)
+            try fileSystem.removeItem(at: candidate)
         }
     }
 
-    private var thumbnailsDirectory: URL {
-        root.appendingPathComponent("Thumbnails", isDirectory: true)
+    private func restore(snapshots: [URL: Data], jobID: UUID, in directory: URL) throws {
+        try recheckDirectory(directory)
+        for imageType in ImageType.allCases {
+            let candidate = thumbnailURL(for: jobID, type: imageType, in: directory)
+            guard fileSystem.fileExists(at: candidate) else { continue }
+            try validateMutationTarget(candidate, in: directory, mustNotExist: false)
+            try fileSystem.removeItem(at: candidate)
+        }
+        for (url, data) in snapshots {
+            try recheckDirectory(directory)
+            try validateMutationTarget(url, in: directory, mustNotExist: true)
+            try fileSystem.writeData(data, to: url)
+        }
+    }
+
+    private func validatedThumbnailsDirectory(createIfMissing: Bool) throws -> URL {
+        let directory = canonicalRoot.appendingPathComponent("Thumbnails", isDirectory: true).standardizedFileURL
+        guard contains(directory, in: canonicalRoot) else {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+        if (try? fileSystem.isSymbolicLink(at: directory)) == true {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+        if !fileSystem.fileExists(at: directory), createIfMissing {
+            try fileSystem.createDirectory(at: directory)
+        }
+        try recheckDirectory(directory)
+        return directory
+    }
+
+    private func recheckDirectory(_ directory: URL) throws {
+        guard contains(directory, in: canonicalRoot),
+              directory.resolvingSymlinksInPath().standardizedFileURL == directory,
+              (try? fileSystem.isSymbolicLink(at: directory)) != true else {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+    }
+
+    private func existingThumbnails(for jobID: UUID, in directory: URL) throws -> [URL] {
+        try recheckDirectory(directory)
+        var existing: [URL] = []
+        for imageType in ImageType.allCases {
+            let candidate = thumbnailURL(for: jobID, type: imageType, in: directory)
+            if (try? fileSystem.isSymbolicLink(at: candidate)) == true {
+                throw ThumbnailCacheError.unsafeCachePath
+            }
+            guard fileSystem.fileExists(at: candidate) else { continue }
+            try validateMutationTarget(candidate, in: directory, mustNotExist: false)
+            existing.append(candidate)
+        }
+        return existing
+    }
+
+    private func validateMutationTarget(_ url: URL, in directory: URL, mustNotExist: Bool) throws {
+        try recheckDirectory(directory)
+        guard url.standardizedFileURL.deletingLastPathComponent() == directory,
+              contains(url.standardizedFileURL, in: canonicalRoot),
+              (try? fileSystem.isSymbolicLink(at: url)) != true,
+              !mustNotExist || !fileSystem.fileExists(at: url) else {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+        if fileSystem.fileExists(at: url), url.resolvingSymlinksInPath().standardizedFileURL != url.standardizedFileURL {
+            throw ThumbnailCacheError.unsafeCachePath
+        }
+    }
+
+    private func thumbnailURL(for jobID: UUID, type: ImageType, in directory: URL) -> URL {
+        directory.appendingPathComponent("\(jobID.uuidString).\(type.rawValue)")
+    }
+
+    private func contains(_ child: URL, in root: URL) -> Bool {
+        child.path == root.path || child.path.hasPrefix(root.path + "/")
     }
 
     private static func imageType(for data: Data) -> ImageType? {
-        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
-            return .png
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil,
+              let sourceType = CGImageSourceGetType(source) else {
+            return nil
         }
-        if data.starts(with: [0xFF, 0xD8, 0xFF]) {
-            return .jpeg
-        }
-        if data.starts(with: Array("GIF87a".utf8)) || data.starts(with: Array("GIF89a".utf8)) {
-            return .gif
-        }
-        if data.count >= 12,
-           data.prefix(4) == Data("RIFF".utf8),
-           data.dropFirst(8).prefix(4) == Data("WEBP".utf8) {
-            return .webp
-        }
+
+        let type = UTType(sourceType as String)
+        if type == .png { return .png }
+        if type == .jpeg { return .jpeg }
+        if type == .gif { return .gif }
+        if type == .webP { return .webp }
         return nil
     }
 }

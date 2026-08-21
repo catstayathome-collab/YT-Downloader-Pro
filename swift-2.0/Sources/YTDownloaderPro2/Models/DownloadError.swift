@@ -31,10 +31,13 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     private static let sensitiveHeaderPattern = try! NSRegularExpression(
         pattern: #"(?im)^([ \t]*(?:cookie|authorization)[ \t]*:[ \t]*)[^\r\n]*"#
     )
-    private static let remoteURLPattern = try! NSRegularExpression(
-        pattern: #"(?i)https?://[^\s\"'<>]+"#
+    private static let structuredURLPattern = try! NSRegularExpression(
+        pattern: #"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"'<>]+"#
     )
     private static let sensitiveArgumentFlags: Set<String> = [
+        "-2",
+        "-p",
+        "-u",
         "--add-header",
         "--ap-password",
         "--ap-username",
@@ -42,12 +45,29 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         "--cookies-from-browser",
         "--extractor-args",
         "--http-header",
+        "--netrc-cmd",
         "--netrc-location",
         "--password",
         "--twofactor",
         "--username",
         "--video-password"
     ]
+    private static let URLArgumentFlags: Set<String> = [
+        "--geo-verification-proxy",
+        "--proxy"
+    ]
+    private static let sensitiveFlagInTextPattern = try! NSRegularExpression(
+        pattern: #"(?<!\S)((?:-[up2]|(?i:--(?:add-header|ap-password|ap-username|cookies|cookies-from-browser|extractor-args|http-header|netrc-cmd|netrc-location|password|twofactor|username|video-password)))(?:\s+|=))(?:(?:\"[^\"]*\"|'[^']*')|\S+)"#
+    )
+    private static let cookiePathPattern = try! NSRegularExpression(
+        pattern: #"(?i)(\bcookies?(?:[-_ ]+file)?(?:\s+(?:from|to|at|path))?\s*[=:]?\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|(?:~?/|/)[^\s,;\r\n]+)"#
+    )
+    private static let credentialProsePattern = try! NSRegularExpression(
+        pattern: #"(?i)\b(username|user|password|passwd)\b(\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"#
+    )
+    private static let bearerPattern = try! NSRegularExpression(
+        pattern: #"(?i)\b(bearer|basic)(\s+)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"#
+    )
 
     init(
         category: Category,
@@ -70,29 +90,61 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     }
 
     static func sanitizedDiagnosticDetail(_ detail: String) -> String {
-        redactQueryValues(in: sanitizedTechnicalDetail(detail))
+        let sanitizedURLs = sanitizeStructuredURLs(in: sanitizedTechnicalDetail(detail))
+        let sanitizedFlags = replacingMatches(
+            sensitiveFlagInTextPattern,
+            in: sanitizedURLs,
+            withTemplate: "$1[REDACTED]"
+        )
+        let sanitizedCookiePaths = replacingMatches(
+            cookiePathPattern,
+            in: sanitizedFlags,
+            withTemplate: "$1[REDACTED]"
+        )
+        let sanitizedCredentials = replacingMatches(
+            credentialProsePattern,
+            in: sanitizedCookiePaths,
+            withTemplate: "$1$2[REDACTED]"
+        )
+        return replacingMatches(
+            bearerPattern,
+            in: sanitizedCredentials,
+            withTemplate: "$1$2[REDACTED]"
+        )
     }
 
     static func sanitizedDiagnosticArguments(_ arguments: [String]) -> [String] {
         var sanitized: [String] = []
-        var redactNextArgument = false
+        var pendingFlag: String?
 
         for argument in arguments {
-            if redactNextArgument {
-                sanitized.append("[REDACTED]")
-                redactNextArgument = false
+            if let flag = pendingFlag {
+                sanitized.append(URLArgumentFlags.contains(flag) ? sanitizeURLString(argument) : "[REDACTED]")
+                pendingFlag = nil
                 continue
             }
 
             let flagAndValue = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            let flag = String(flagAndValue[0]).lowercased()
-            if sensitiveArgumentFlags.contains(flag) {
+            let originalFlag = String(flagAndValue[0])
+            let normalizedFlag = originalFlag.lowercased()
+            let isSensitiveFlag = sensitiveArgumentFlags.contains(normalizedFlag)
+                && (!normalizedFlag.hasPrefix("-") || normalizedFlag.hasPrefix("--") || originalFlag == normalizedFlag)
+            if isSensitiveFlag || URLArgumentFlags.contains(normalizedFlag) {
                 if flagAndValue.count == 2 {
-                    sanitized.append("\(flagAndValue[0])=[REDACTED]")
+                    let value = String(flagAndValue[1])
+                    let replacement = URLArgumentFlags.contains(normalizedFlag) ? sanitizeURLString(value) : "[REDACTED]"
+                    sanitized.append("\(flagAndValue[0])=\(replacement)")
                 } else {
                     sanitized.append(argument)
-                    redactNextArgument = true
+                    pendingFlag = normalizedFlag
                 }
+                continue
+            }
+
+            if let shortFlag = ["-u", "-p", "-2"].first(where: {
+                originalFlag.hasPrefix($0) && originalFlag.count > $0.count
+            }) {
+                sanitized.append("\(shortFlag)[REDACTED]")
                 continue
             }
 
@@ -119,22 +171,45 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         )
     }
 
-    private static func redactQueryValues(in detail: String) -> String {
+    private static func sanitizeStructuredURLs(in detail: String) -> String {
         let range = NSRange(detail.startIndex..., in: detail)
-        let matches = remoteURLPattern.matches(in: detail, range: range)
+        let matches = structuredURLPattern.matches(in: detail, range: range)
         guard !matches.isEmpty else { return detail }
 
         var result = detail
         for match in matches.reversed() {
             guard let matchRange = Range(match.range, in: result) else { continue }
             let urlText = String(result[matchRange])
-            guard var components = URLComponents(string: urlText), let queryItems = components.queryItems, !queryItems.isEmpty else {
-                continue
-            }
-            components.queryItems = queryItems.map { URLQueryItem(name: $0.name, value: "[REDACTED]") }
-            guard let sanitizedURL = components.string else { continue }
-            result.replaceSubrange(matchRange, with: sanitizedURL)
+            result.replaceSubrange(matchRange, with: sanitizeURLString(urlText))
         }
         return result
+    }
+
+    private static func sanitizeURLString(_ value: String) -> String {
+        let trailingPunctuation = value.reversed().prefix { ".,;)]}".contains($0) }
+        let punctuation = String(trailingPunctuation.reversed())
+        let urlText = String(value.dropLast(punctuation.count))
+        guard var components = URLComponents(string: urlText), components.scheme != nil else {
+            return "[REDACTED]"
+        }
+        components.user = nil
+        components.password = nil
+        if let queryItems = components.queryItems {
+            components.queryItems = queryItems.map { URLQueryItem(name: $0.name, value: "[REDACTED]") }
+        }
+        components.fragment = nil
+        return (components.string ?? "[REDACTED]") + punctuation
+    }
+
+    private static func replacingMatches(
+        _ pattern: NSRegularExpression,
+        in value: String,
+        withTemplate template: String
+    ) -> String {
+        pattern.stringByReplacingMatches(
+            in: value,
+            range: NSRange(value.startIndex..., in: value),
+            withTemplate: template
+        )
     }
 }
