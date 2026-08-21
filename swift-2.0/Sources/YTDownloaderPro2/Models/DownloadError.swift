@@ -31,6 +31,23 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     private static let sensitiveHeaderPattern = try! NSRegularExpression(
         pattern: #"(?im)^([ \t]*(?:cookie|authorization)[ \t]*:[ \t]*)[^\r\n]*"#
     )
+    private static let remoteURLPattern = try! NSRegularExpression(
+        pattern: #"(?i)https?://[^\s\"'<>]+"#
+    )
+    private static let sensitiveArgumentFlags: Set<String> = [
+        "--add-header",
+        "--ap-password",
+        "--ap-username",
+        "--cookies",
+        "--cookies-from-browser",
+        "--extractor-args",
+        "--http-header",
+        "--netrc-location",
+        "--password",
+        "--twofactor",
+        "--username",
+        "--video-password"
+    ]
 
     init(
         category: Category,
@@ -52,6 +69,39 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         sanitize(detail) ?? ""
     }
 
+    static func sanitizedDiagnosticDetail(_ detail: String) -> String {
+        redactQueryValues(in: sanitizedTechnicalDetail(detail))
+    }
+
+    static func sanitizedDiagnosticArguments(_ arguments: [String]) -> [String] {
+        var sanitized: [String] = []
+        var redactNextArgument = false
+
+        for argument in arguments {
+            if redactNextArgument {
+                sanitized.append("[REDACTED]")
+                redactNextArgument = false
+                continue
+            }
+
+            let flagAndValue = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let flag = String(flagAndValue[0]).lowercased()
+            if sensitiveArgumentFlags.contains(flag) {
+                if flagAndValue.count == 2 {
+                    sanitized.append("\(flagAndValue[0])=[REDACTED]")
+                } else {
+                    sanitized.append(argument)
+                    redactNextArgument = true
+                }
+                continue
+            }
+
+            sanitized.append(sanitizedDiagnosticDetail(argument))
+        }
+
+        return sanitized
+    }
+
     private static func sanitize(_ detail: String?) -> String? {
         guard let detail else { return nil }
 
@@ -67,5 +117,24 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             range: headerRange,
             withTemplate: "$1$2[REDACTED]"
         )
+    }
+
+    private static func redactQueryValues(in detail: String) -> String {
+        let range = NSRange(detail.startIndex..., in: detail)
+        let matches = remoteURLPattern.matches(in: detail, range: range)
+        guard !matches.isEmpty else { return detail }
+
+        var result = detail
+        for match in matches.reversed() {
+            guard let matchRange = Range(match.range, in: result) else { continue }
+            let urlText = String(result[matchRange])
+            guard var components = URLComponents(string: urlText), let queryItems = components.queryItems, !queryItems.isEmpty else {
+                continue
+            }
+            components.queryItems = queryItems.map { URLQueryItem(name: $0.name, value: "[REDACTED]") }
+            guard let sanitizedURL = components.string else { continue }
+            result.replaceSubrange(matchRange, with: sanitizedURL)
+        }
+        return result
     }
 }
