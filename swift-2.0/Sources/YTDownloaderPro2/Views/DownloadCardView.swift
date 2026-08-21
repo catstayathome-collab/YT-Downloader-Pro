@@ -48,8 +48,72 @@ enum DownloadCardAction: Equatable, Hashable {
     }
 }
 
+enum DownloadConfirmation: String, Identifiable, Equatable {
+    case cancelMerging
+    case cancelActiveAndWaiting
+    case removeRecord
+    case clearCompleted
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cancelMerging: "Cancel this download?"
+        case .cancelActiveAndWaiting: "Cancel active and waiting downloads?"
+        case .removeRecord: "Remove this record?"
+        case .clearCompleted: "Clear completed records?"
+        }
+    }
+
+    var destructiveButtonTitle: String {
+        switch self {
+        case .cancelMerging: "Cancel Download"
+        case .cancelActiveAndWaiting: "Cancel Downloads"
+        case .removeRecord: "Remove Record"
+        case .clearCompleted: "Clear Completed"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .cancelMerging:
+            "Cancelling now removes partial download files created by this job."
+        case .cancelActiveAndWaiting:
+            "Partial files for active and waiting downloads will be removed."
+        case .removeRecord:
+            "The media file will remain. Only this history record and its cached thumbnail will be removed."
+        case .clearCompleted:
+            "Downloaded media files will remain. Only completed history records and their cached thumbnails will be removed."
+        }
+    }
+}
+
+struct DownloadCardLayout: Equatable {
+    let cardHeight: Double
+    let thumbnailHeight: Double
+    let titleLineCount: Int
+    let reservesProgressRow: Bool
+    let reservesDetailRow: Bool
+    let reservesOutputPathRow: Bool
+
+    static let approved = DownloadCardLayout(
+        cardHeight: 140,
+        thumbnailHeight: 81,
+        titleLineCount: 2,
+        reservesProgressRow: true,
+        reservesDetailRow: true,
+        reservesOutputPathRow: true
+    )
+}
+
 struct DownloadCardPresentation: Equatable {
     let job: DownloadJob
+    let validatedOutputFileURL: URL?
+
+    init(job: DownloadJob, fileManager: FileManager = .default) {
+        self.job = job
+        validatedOutputFileURL = Self.existingRegularFileURL(job.outputURL, fileManager: fileManager)
+    }
 
     // This keeps each lifecycle state tied to its approved, testable command set.
     var actions: [DownloadCardAction] {
@@ -87,6 +151,53 @@ struct DownloadCardPresentation: Equatable {
     var formatSummary: String {
         job.options.outputKind == .mp3 ? "MP3 audio" : "MP4 video"
     }
+
+    var layout: DownloadCardLayout { .approved }
+
+    func confirmation(for action: DownloadCardAction) -> DownloadConfirmation? {
+        switch action {
+        case .cancelWithConfirmation:
+            .cancelMerging
+        case .removeRecord:
+            .removeRecord
+        case .edit, .startNow, .pause, .resume, .cancel, .play, .revealInFinder, .retry, .errorDetails, .reAdd:
+            nil
+        }
+    }
+
+    func isEnabled(_ action: DownloadCardAction) -> Bool {
+        switch action {
+        case .play, .revealInFinder:
+            validatedOutputFileURL != nil
+        case .edit, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+            true
+        }
+    }
+
+    func help(for action: DownloadCardAction) -> String {
+        guard !isEnabled(action) else { return action.accessibilityLabel }
+        return switch action {
+        case .play:
+            "Play unavailable: file is missing or is not a regular file"
+        case .revealInFinder:
+            "Reveal unavailable: file is missing or is not a regular file"
+        case .edit, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+            action.accessibilityLabel
+        }
+    }
+
+    func accessibilityLabel(for action: DownloadCardAction) -> String {
+        guard !isEnabled(action) else { return action.accessibilityLabel }
+        return "\(action.accessibilityLabel), unavailable because the file is missing or is not a regular file"
+    }
+
+    private static func existingRegularFileURL(_ url: URL?, fileManager: FileManager) -> URL? {
+        guard let url, url.isFileURL else { return nil }
+        let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+        guard let attributes = try? fileManager.attributesOfItem(atPath: resolvedURL.path),
+              attributes[.type] as? FileAttributeType == .typeRegular else { return nil }
+        return resolvedURL
+    }
 }
 
 struct DownloadCardView: View {
@@ -95,7 +206,7 @@ struct DownloadCardView: View {
     let job: DownloadJob
     var onEdit: (DownloadJob) -> Void = { _ in }
 
-    @State private var showsCancelConfirmation = false
+    @State private var pendingConfirmation: DownloadConfirmation?
     @State private var showsErrorDetails = false
 
     private let presentation: DownloadCardPresentation
@@ -114,41 +225,52 @@ struct DownloadCardView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(job.title)
                         .font(.headline)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
+                        .lineLimit(presentation.layout.titleLineCount)
+                        .truncationMode(.tail)
                     Spacer(minLength: 0)
                     Text(presentation.statusLabel)
                         .font(.caption)
                         .foregroundStyle(statusColor)
                         .fixedSize()
                 }
+                .frame(height: 34, alignment: .top)
 
                 Text(presentation.formatSummary)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                     .lineLimit(1)
+                    .frame(height: 17, alignment: .topLeading)
 
-                if showsProgress {
-                    ProgressView(value: max(0, min(job.progress, 1)))
-                        .progressViewStyle(.linear)
-                        .accessibilityLabel("Download progress")
-                        .accessibilityValue(progressAccessibilityValue)
+                Group {
+                    if showsProgress {
+                        ProgressView(value: max(0, min(job.progress, 1)))
+                            .progressViewStyle(.linear)
+                            .accessibilityLabel("Download progress")
+                            .accessibilityValue(progressAccessibilityValue)
+                    } else {
+                        Color.clear
+                            .accessibilityHidden(true)
+                    }
                 }
+                .frame(height: 8)
 
                 Text(detailLine)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(height: 14, alignment: .leading)
 
-                if let outputURL = job.outputURL {
-                    Text(outputURL.path)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
+                Text(job.outputURL?.path ?? " ")
+                    .font(.caption2)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .opacity(job.outputURL == nil ? 0 : 1)
+                    .accessibilityHidden(job.outputURL == nil)
+                    .frame(height: 14, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -159,20 +281,23 @@ struct DownloadCardView: View {
             }
             .frame(minWidth: 30, alignment: .trailing)
         }
+        .frame(height: presentation.layout.cardHeight - 24, alignment: .top)
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(DownloadCenterAppearance.palette.cardBackground.color)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                .stroke(DownloadCenterAppearance.palette.border.color, lineWidth: 1)
         }
-        .alert("Cancel this download?", isPresented: $showsCancelConfirmation) {
-            Button("Cancel Download", role: .destructive) {
-                Task { await store.cancel(job.id) }
-            }
-            Button("Keep Download", role: .cancel) {}
-        } message: {
-            Text("The current partial download will be removed.")
+        .alert(item: $pendingConfirmation) { confirmation in
+            Alert(
+                title: Text(confirmation.title),
+                message: Text(confirmation.message),
+                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle)) {
+                    performConfirmed(confirmation)
+                },
+                secondaryButton: .cancel()
+            )
         }
         .sheet(isPresented: $showsErrorDetails) {
             if let failure = job.failure {
@@ -195,8 +320,8 @@ struct DownloadCardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: 144, height: 81)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 144, height: presentation.layout.thumbnailHeight)
+        .background(DownloadCenterAppearance.palette.thumbnailBackground.color)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .accessibilityHidden(true)
     }
@@ -210,13 +335,19 @@ struct DownloadCardView: View {
                 .frame(width: 30, height: 28)
         }
         .buttonStyle(.borderless)
-        .disabled(actionNeedsOutputURL(action) && job.outputURL == nil)
-        .help(action.accessibilityLabel)
-        .accessibilityLabel(action.accessibilityLabel)
+        .disabled(!presentation.isEnabled(action))
+        .help(presentation.help(for: action))
+        .accessibilityLabel(presentation.accessibilityLabel(for: action))
     }
 
     // Views route intent through the Store; only desktop file opening stays local to the presentation layer.
     private func route(_ action: DownloadCardAction) {
+        let currentPresentation = DownloadCardPresentation(job: job)
+        guard currentPresentation.isEnabled(action) else { return }
+        if let confirmation = currentPresentation.confirmation(for: action) {
+            pendingConfirmation = confirmation
+            return
+        }
         switch action {
         case .edit:
             onEdit(job)
@@ -228,14 +359,14 @@ struct DownloadCardView: View {
             Task { await store.resume(job.id) }
         case .cancel:
             Task { await store.cancel(job.id) }
-        case .cancelWithConfirmation:
-            showsCancelConfirmation = true
+        case .cancelWithConfirmation, .removeRecord:
+            return
         case .play:
-            if let outputURL = job.outputURL {
+            if let outputURL = currentPresentation.validatedOutputFileURL {
                 NSWorkspace.shared.open(outputURL)
             }
         case .revealInFinder:
-            if let outputURL = job.outputURL {
+            if let outputURL = currentPresentation.validatedOutputFileURL {
                 NSWorkspace.shared.activateFileViewerSelecting([outputURL])
             }
         case .retry:
@@ -244,8 +375,17 @@ struct DownloadCardView: View {
             showsErrorDetails = true
         case .reAdd:
             Task { await store.reAdd(job.id) }
+        }
+    }
+
+    private func performConfirmed(_ confirmation: DownloadConfirmation) {
+        switch confirmation {
+        case .cancelMerging:
+            Task { await store.cancel(job.id) }
         case .removeRecord:
             Task { await store.removeRecord(job.id) }
+        case .cancelActiveAndWaiting, .clearCompleted:
+            return
         }
     }
 
@@ -260,10 +400,10 @@ struct DownloadCardView: View {
 
     private var statusColor: Color {
         switch job.status {
-        case .completed: .green
-        case .failed: .red
-        case .paused, .cancelled: .orange
-        case .queued, .analyzing, .downloading, .merging: .secondary
+        case .completed: Color(red: 0.08, green: 0.45, blue: 0.20)
+        case .failed: Color(red: 0.70, green: 0.12, blue: 0.12)
+        case .paused, .cancelled: Color(red: 0.66, green: 0.34, blue: 0.05)
+        case .queued, .analyzing, .downloading, .merging: DownloadCenterAppearance.palette.secondaryText.color
         }
     }
 
@@ -277,10 +417,6 @@ struct DownloadCardView: View {
 
     private var progressAccessibilityValue: String {
         NumberFormatter.localizedString(from: NSNumber(value: max(0, min(job.progress, 1))), number: .percent)
-    }
-
-    private func actionNeedsOutputURL(_ action: DownloadCardAction) -> Bool {
-        action == .play || action == .revealInFinder
     }
 
     private func byteDescription(_ value: Int64?) -> String {

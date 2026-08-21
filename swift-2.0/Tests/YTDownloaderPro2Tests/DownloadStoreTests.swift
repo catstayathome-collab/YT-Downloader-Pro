@@ -260,6 +260,85 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.jobs.first?.status, .merging)
     }
 
+    func testIndividualResumeRestartsManagedPausedJobExactlyOnce() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStartCount(1, of: job.id)
+        await fixture.store.pause(job.id)
+        try await waitUntil("managed job to become paused") {
+            fixture.store.jobs.first?.status == .paused
+        }
+
+        async let first: Void = fixture.store.resume(job.id)
+        async let second: Void = fixture.store.resume(job.id)
+        await first
+        await second
+
+        try await fixture.runner.waitForStartCount(2, of: job.id)
+        let starts = await fixture.runner.startedIDs()
+        XCTAssertEqual(starts.filter { $0 == job.id }.count, 2)
+    }
+
+    func testIndividualResumeEnqueuesRestoredPausedJob() async throws {
+        let job = DownloadJob.fixture(status: .paused)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.resume(job.id)
+
+        try await fixture.runner.waitForStartCount(1, of: job.id)
+        let starts = await fixture.runner.startedIDs()
+        XCTAssertEqual(starts, [job.id])
+    }
+
+    func testResumeAllRestartsManagedPausedJobsExactlyOnce() async throws {
+        let jobs = DownloadJob.fixtures(count: 2)
+        let fixture = try StoreFixture(jobs: jobs, coordinatorLimit: 2)
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        for job in jobs {
+            try await fixture.runner.waitForStartCount(1, of: job.id)
+        }
+        await fixture.store.pauseAll()
+        try await waitUntil("managed jobs to become paused") {
+            fixture.store.jobs.allSatisfy { $0.status == .paused }
+        }
+
+        async let first: Void = fixture.store.resumeAll()
+        async let second: Void = fixture.store.resumeAll()
+        await first
+        await second
+
+        for job in jobs {
+            try await fixture.runner.waitForStartCount(2, of: job.id)
+        }
+        let starts = await fixture.runner.startedIDs()
+        XCTAssertEqual(starts.count, 4)
+        XCTAssertTrue(jobs.allSatisfy { job in starts.filter { $0 == job.id }.count == 2 })
+    }
+
+    func testResumeAllEnqueuesRestoredPausedJobs() async throws {
+        let jobs = DownloadJob.fixtures(count: 2).map { job -> DownloadJob in
+            var paused = job
+            paused.status = .paused
+            return paused
+        }
+        let fixture = try StoreFixture(jobs: jobs, coordinatorLimit: 2)
+        defer { fixture.cleanUp() }
+
+        await fixture.store.resumeAll()
+
+        for job in jobs {
+            try await fixture.runner.waitForStartCount(1, of: job.id)
+        }
+        let starts = await fixture.runner.startedIDs()
+        XCTAssertEqual(Set(starts), Set(jobs.map(\.id)))
+    }
+
     func testPrepareToQuitPersistsPausedActiveJobAfterCoordinatorShutdown() async throws {
         let activeJob = DownloadJob.fixture(status: .downloading)
         let fixture = try StoreFixture(jobs: [activeJob])
@@ -589,13 +668,15 @@ private final class StoreFixture {
     convenience init(
         jobs: [DownloadJob] = [],
         analysis: AnalysisResult = .video(.fixture()),
-        thumbnailLoader: ThumbnailDataLoader = .live
+        thumbnailLoader: ThumbnailDataLoader = .live,
+        coordinatorLimit: Int = 1
     ) throws {
         try self.init(
             root: temporaryDirectory(),
             jobs: jobs,
             analysis: { _, _ in analysis },
-            thumbnailLoader: thumbnailLoader
+            thumbnailLoader: thumbnailLoader,
+            coordinatorLimit: coordinatorLimit
         )
     }
 
@@ -614,11 +695,12 @@ private final class StoreFixture {
         root: URL,
         jobs: [DownloadJob],
         analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
-        thumbnailLoader: ThumbnailDataLoader = .live
+        thumbnailLoader: ThumbnailDataLoader = .live,
+        coordinatorLimit: Int = 1
     ) throws {
         self.root = root
         runner = StoreRunner()
-        coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        coordinator = DownloadCoordinator(limit: coordinatorLimit, runner: runner)
         persistence = PersistenceController(root: root)
         thumbnailCache = ThumbnailCache(root: root, loader: thumbnailLoader)
         store = DownloadStore(
@@ -705,6 +787,17 @@ private actor StoreRunner: JobRunning {
         while !starts.contains(jobID) {
             guard clock.now < deadline else {
                 throw StoreTestWaitError.timedOut("runner to start \(jobID)")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    func waitForStartCount(_ count: Int, of jobID: UUID) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while starts.filter({ $0 == jobID }).count < count {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("runner to start \(jobID) \(count) times")
             }
             try await Task.sleep(for: .milliseconds(2))
         }

@@ -253,15 +253,27 @@ final class DownloadStore: ObservableObject {
 
     func resumeAll() async {
         guard !isPreparingToQuit else { return }
-        let pausedIDs = jobs.filter { $0.status == .paused }.map(\.id)
-        for jobID in pausedIDs {
-            guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { continue }
+        let resumptions = jobs.compactMap { job -> (jobID: UUID, wasManaged: Bool)? in
+            guard job.status == .paused else { return nil }
+            return (job.id, coordinatorManagedJobIDs.contains(job.id))
+        }
+        guard !resumptions.isEmpty else { return }
+        for resumption in resumptions {
+            guard let index = jobs.firstIndex(where: { $0.id == resumption.jobID }) else { continue }
             transitionJob(at: index, to: .queued)
         }
         await persist(flush: true)
-        let resumedJobs = jobs.filter { pausedIDs.contains($0.id) && $0.status == .queued }
-        coordinatorManagedJobIDs.formUnion(resumedJobs.map(\.id))
-        await coordinator.enqueue(resumedJobs)
+        for resumption in resumptions {
+            guard !isPreparingToQuit,
+                  let job = jobs.first(where: { $0.id == resumption.jobID }),
+                  job.status == .queued else { continue }
+            if resumption.wasManaged {
+                await coordinator.resume(job.id)
+            } else {
+                coordinatorManagedJobIDs.insert(job.id)
+                await coordinator.enqueue(job)
+            }
+        }
     }
 
     func pause(_ jobID: UUID) async {
@@ -280,13 +292,18 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].status == .paused else { return }
+        let wasManaged = coordinatorManagedJobIDs.contains(jobID)
         transitionJob(at: index, to: .queued)
         await persist(flush: true)
         guard !isPreparingToQuit,
               let refreshedIndex = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[refreshedIndex].status == .queued else { return }
-        coordinatorManagedJobIDs.insert(jobID)
-        await coordinator.enqueue(jobs[refreshedIndex])
+        if wasManaged {
+            await coordinator.resume(jobID)
+        } else {
+            coordinatorManagedJobIDs.insert(jobID)
+            await coordinator.enqueue(jobs[refreshedIndex])
+        }
     }
 
     func cancel(_ jobID: UUID) async {
@@ -495,7 +512,9 @@ final class DownloadStore: ObservableObject {
             await persist(flush: true)
         case let .stopped(jobID, status):
             guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
-            coordinatorManagedJobIDs.remove(jobID)
+            if status != .paused {
+                coordinatorManagedJobIDs.remove(jobID)
+            }
             if isPreparingToQuit, status == .paused, jobs[index].status.isActive {
                 markInterruptedJobPaused(at: index)
             } else {

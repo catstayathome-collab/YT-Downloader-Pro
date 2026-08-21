@@ -1,11 +1,76 @@
 import AppKit
 import SwiftUI
 
+struct DownloadColorToken: Equatable {
+    let red: Double
+    let green: Double
+    let blue: Double
+
+    var color: Color { Color(red: red, green: green, blue: blue) }
+
+    var relativeLuminance: Double {
+        func linear(_ component: Double) -> Double {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    func contrastRatio(with other: DownloadColorToken) -> Double {
+        let lighter = max(relativeLuminance, other.relativeLuminance)
+        let darker = min(relativeLuminance, other.relativeLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+}
+
+struct DownloadCenterPalette: Equatable {
+    let windowBackground: DownloadColorToken
+    let sidebarBackground: DownloadColorToken
+    let cardBackground: DownloadColorToken
+    let thumbnailBackground: DownloadColorToken
+    let border: DownloadColorToken
+    let primaryText: DownloadColorToken
+    let secondaryText: DownloadColorToken
+}
+
+enum DownloadCenterAppearance {
+    static let preferredScheme: ColorScheme = .light
+    static let palette = DownloadCenterPalette(
+        windowBackground: DownloadColorToken(red: 0.97, green: 0.97, blue: 0.97),
+        sidebarBackground: DownloadColorToken(red: 0.94, green: 0.95, blue: 0.95),
+        cardBackground: DownloadColorToken(red: 1, green: 1, blue: 1),
+        thumbnailBackground: DownloadColorToken(red: 0.92, green: 0.93, blue: 0.94),
+        border: DownloadColorToken(red: 0.79, green: 0.80, blue: 0.81),
+        primaryText: DownloadColorToken(red: 0.12, green: 0.13, blue: 0.14),
+        secondaryText: DownloadColorToken(red: 0.34, green: 0.36, blue: 0.38)
+    )
+}
+
+enum DownloadCenterAction: Equatable {
+    case startAll
+    case pauseAll
+    case resumeAll
+    case cancelActiveAndWaiting
+    case clearCompleted
+
+    var confirmation: DownloadConfirmation? {
+        switch self {
+        case .cancelActiveAndWaiting:
+            .cancelActiveAndWaiting
+        case .clearCompleted:
+            .clearCompleted
+        case .startAll, .pauseAll, .resumeAll:
+            nil
+        }
+    }
+}
+
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
 
     @State private var url = ""
-    @State private var showsBulkCancelConfirmation = false
+    @State private var pendingConfirmation: DownloadConfirmation?
     @State private var editingJob: DownloadJob?
 
     var body: some View {
@@ -32,14 +97,17 @@ struct DownloadCenterView: View {
                 Task { _ = await store.editQueuedJob(job.id, options: options) }
             }
         }
-        .alert("Cancel active and waiting downloads?", isPresented: $showsBulkCancelConfirmation) {
-            Button("Cancel Downloads", role: .destructive) {
-                Task { await store.cancelActiveAndWaiting() }
-            }
-            Button("Keep Downloads", role: .cancel) {}
-        } message: {
-            Text("Partial files for the selected downloads will be removed.")
+        .alert(item: $pendingConfirmation) { confirmation in
+            Alert(
+                title: Text(confirmation.title),
+                message: Text(confirmation.message),
+                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle)) {
+                    performConfirmed(confirmation)
+                },
+                secondaryButton: .cancel()
+            )
         }
+        .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
     }
 
     private var sidebar: some View {
@@ -62,6 +130,9 @@ struct DownloadCenterView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(DownloadCenterAppearance.palette.sidebarBackground.color)
+        .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .navigationTitle("Downloads")
     }
 
@@ -88,7 +159,7 @@ struct DownloadCenterView: View {
             if store.filteredJobs.isEmpty {
                 Spacer()
                 Text("No downloads in this section")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                 Spacer()
             } else {
                 ScrollView {
@@ -101,7 +172,8 @@ struct DownloadCenterView: View {
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(DownloadCenterAppearance.palette.windowBackground.color)
+        .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .navigationTitle(sidebarTitle(for: store.sidebarSection))
     }
 
@@ -112,7 +184,7 @@ struct DownloadCenterView: View {
                 systemImage: "play.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status == .queued })
             ) {
-                Task { await store.startAll() }
+                route(.startAll)
             }
 
             bulkActionButton(
@@ -120,7 +192,7 @@ struct DownloadCenterView: View {
                 systemImage: "pause.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status.canPause })
             ) {
-                Task { await store.pauseAll() }
+                route(.pauseAll)
             }
 
             bulkActionButton(
@@ -128,7 +200,7 @@ struct DownloadCenterView: View {
                 systemImage: "play.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status == .paused })
             ) {
-                Task { await store.resumeAll() }
+                route(.resumeAll)
             }
 
             bulkActionButton(
@@ -137,7 +209,7 @@ struct DownloadCenterView: View {
                 role: .destructive,
                 isDisabled: !store.jobs.contains(where: { $0.status == .queued || $0.status.isActive })
             ) {
-                showsBulkCancelConfirmation = true
+                route(.cancelActiveAndWaiting)
             }
 
             Spacer(minLength: 0)
@@ -147,10 +219,39 @@ struct DownloadCenterView: View {
                 systemImage: "trash",
                 isDisabled: !store.jobs.contains(where: { $0.status == .completed })
             ) {
-                Task { await store.clearCompleted() }
+                route(.clearCompleted)
             }
         }
         .controlSize(.small)
+    }
+
+    // Bulk command routing keeps confirmation policy separate from Store execution.
+    private func route(_ action: DownloadCenterAction) {
+        if let confirmation = action.confirmation {
+            pendingConfirmation = confirmation
+            return
+        }
+        switch action {
+        case .startAll:
+            Task { await store.startAll() }
+        case .pauseAll:
+            Task { await store.pauseAll() }
+        case .resumeAll:
+            Task { await store.resumeAll() }
+        case .cancelActiveAndWaiting, .clearCompleted:
+            return
+        }
+    }
+
+    private func performConfirmed(_ confirmation: DownloadConfirmation) {
+        switch confirmation {
+        case .cancelActiveAndWaiting:
+            Task { await store.cancelActiveAndWaiting() }
+        case .clearCompleted:
+            Task { await store.clearCompleted() }
+        case .cancelMerging, .removeRecord:
+            return
+        }
     }
 
     private func bulkActionButton(
@@ -264,6 +365,9 @@ struct SettingsContentView: View {
         }
         .padding(20)
         .frame(width: 360)
+        .background(DownloadCenterAppearance.palette.windowBackground.color)
+        .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
+        .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
     }
 
     private var maximumDownloads: Binding<Int> {

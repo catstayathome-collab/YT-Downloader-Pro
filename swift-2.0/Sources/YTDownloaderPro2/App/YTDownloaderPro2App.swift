@@ -10,11 +10,13 @@ struct YTDownloaderPro2App: App {
             DownloadCenterView()
                 .environmentObject(appLifecycle.store)
                 .frame(minWidth: 760, minHeight: 540)
+                .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
 
         Settings {
             SettingsContentView()
                 .environmentObject(appLifecycle.store)
+                .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
     }
 }
@@ -42,6 +44,10 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
     init(store: DownloadStore) {
         self.store = store
         super.init()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .aqua)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
