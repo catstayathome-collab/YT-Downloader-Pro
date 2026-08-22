@@ -26,3 +26,13 @@ Windows selection is fail-closed: the top-level platform must be `windows`,
 and the chosen asset must separately declare `platform: windows` and
 `architecture: x64`, with HTTPS URLs and a lowercase SHA-256. Do not remove or
 repurpose the root `version.txt`; already-released clients still read it.
+
+Split manifests use strict ASCII SemVer 2.0 precedence: prereleases sort below
+their matching release and build metadata does not affect precedence. Legacy
+plain-text and legacy JSON version sources intentionally retain the older
+numeric-component comparison used by already-released Python clients.
+
+The macOS checker accepts at most a 192 KiB GitHub Contents envelope and a 96
+KiB decoded manifest. It also requires the final response after redirects to
+remain HTTPS on the requested API origin and path. These limits are application
+contracts; release notes must stay comfortably below them.

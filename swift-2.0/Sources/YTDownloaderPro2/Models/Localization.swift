@@ -125,6 +125,20 @@ enum L10n {
         case settingsLanguageSystem = "settings.language.system"
         case settingsLanguageTraditionalChinese = "settings.language.zhHant"
         case settingsPreferences = "settings.preferences"
+        case settingsUpdates = "settings.updates"
+        case updateAvailableMessage = "update.available.message"
+        case updateAvailableTitle = "update.available.title"
+        case updateCheck = "update.check"
+        case updateCheckAccessibility = "update.check.accessibility"
+        case updateChecking = "update.checking"
+        case updateDismiss = "update.dismiss"
+        case updateFailedMessage = "update.failed.message"
+        case updateFailedTitle = "update.failed.title"
+        case updateOpenRelease = "update.openRelease"
+        case updateUnsupportedMessage = "update.unsupported.message"
+        case updateUnsupportedTitle = "update.unsupported.title"
+        case updateUpToDateMessage = "update.upToDate.message"
+        case updateUpToDateTitle = "update.upToDate.title"
     }
 
     static func string(_ key: Key, locale: Locale, _ arguments: CVarArg...) -> String {

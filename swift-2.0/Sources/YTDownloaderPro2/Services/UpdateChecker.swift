@@ -167,6 +167,10 @@ struct SemanticVersion: Comparable, Sendable {
 }
 
 struct UpdateChecker: UpdateChecking, Sendable {
+    /// Bounds the GitHub Contents envelope before JSON or base64 decoding.
+    static let maximumResponseBytes = 192 * 1_024
+    /// Bounds the decoded platform manifest, including release notes.
+    static let maximumDecodedManifestBytes = 96 * 1_024
     static let publicManifestURL = URL(
         string: "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/updates/macos.json?ref=main"
     )!
@@ -194,7 +198,7 @@ struct UpdateChecker: UpdateChecking, Sendable {
     }
 
     static func live(bundle: Bundle = .main, session: any UpdateSession = URLSession.shared) -> UpdateChecker {
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let operatingSystem = ProcessInfo.processInfo.operatingSystemVersion
         return UpdateChecker(
             manifestURL: publicManifestURL,
@@ -209,6 +213,16 @@ struct UpdateChecker: UpdateChecking, Sendable {
             let request = URLRequest(url: manifestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
+                return .failed(.invalidResponse)
+            }
+            guard let finalURL = httpResponse.url,
+                  Self.isAllowedFinalResponseURL(finalURL, requestedURL: manifestURL),
+                  data.count <= Self.maximumResponseBytes else {
+                return .failed(.invalidResponse)
+            }
+            if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
+               let declaredBytes = Int(contentLength),
+               declaredBytes > Self.maximumResponseBytes {
                 return .failed(.invalidResponse)
             }
             guard httpResponse.statusCode == 200 else {
@@ -244,6 +258,9 @@ struct UpdateChecker: UpdateChecking, Sendable {
             .components(separatedBy: .whitespacesAndNewlines)
             .joined()
         guard let decoded = Data(base64Encoded: compactBase64) else {
+            throw UpdateCheckFailure.invalidManifest
+        }
+        guard decoded.count <= Self.maximumDecodedManifestBytes else {
             throw UpdateCheckFailure.invalidManifest
         }
         do {
@@ -291,6 +308,21 @@ struct UpdateChecker: UpdateChecking, Sendable {
             && components.host?.isEmpty == false
             && components.user == nil
             && components.password == nil
+    }
+
+    private static func isAllowedFinalResponseURL(_ finalURL: URL, requestedURL: URL) -> Bool {
+        guard isSecureHTTPSURL(requestedURL), isSecureHTTPSURL(finalURL),
+              let requested = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false),
+              let final = URLComponents(url: finalURL, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return requested.host?.lowercased() == final.host?.lowercased()
+            && effectiveHTTPSPort(requested.port) == effectiveHTTPSPort(final.port)
+            && requested.path == final.path
+    }
+
+    private static func effectiveHTTPSPort(_ port: Int?) -> Int {
+        port ?? 443
     }
 
     private static func isTransient(statusCode: Int) -> Bool {

@@ -48,7 +48,11 @@ final class LocalizationTests: XCTestCase {
             "playlist.selectAll", "playlist.selectedCount",
             "settings.automaticUpdates", "settings.concurrentDownloads", "settings.defaultOptions", "settings.downloads",
             "settings.language", "settings.language.en", "settings.language.ja", "settings.language.system",
-            "settings.language.zhHant", "settings.preferences"
+            "settings.language.zhHant", "settings.preferences", "settings.updates",
+            "update.available.message", "update.available.title", "update.check", "update.check.accessibility",
+            "update.checking", "update.dismiss", "update.failed.message", "update.failed.title",
+            "update.openRelease", "update.unsupported.message", "update.unsupported.title",
+            "update.upToDate.message", "update.upToDate.title"
         ]
 
         XCTAssertEqual(Set(L10n.Key.allCases.map(\.rawValue)), expected)

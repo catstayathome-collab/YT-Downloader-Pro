@@ -103,6 +103,40 @@ class UpdateHelpersTests(unittest.TestCase):
         self.assertFalse(is_newer_version("1.8.7", "1.8.7"))
         self.assertFalse(is_newer_version("1.8.6", "1.8.7"))
 
+    def test_structured_manifest_uses_semver_precedence(self):
+        cases = (
+            ("1.8.9-rc.1", "1.8.9", False),
+            ("1.8.9+build.2", "1.8.9+build.1", False),
+            ("1.8.10-alpha.1", "1.8.9", True),
+            ("1.8.9-rc.2", "1.8.9-rc.1", True),
+        )
+
+        for latest, current, expected in cases:
+            with self.subTest(latest=latest, current=current):
+                selected = parse_platform_update_manifest(
+                    json.dumps(self.windows_manifest(latest_version=latest)),
+                    "windows",
+                )
+                self.assertIsNotNone(selected)
+                self.assertEqual(selected.is_newer_than(current), expected)
+
+    def test_legacy_sources_keep_numeric_comparison_semantics(self):
+        selected = parse_platform_update_manifest("v1.8.9-rc.1\n", "windows")
+
+        self.assertIsNotNone(selected)
+        self.assertTrue(selected.is_legacy)
+        self.assertTrue(selected.is_newer_than("1.8.9"))
+
+    def test_structured_manifest_rejects_unicode_digits_in_semver(self):
+        for version in ("1\u0661.0.0", "1.0.0-rc.\u0661"):
+            with self.subTest(version=version):
+                self.assertIsNone(
+                    parse_platform_update_manifest(
+                        json.dumps(self.windows_manifest(latest_version=version)),
+                        "windows",
+                    )
+                )
+
     def test_update_context_keeps_hostname_and_certificate_verification(self):
         context = make_update_ssl_context()
 
@@ -233,11 +267,11 @@ class UpdateHelpersTests(unittest.TestCase):
             "sha256": "0" * 64,
         }
 
-    def windows_manifest(self, assets=None):
+    def windows_manifest(self, assets=None, latest_version="1.8.9"):
         return {
             "schema_version": 1,
             "platform": "windows",
-            "latest_version": "1.8.9",
+            "latest_version": latest_version,
             "release_url": "https://example.invalid/releases/windows-example",
             "published_at": "2026-08-18T00:00:00Z",
             "release_notes": "Example manifest only; not a release.",

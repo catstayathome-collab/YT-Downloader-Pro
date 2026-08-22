@@ -285,6 +285,9 @@ struct DownloadCenterView: View {
                 secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
             )
         }
+        .alert(item: automaticUpdateNotice) { notice in
+            UpdateAlertFactory.make(notice: notice, locale: locale)
+        }
         .onChange(of: store.analysisState) { state in
             switch state {
             case let .video(analysis):
@@ -308,6 +311,16 @@ struct DownloadCenterView: View {
             .frame(width: 0, height: 0)
         }
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
+    }
+
+    private var automaticUpdateNotice: Binding<UpdateNotice?> {
+        Binding(
+            get: { store.automaticUpdateNotice },
+            set: { notice in
+                guard notice == nil, let id = store.automaticUpdateNotice?.id else { return }
+                store.dismissAutomaticUpdateNotice(id: id)
+            }
+        )
     }
 
     private var sidebar: some View {

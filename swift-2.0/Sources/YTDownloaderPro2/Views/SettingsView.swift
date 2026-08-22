@@ -29,7 +29,22 @@ struct SettingsView: View {
                     Text(L10n.string(.settingsLanguageEnglish, locale: locale)).tag(Optional("en"))
                     Text(L10n.string(.settingsLanguageJapanese, locale: locale)).tag(Optional("ja"))
                 }
+            }
+
+            Section(L10n.string(.settingsUpdates, locale: locale)) {
                 Toggle(L10n.string(.settingsAutomaticUpdates, locale: locale), isOn: automaticUpdateChecks)
+                Button {
+                    Task { await store.checkForUpdates(manual: true) }
+                } label: {
+                    Label(
+                        store.isCheckingForUpdatesManually
+                            ? UpdateControlPresentation.checkingTitle(locale: locale)
+                            : UpdateControlPresentation.checkTitle(locale: locale),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .disabled(store.isCheckingForUpdatesManually)
+                .accessibilityLabel(UpdateControlPresentation.accessibilityLabel(locale: locale))
             }
         }
         .formStyle(.grouped)
@@ -38,6 +53,9 @@ struct SettingsView: View {
         .background(DownloadCenterAppearance.palette.windowBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
+        .alert(item: manualUpdateNotice) { notice in
+            UpdateAlertFactory.make(notice: notice, locale: locale)
+        }
     }
 
     private var maximumDownloads: Binding<Int> {
@@ -65,6 +83,16 @@ struct SettingsView: View {
         Binding(
             get: { store.settings.automaticallyCheckForUpdates },
             set: { value in updateSettings { $0.automaticallyCheckForUpdates = value } }
+        )
+    }
+
+    private var manualUpdateNotice: Binding<UpdateNotice?> {
+        Binding(
+            get: { store.manualUpdateNotice },
+            set: { notice in
+                guard notice == nil, let id = store.manualUpdateNotice?.id else { return }
+                store.dismissManualUpdateNotice(id: id)
+            }
         )
     }
 

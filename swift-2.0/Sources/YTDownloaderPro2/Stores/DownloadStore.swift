@@ -33,6 +33,9 @@ final class DownloadStore: ObservableObject {
     @Published var sidebarSection: DownloadStatus.SidebarSection
     @Published private(set) var analysisState: AnalysisState
     @Published private(set) var updateResult: UpdateResult?
+    @Published private(set) var automaticUpdateNotice: UpdateNotice?
+    @Published private(set) var manualUpdateNotice: UpdateNotice?
+    @Published private(set) var isCheckingForUpdatesManually = false
     @Published var settings: AppSettings {
         didSet {
             guard !isPreparingToQuit else { return }
@@ -58,6 +61,11 @@ final class DownloadStore: ObservableObject {
         let task: Task<Void, Never>
     }
 
+    private struct UpdateOperation {
+        let generation: UInt64
+        let task: Task<UpdateResult, Never>
+    }
+
     private let coordinator: DownloadCoordinator
     private let persistence: PersistenceController
     private let thumbnailCache: ThumbnailCache
@@ -79,6 +87,8 @@ final class DownloadStore: ObservableObject {
     private var retryOperations: [UUID: [UInt64: RetryOperation]] = [:]
     private var currentThumbnailGeneration: [UUID: UInt64] = [:]
     private var thumbnailOperations: [UUID: [UInt64: ThumbnailOperation]] = [:]
+    private var updateGeneration: UInt64 = 0
+    private var updateOperation: UpdateOperation?
 
     init(
         jobs: [DownloadJob] = [],
@@ -126,19 +136,68 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    /// Automatic transient failures remain invisible; every manual result is published for presentation.
+    /// Automatic triggers share one flight; manual work supersedes any older result generation.
     func checkForUpdates(manual: Bool) async {
         guard manual || settings.automaticallyCheckForUpdates else { return }
-        let result = await updateChecker.check(manual: manual)
-        if !manual, result == .failed(.silentTransient) {
+
+        if !manual, let operation = updateOperation {
+            _ = await operation.task.value
             return
         }
+
+        updateGeneration &+= 1
+        let generation = updateGeneration
+        if manual {
+            updateOperation?.task.cancel()
+            isCheckingForUpdatesManually = true
+        }
+        let task = Task<UpdateResult, Never> { [updateChecker] in
+            await updateChecker.check(manual: manual)
+        }
+        updateOperation = UpdateOperation(generation: generation, task: task)
+
+        let result = await task.value
+        guard generation == updateGeneration else { return }
+        updateOperation = nil
+        if manual {
+            isCheckingForUpdatesManually = false
+        }
+
+        if !manual {
+            switch result {
+            case .available, .unsupportedOS:
+                break
+            case .upToDate, .failed:
+                return
+            }
+        }
         updateResult = result
+        let notice = UpdateNotice(
+            id: generation,
+            result: result,
+            origin: manual ? .manual : .automatic
+        )
+        if manual {
+            manualUpdateNotice = notice
+        } else {
+            automaticUpdateNotice = notice
+        }
+    }
+
+    func dismissAutomaticUpdateNotice(id: UInt64) {
+        guard automaticUpdateNotice?.id == id else { return }
+        automaticUpdateNotice = nil
+    }
+
+    func dismissManualUpdateNotice(id: UInt64) {
+        guard manualUpdateNotice?.id == id else { return }
+        manualUpdateNotice = nil
     }
 
     deinit {
         eventConsumptionTask?.cancel()
         analysisTask?.cancel()
+        updateOperation?.task.cancel()
         let retries = retryOperations.values.flatMap(\.values).map(\.task)
         let thumbnails = thumbnailOperations.values.flatMap(\.values).map(\.task)
         retries.forEach { $0.cancel() }

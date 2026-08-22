@@ -12,9 +12,9 @@ import certifi
 
 
 _SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
-    r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 _LOWERCASE_SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -28,6 +28,12 @@ class UpdateManifestSelection:
     release_url: str | None
     download_url: str | None
     is_legacy: bool = False
+
+    def is_newer_than(self, current_version):
+        """Use SemVer for split manifests and historical numeric rules for legacy inputs."""
+        if self.is_legacy:
+            return is_newer_version(self.latest_version, current_version)
+        return is_newer_semantic_version(self.latest_version, current_version)
 
 
 def make_update_ssl_context():
@@ -170,6 +176,51 @@ def is_newer_version(latest, current):
     """Compare version components with the existing numeric release semantics."""
     parts = lambda value: [int(item) for item in re.findall(r"\d+", value)]
     return parts(latest) > parts(current)
+
+
+def is_newer_semantic_version(latest, current):
+    """Compare strict ASCII SemVer values, excluding build metadata from precedence."""
+    latest_parts = _semantic_version_parts(latest)
+    current_parts = _semantic_version_parts(current)
+    if latest_parts is None or current_parts is None:
+        return False
+
+    latest_core, latest_prerelease = latest_parts
+    current_core, current_prerelease = current_parts
+    if latest_core != current_core:
+        return latest_core > current_core
+    return _compare_prerelease(latest_prerelease, current_prerelease) > 0
+
+
+def _semantic_version_parts(value):
+    value = str(value)
+    if not _SEMVER.fullmatch(value):
+        return None
+    precedence = value.split("+", 1)[0]
+    core, separator, prerelease = precedence.partition("-")
+    core_parts = tuple(int(part) for part in core.split("."))
+    identifiers = tuple(prerelease.split(".")) if separator else None
+    return core_parts, identifiers
+
+
+def _compare_prerelease(latest, current):
+    if latest is None:
+        return 0 if current is None else 1
+    if current is None:
+        return -1
+    for latest_identifier, current_identifier in zip(latest, current):
+        if latest_identifier == current_identifier:
+            continue
+        latest_numeric = latest_identifier.isascii() and latest_identifier.isdigit()
+        current_numeric = current_identifier.isascii() and current_identifier.isdigit()
+        if latest_numeric and current_numeric:
+            return 1 if int(latest_identifier) > int(current_identifier) else -1
+        if latest_numeric != current_numeric:
+            return -1 if latest_numeric else 1
+        return 1 if latest_identifier > current_identifier else -1
+    if len(latest) == len(current):
+        return 0
+    return 1 if len(latest) > len(current) else -1
 
 
 def _asset_name(asset):

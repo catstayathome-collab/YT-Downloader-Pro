@@ -55,11 +55,9 @@
 - Required Python suites:
   `python3 -m unittest tests.test_updater tests.test_version_sources -v` passed
   33 tests.
-- Relevant Python regression set excluding the unavailable YAML-dependent module
-  passed 180 tests:
-  `tests.test_core`, `test_downloader`, `test_entrypoints`, `test_platforms`,
-  `test_selftest`, `test_settings`, `test_toolchain`, `test_updater`,
-  `test_version_sources`, `test_windows_build_scripts`, and `test_windows_docs`.
+- Complete Python discovery passed 186 tests with the existing
+  `.worktrees/codex-release-1.8.7/.venv-1.8.7/bin/python`, which contains the
+  pinned `PyYAML==6.0.3`. No installation or network access was required.
 - `python3 -m json.tool` accepted both manifests.
 - `python3 -m py_compile` accepted the changed Python implementation and generator.
 - `git diff --check` passed.
@@ -78,11 +76,64 @@
 
 ## Residual Risks
 
-- `tests.test_windows_workflow` could not load because the existing local test
-  environments do not contain pinned `PyYAML==6.0.3`. Installing it would require
-  prohibited network access. The other 180 Python tests passed, including all
-  update, entrypoint, Windows build, and documentation tests that can run locally.
 - No live GitHub response or public package checksum was tested by design. Release
   values and live Contents API behavior remain Task 15/release-gate work.
 - Windows x64 selection is unit-tested on macOS; an actual packaged Windows update
   remains subject to the Windows acceptance workflow.
+
+## Fix Round 1
+
+### Resolved Findings
+
+1. Added a localized Settings **Check for Updates** button and user-visible
+   presentations for available, unsupported, up-to-date, and actionable failure
+   results in English, Japanese, and Traditional Chinese. Automatic checks publish
+   only available or unsupported notices. Release opening revalidates
+   credential-free HTTPS before calling `NSWorkspace`.
+2. Removed the production `2.0.0` bundle-version fallback. Missing or malformed
+   `CFBundleShortVersionString` now reaches strict parsing and fails closed.
+3. Added a MainActor-owned update generation and single-flight task. Duplicate
+   automatic triggers coalesce; a manual request cancels and supersedes older work,
+   and non-cooperative stale completions cannot overwrite the manual result.
+4. Structured Windows selections now use strict SemVer precedence, including
+   prerelease ordering and build-metadata equality. Legacy sources retain their
+   historical numeric-component comparison.
+5. Replaced Unicode-aware `\d` tokens in the Python structured parser and macOS
+   generator with ASCII `[0-9]`, with Unicode-digit fixtures in Swift and Python.
+6. The Swift checker validates the final response URL after redirects against
+   HTTPS plus the requested API origin and path. It rejects Contents envelopes
+   above 192 KiB and decoded manifests above 96 KiB before decoding further.
+7. Corrected the Python environment record above and used the existing pinned
+   venv for complete discovery without installation or network access.
+
+### TDD Evidence
+
+- Swift service/Store RED introduced missing bundle metadata, final redirect URL,
+  oversized data, automatic visibility, duplicate-flight, and stale-completion
+  cases before implementation. The focused GREEN suite passed afterward.
+- Swift presentation RED failed on the absent notice model, localized keys,
+  accessibility labels, and safe release command. The UI/localization GREEN suite
+  passed after the production Settings and main-window paths were wired.
+- Python RED showed structured prerelease/build comparisons had no SemVer-aware
+  selection method, Unicode digits were accepted, and the app still called the
+  legacy comparator. All focused cases passed after the compatibility split.
+
+### Verification
+
+- Focused strict Swift service/UI/Store/localization suite: 88 tests passed.
+- Full strict Swift suite: 268 tests passed with zero failures.
+- macOS 13 arm64 strict build passed with warnings treated as errors.
+- Focused Python updater/version-source suites: 37 tests passed.
+- Complete Python discovery using the existing `PyYAML 6.0.3` venv: 190 tests
+  passed, comprising the prior 186 tests plus four new SemVer/Unicode tests.
+- Both manifests and `Localizable.xcstrings` passed `python3 -m json.tool`.
+- Changed Python sources and tests passed `python3 -m py_compile`.
+- Regenerating the checked-in macOS placeholder produced byte-identical output.
+- `git diff --check` passed. No network request or package installation occurred.
+
+### Compatibility And Residual Risk
+
+- Root `version.txt`, legacy plain/JSON parsing, release-asset fallback, TLS
+  verification, and exact Windows x64 isolation remain intact.
+- No live GitHub response, public checksum, signed bundle, released tag, or
+  packaged Windows updater was exercised; those remain release-gate work.

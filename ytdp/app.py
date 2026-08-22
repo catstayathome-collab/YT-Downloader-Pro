@@ -396,7 +396,7 @@ class YTDownloaderApp:
                 if not selection:
                     raise ValueError("missing latest version")
                 latest = selection.latest_version
-                if self.is_newer_version(latest, self.version):
+                if selection.is_newer_than(self.version):
                     download_url = selection.download_url or UPDATE_DOWNLOAD_URL
                     if platform_name in {"windows", "win32"} and not selection.download_url:
                         with urllib.request.urlopen(

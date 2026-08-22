@@ -36,6 +36,7 @@ class VersionSourceLayoutTests(unittest.TestCase):
             app.DEFAULT_UPDATE_MANIFEST_URL,
             "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/updates/windows.json?ref=main",
         )
+        self.assertIn("selection.is_newer_than(self.version)", Path(app.__file__).read_text(encoding="utf-8"))
 
     def test_split_manifests_are_valid_platform_specific_placeholders(self):
         macos = json.loads((ROOT / "updates" / "macos.json").read_text(encoding="utf-8"))
@@ -82,6 +83,33 @@ class VersionSourceLayoutTests(unittest.TestCase):
             self.assertEqual(generated["platform"], "macos")
             self.assertEqual(generated["minimum_macos"], "13.0.0")
             self.assertTrue(first.read_bytes().endswith(b"\n"))
+
+    def test_macos_manifest_generator_rejects_unicode_semver_digits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for flag, value in (
+                ("--version", "1\u0661.0.0"),
+                ("--minimum-macos", "13.\u0661.0"),
+            ):
+                arguments = [
+                    "--version", "2.0.0",
+                    "--minimum-macos", "13.0.0",
+                    "--release-url", "https://example.invalid/releases/macos-example",
+                    "--download-url", "https://example.invalid/macos-example.zip",
+                    "--sha256", "1" * 64,
+                    "--published-at", "2026-08-18T00:00:00Z",
+                    "--release-notes", "Example only; not a release.",
+                    "--output", str(Path(directory) / "manifest.json"),
+                ]
+                arguments[arguments.index(flag) + 1] = value
+
+                completed = subprocess.run(
+                    ["python3", str(ROOT / "scripts" / "create_macos_manifest.py"), *arguments],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertNotEqual(completed.returncode, 0, f"{flag} accepted {value}")
 
     def test_versioned_entrypoints_are_grouped_outside_the_repository_root(self):
         for version, filenames in VERSIONED_ENTRYPOINTS.items():

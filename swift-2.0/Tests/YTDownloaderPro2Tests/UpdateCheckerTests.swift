@@ -50,7 +50,7 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testSemanticVersionRejectsMalformedOrLeadingZeroVersions() async throws {
-        for version in ["2", "2.0", "02.0.0", "2.00.0", "2.0.01", "2.0.0-01", "2.0.0+"] {
+        for version in ["2", "2.0", "02.0.0", "2.00.0", "2.0.01", "2.0.0-01", "2.0.0+", "2١.0.0"] {
             let checker = try makeChecker(latestVersion: version)
 
             let result = await checker.check(manual: true)
@@ -150,13 +150,82 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(result, .failed(.actionableNetwork))
     }
 
+    func testLiveCheckerFailsClosedWhenBundleVersionIsMissing() async throws {
+        let bundle = Bundle(for: UpdateCheckerTests.self)
+        XCTAssertNil(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString"))
+        let data = try contentsData(for: validManifest())
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: UpdateChecker.publicManifestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        ))
+        let checker = UpdateChecker.live(
+            bundle: bundle,
+            session: StubUpdateSession(data: data, response: response)
+        )
+
+        let result = await checker.check(manual: true)
+        XCTAssertEqual(result, .failed(.invalidVersion))
+    }
+
+    func testFinalResponseURLMustRemainHTTPSOnRequestedOriginAndPath() async throws {
+        let rejectedURLs = [
+            "http://api.github.com/repos/example/YT-Downloader-Pro/contents/updates/macos.json",
+            "https://downloads.example.invalid/repos/example/YT-Downloader-Pro/contents/updates/macos.json",
+            "https://api.github.com/repos/example/YT-Downloader-Pro/contents/updates/windows.json"
+        ]
+
+        for source in rejectedURLs {
+            let checker = try makeChecker(responseURL: try XCTUnwrap(URL(string: source)))
+            let result = await checker.check(manual: true)
+            XCTAssertEqual(
+                result,
+                .failed(.invalidResponse),
+                "final URL: \(source)"
+            )
+        }
+    }
+
+    func testContentsResponseAndDecodedManifestHaveSmallBounds() async throws {
+        XCTAssertLessThanOrEqual(UpdateChecker.maximumResponseBytes, 256 * 1_024)
+        XCTAssertLessThan(UpdateChecker.maximumDecodedManifestBytes, UpdateChecker.maximumResponseBytes)
+
+        let oversizedResponse = Data(repeating: 0x20, count: UpdateChecker.maximumResponseBytes + 1)
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: manifestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        ))
+        let responseChecker = UpdateChecker(
+            manifestURL: manifestURL,
+            currentVersion: "2.0.0",
+            currentMacOSVersion: "13.6.0",
+            session: StubUpdateSession(data: oversizedResponse, response: response)
+        )
+
+        var manifest = validManifest()
+        manifest["release_notes"] = String(
+            repeating: "x",
+            count: UpdateChecker.maximumDecodedManifestBytes
+        )
+        let decodedChecker = try makeChecker(manifest: manifest)
+
+        let responseResult = await responseChecker.check(manual: true)
+        let decodedResult = await decodedChecker.check(manual: true)
+        XCTAssertEqual(responseResult, .failed(.invalidResponse))
+        XCTAssertEqual(decodedResult, .failed(.invalidManifest))
+    }
+
     private func makeChecker(
         currentVersion: String = "2.0.0",
         currentMacOSVersion: String = "13.6.0",
         latestVersion: String = "2.0.1",
         platform: String = "macos",
         minimumMacOS: String = "13.0.0",
-        statusCode: Int = 200
+        statusCode: Int = 200,
+        responseURL: URL? = nil
     ) throws -> UpdateChecker {
         var manifest = validManifest()
         manifest["latest_version"] = latestVersion
@@ -166,7 +235,8 @@ final class UpdateCheckerTests: XCTestCase {
             currentVersion: currentVersion,
             currentMacOSVersion: currentMacOSVersion,
             manifest: manifest,
-            statusCode: statusCode
+            statusCode: statusCode,
+            responseURL: responseURL
         )
     }
 
@@ -174,13 +244,15 @@ final class UpdateCheckerTests: XCTestCase {
         currentVersion: String = "2.0.0",
         currentMacOSVersion: String = "13.6.0",
         manifest: [String: Any],
-        statusCode: Int = 200
+        statusCode: Int = 200,
+        responseURL: URL? = nil
     ) throws -> UpdateChecker {
         try makeChecker(
             currentVersion: currentVersion,
             currentMacOSVersion: currentMacOSVersion,
             manifestData: JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
-            statusCode: statusCode
+            statusCode: statusCode,
+            responseURL: responseURL
         )
     }
 
@@ -188,7 +260,8 @@ final class UpdateCheckerTests: XCTestCase {
         currentVersion: String = "2.0.0",
         currentMacOSVersion: String = "13.6.0",
         manifestData: Data,
-        statusCode: Int = 200
+        statusCode: Int = 200,
+        responseURL: URL? = nil
     ) throws -> UpdateChecker {
         let envelope: [String: Any] = [
             "encoding": "base64",
@@ -198,7 +271,8 @@ final class UpdateCheckerTests: XCTestCase {
             currentVersion: currentVersion,
             currentMacOSVersion: currentMacOSVersion,
             contentsEnvelope: envelope,
-            statusCode: statusCode
+            statusCode: statusCode,
+            responseURL: responseURL
         )
     }
 
@@ -206,11 +280,12 @@ final class UpdateCheckerTests: XCTestCase {
         currentVersion: String = "2.0.0",
         currentMacOSVersion: String = "13.6.0",
         contentsEnvelope: [String: Any],
-        statusCode: Int = 200
+        statusCode: Int = 200,
+        responseURL: URL? = nil
     ) throws -> UpdateChecker {
         let data = try JSONSerialization.data(withJSONObject: contentsEnvelope, options: [.sortedKeys])
         let response = try XCTUnwrap(HTTPURLResponse(
-            url: manifestURL,
+            url: responseURL ?? manifestURL,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"]
@@ -220,6 +295,17 @@ final class UpdateCheckerTests: XCTestCase {
             currentVersion: currentVersion,
             currentMacOSVersion: currentMacOSVersion,
             session: StubUpdateSession(data: data, response: response)
+        )
+    }
+
+    private func contentsData(for manifest: [String: Any]) throws -> Data {
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+        return try JSONSerialization.data(
+            withJSONObject: [
+                "encoding": "base64",
+                "content": manifestData.base64EncodedString()
+            ],
+            options: [.sortedKeys]
         )
     }
 

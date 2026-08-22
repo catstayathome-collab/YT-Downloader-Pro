@@ -25,7 +25,93 @@ final class DownloadStoreTests: XCTestCase {
 
         let calls = await updater.manualArguments()
         XCTAssertEqual(fixture.store.updateResult, .failed(.actionableNetwork))
+        XCTAssertEqual(
+            fixture.store.manualUpdateNotice?.result,
+            .failed(.actionableNetwork)
+        )
+        XCTAssertNil(fixture.store.automaticUpdateNotice)
         XCTAssertEqual(calls, [true])
+    }
+
+    func testAutomaticCheckPublishesOnlyAvailableOrUnsupportedResults() async throws {
+        let hiddenResults: [UpdateResult] = [
+            .upToDate,
+            .failed(.silentTransient),
+            .failed(.actionableNetwork),
+            .failed(.invalidManifest)
+        ]
+
+        for result in hiddenResults {
+            let updater = StoreUpdateChecker(result: result)
+            let fixture = try StoreFixture(updateChecker: updater)
+            await fixture.store.checkForUpdates(manual: false)
+            XCTAssertNil(fixture.store.updateResult, "automatic result: \(result)")
+            XCTAssertNil(fixture.store.automaticUpdateNotice)
+            fixture.cleanUp()
+        }
+
+        for result in [UpdateResult.available(.fixture()), .unsupportedOS(.fixture())] {
+            let updater = StoreUpdateChecker(result: result)
+            let fixture = try StoreFixture(updateChecker: updater)
+            await fixture.store.checkForUpdates(manual: false)
+            XCTAssertEqual(fixture.store.updateResult, result)
+            XCTAssertEqual(fixture.store.automaticUpdateNotice?.result, result)
+            XCTAssertNil(fixture.store.manualUpdateNotice)
+            fixture.cleanUp()
+        }
+    }
+
+    func testDuplicateAutomaticChecksShareOneRequest() async throws {
+        let updater = ControlledUpdateChecker()
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+
+        let first = Task { await fixture.store.checkForUpdates(manual: false) }
+        try await updater.waitForCallCount(1)
+        let second = Task { await fixture.store.checkForUpdates(manual: false) }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let callsBeforeResolution = await updater.manualArguments()
+        XCTAssertEqual(callsBeforeResolution, [false])
+        await updater.resolveCall(at: 0, with: .available(.fixture()))
+        await first.value
+        await second.value
+        XCTAssertEqual(fixture.store.updateResult, .available(.fixture()))
+    }
+
+    func testUpdateNoticesDismissOnlyTheirMatchingGeneration() async throws {
+        let updater = StoreUpdateChecker(result: .upToDate)
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+
+        await fixture.store.checkForUpdates(manual: true)
+        let notice = try XCTUnwrap(fixture.store.manualUpdateNotice)
+
+        fixture.store.dismissManualUpdateNotice(id: notice.id + 1)
+        XCTAssertEqual(fixture.store.manualUpdateNotice, notice)
+        fixture.store.dismissManualUpdateNotice(id: notice.id)
+        XCTAssertNil(fixture.store.manualUpdateNotice)
+    }
+
+    func testManualCheckSupersedesStaleAutomaticCompletion() async throws {
+        let updater = ControlledUpdateChecker()
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+
+        let automatic = Task { await fixture.store.checkForUpdates(manual: false) }
+        try await updater.waitForCallCount(1)
+        let manual = Task { await fixture.store.checkForUpdates(manual: true) }
+        try await updater.waitForCallCount(2)
+
+        await updater.resolveCall(at: 1, with: .failed(.actionableNetwork))
+        await manual.value
+        XCTAssertEqual(fixture.store.updateResult, .failed(.actionableNetwork))
+
+        await updater.resolveCall(at: 0, with: .upToDate)
+        await automatic.value
+        XCTAssertEqual(fixture.store.updateResult, .failed(.actionableNetwork))
+        let calls = await updater.manualArguments()
+        XCTAssertEqual(calls, [false, true])
     }
 
     func testDisabledAutomaticUpdateCheckDoesNotCallService() async throws {
@@ -990,6 +1076,22 @@ private enum BookmarkFixtureError: Error {
     case unexpectedURL
 }
 
+private extension MacOSUpdateManifest {
+    static func fixture() -> MacOSUpdateManifest {
+        MacOSUpdateManifest(
+            schemaVersion: 1,
+            platform: "macos",
+            latestVersion: "2.0.1",
+            minimumMacOS: "13.0.0",
+            releaseURL: URL(string: "https://example.invalid/releases/macos-example")!,
+            downloadURL: URL(string: "https://example.invalid/macos-example.zip")!,
+            sha256: String(repeating: "0", count: 64),
+            publishedAt: "2026-08-18T00:00:00Z",
+            releaseNotes: "Example only; not a release."
+        )
+    }
+}
+
 private actor StoreUpdateChecker: UpdateChecking {
     private let result: UpdateResult
     private var calls: [Bool] = []
@@ -1013,6 +1115,38 @@ private actor StoreUpdateChecker: UpdateChecking {
         while calls.count < count {
             guard clock.now < deadline else {
                 throw StoreTestWaitError.timedOut("update checker call")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+}
+
+private actor ControlledUpdateChecker: UpdateChecking {
+    private var calls: [Bool] = []
+    private var continuations: [Int: CheckedContinuation<UpdateResult, Never>] = [:]
+
+    func check(manual: Bool) async -> UpdateResult {
+        let index = calls.count
+        calls.append(manual)
+        return await withCheckedContinuation { continuation in
+            continuations[index] = continuation
+        }
+    }
+
+    func manualArguments() -> [Bool] {
+        calls
+    }
+
+    func resolveCall(at index: Int, with result: UpdateResult) {
+        continuations.removeValue(forKey: index)?.resume(returning: result)
+    }
+
+    func waitForCallCount(_ count: Int) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while calls.count < count {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("controlled update checker call")
             }
             try await Task.sleep(for: .milliseconds(2))
         }
