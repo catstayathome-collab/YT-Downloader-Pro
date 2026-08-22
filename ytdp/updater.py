@@ -187,8 +187,9 @@ def is_newer_semantic_version(latest, current):
 
     latest_core, latest_prerelease = latest_parts
     current_core, current_prerelease = current_parts
-    if latest_core != current_core:
-        return latest_core > current_core
+    core_precedence = _compare_numeric_sequences(latest_core, current_core)
+    if core_precedence != 0:
+        return core_precedence > 0
     return _compare_prerelease(latest_prerelease, current_prerelease) > 0
 
 
@@ -198,9 +199,31 @@ def _semantic_version_parts(value):
         return None
     precedence = value.split("+", 1)[0]
     core, separator, prerelease = precedence.partition("-")
-    core_parts = tuple(int(part) for part in core.split("."))
+    core_parts = tuple(core.split("."))
     identifiers = tuple(prerelease.split(".")) if separator else None
     return core_parts, identifiers
+
+
+def _compare_numeric_sequences(latest, current):
+    for latest_identifier, current_identifier in zip(latest, current):
+        precedence = _compare_numeric_identifiers(
+            latest_identifier, current_identifier
+        )
+        if precedence != 0:
+            return precedence
+    if len(latest) == len(current):
+        return 0
+    return 1 if len(latest) > len(current) else -1
+
+
+def _compare_numeric_identifiers(latest, current):
+    latest = latest.lstrip("0") or "0"
+    current = current.lstrip("0") or "0"
+    if len(latest) != len(current):
+        return 1 if len(latest) > len(current) else -1
+    if latest == current:
+        return 0
+    return 1 if latest > current else -1
 
 
 def _compare_prerelease(latest, current):
@@ -214,7 +237,9 @@ def _compare_prerelease(latest, current):
         latest_numeric = latest_identifier.isascii() and latest_identifier.isdigit()
         current_numeric = current_identifier.isascii() and current_identifier.isdigit()
         if latest_numeric and current_numeric:
-            return 1 if int(latest_identifier) > int(current_identifier) else -1
+            return _compare_numeric_identifiers(
+                latest_identifier, current_identifier
+            )
         if latest_numeric != current_numeric:
             return -1 if latest_numeric else 1
         return 1 if latest_identifier > current_identifier else -1

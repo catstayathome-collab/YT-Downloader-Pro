@@ -48,11 +48,263 @@ enum UpdateResult: Equatable, Sendable {
     }
 }
 
-protocol UpdateSession: Sendable {
-    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+protocol UpdateResponseBody: Sendable {
+    func nextChunk() async throws -> Data?
+    func cancel()
 }
 
-extension URLSession: UpdateSession {}
+struct UpdateSessionResponse: @unchecked Sendable {
+    let response: HTTPURLResponse
+    let body: any UpdateResponseBody
+}
+
+protocol UpdateSession: Sendable {
+    func response(for request: URLRequest, maximumBytes: Int) async throws -> UpdateSessionResponse
+}
+
+enum UpdateTransportError: Error {
+    case invalidResponse
+    case responseTooLarge
+}
+
+/// A macOS 13-compatible streaming transport that cancels before retaining more than the byte limit.
+struct URLSessionUpdateSession: UpdateSession, @unchecked Sendable {
+    private let configuration: URLSessionConfiguration
+
+    init(configuration: URLSessionConfiguration = .ephemeral) {
+        self.configuration = configuration
+    }
+
+    func response(for request: URLRequest, maximumBytes: Int) async throws -> UpdateSessionResponse {
+        let transfer = URLSessionUpdateTransfer(configuration: configuration, maximumBytes: maximumBytes)
+        return try await transfer.start(request)
+    }
+}
+
+private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private let configuration: URLSessionConfiguration
+    private let maximumBytes: Int
+    private var receivedBytes = 0
+    private var responseContinuation: CheckedContinuation<UpdateSessionResponse, Error>?
+    private var responseResolved = false
+    private var task: URLSessionDataTask?
+    private var session: URLSession?
+    private var requestedURL: URL?
+    private lazy var body = StreamingUpdateResponseBody { [weak self] in
+        self?.cancel()
+    }
+
+    init(configuration: URLSessionConfiguration, maximumBytes: Int) {
+        self.configuration = configuration
+        self.maximumBytes = maximumBytes
+    }
+
+    func start(_ request: URLRequest) async throws -> UpdateSessionResponse {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+                let task = session.dataTask(with: request)
+                let shouldStart = lock.withLock { () -> Bool in
+                    guard !responseResolved else { return false }
+                    self.responseContinuation = continuation
+                    self.session = session
+                    self.task = task
+                    self.requestedURL = request.url
+                    return true
+                }
+                guard shouldStart else {
+                    continuation.resume(throwing: CancellationError())
+                    session.invalidateAndCancel()
+                    return
+                }
+                task.resume()
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        let state = lock.withLock { () -> (URLSessionDataTask?, URLSession?, CheckedContinuation<UpdateSessionResponse, Error>?) in
+            let continuation = responseResolved ? nil : responseContinuation
+            responseContinuation = nil
+            responseResolved = true
+            return (task, session, continuation)
+        }
+        state.2?.resume(throwing: CancellationError())
+        state.0?.cancel()
+        state.1?.invalidateAndCancel()
+        body.finish(throwing: CancellationError())
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            resolveResponse(throwing: UpdateTransportError.invalidResponse)
+            completionHandler(.cancel)
+            return
+        }
+        let originalURL = lock.withLock { requestedURL }
+        guard let originalURL,
+              let finalURL = httpResponse.url,
+              UpdateChecker.isAllowedFinalResponseURL(finalURL, requestedURL: originalURL) else {
+            resolveResponse(throwing: UpdateTransportError.invalidResponse)
+            completionHandler(.cancel)
+            return
+        }
+        if httpResponse.expectedContentLength > Int64(maximumBytes) {
+            resolveResponse(throwing: UpdateTransportError.responseTooLarge)
+            completionHandler(.cancel)
+            return
+        }
+
+        resolveResponse(with: UpdateSessionResponse(response: httpResponse, body: body))
+        guard httpResponse.statusCode == 200 else {
+            body.finish()
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let exceedsLimit = lock.withLock { () -> Bool in
+            guard data.count <= maximumBytes - receivedBytes else { return true }
+            receivedBytes += data.count
+            return false
+        }
+        guard !exceedsLimit else {
+            body.finish(throwing: UpdateTransportError.responseTooLarge)
+            dataTask.cancel()
+            session.invalidateAndCancel()
+            return
+        }
+        body.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            resolveResponse(throwing: error)
+            body.finish(throwing: error)
+        } else {
+            body.finish()
+        }
+        session.finishTasksAndInvalidate()
+    }
+
+    private func resolveResponse(with response: UpdateSessionResponse) {
+        let continuation = lock.withLock { () -> CheckedContinuation<UpdateSessionResponse, Error>? in
+            guard !responseResolved else { return nil }
+            responseResolved = true
+            defer { responseContinuation = nil }
+            return responseContinuation
+        }
+        continuation?.resume(returning: response)
+    }
+
+    private func resolveResponse(throwing error: Error) {
+        let continuation = lock.withLock { () -> CheckedContinuation<UpdateSessionResponse, Error>? in
+            guard !responseResolved else { return nil }
+            responseResolved = true
+            defer { responseContinuation = nil }
+            return responseContinuation
+        }
+        continuation?.resume(throwing: error)
+    }
+}
+
+private final class StreamingUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+    private let lock = NSLock()
+    private let cancellationHandler: @Sendable () -> Void
+    private var chunks: [Data] = []
+    private var continuation: CheckedContinuation<Data?, Error>?
+    private var completion: Result<Void, Error>?
+
+    init(cancellationHandler: @escaping @Sendable () -> Void) {
+        self.cancellationHandler = cancellationHandler
+    }
+
+    func nextChunk() async throws -> Data? {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let action = lock.withLock { () -> BodyAction in
+                    if !chunks.isEmpty {
+                        return .chunk(chunks.removeFirst())
+                    }
+                    if let completion {
+                        switch completion {
+                        case .success:
+                            return .finished
+                        case let .failure(error):
+                            return .failure(error)
+                        }
+                    }
+                    self.continuation = continuation
+                    return .wait
+                }
+                action.resume(continuation)
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        cancellationHandler()
+    }
+
+    func yield(_ data: Data) {
+        let waiter = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
+            guard completion == nil else { return nil }
+            guard let continuation else {
+                chunks.append(data)
+                return nil
+            }
+            self.continuation = nil
+            return continuation
+        }
+        waiter?.resume(returning: data)
+    }
+
+    func finish(throwing error: Error? = nil) {
+        let waiter = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
+            guard completion == nil else { return nil }
+            completion = error.map(Result.failure) ?? .success(())
+            defer { continuation = nil }
+            return continuation
+        }
+        if let error {
+            waiter?.resume(throwing: error)
+        } else {
+            waiter?.resume(returning: nil)
+        }
+    }
+
+    private enum BodyAction {
+        case wait
+        case chunk(Data)
+        case finished
+        case failure(Error)
+
+        func resume(_ continuation: CheckedContinuation<Data?, Error>) {
+            switch self {
+            case .wait:
+                break
+            case let .chunk(data):
+                continuation.resume(returning: data)
+            case .finished:
+                continuation.resume(returning: nil)
+            case let .failure(error):
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
 
 protocol UpdateChecking: Sendable {
     func check(manual: Bool) async -> UpdateResult
@@ -197,7 +449,7 @@ struct UpdateChecker: UpdateChecking, Sendable {
         self.session = session
     }
 
-    static func live(bundle: Bundle = .main, session: any UpdateSession = URLSession.shared) -> UpdateChecker {
+    static func live(bundle: Bundle = .main, session: any UpdateSession = URLSessionUpdateSession()) -> UpdateChecker {
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let operatingSystem = ProcessInfo.processInfo.operatingSystemVersion
         return UpdateChecker(
@@ -211,27 +463,38 @@ struct UpdateChecker: UpdateChecking, Sendable {
     func check(manual: Bool) async -> UpdateResult {
         do {
             let request = URLRequest(url: manifestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .failed(.invalidResponse)
-            }
+            let streamedResponse = try await session.response(
+                for: request,
+                maximumBytes: Self.maximumResponseBytes
+            )
+            let httpResponse = streamedResponse.response
             guard let finalURL = httpResponse.url,
-                  Self.isAllowedFinalResponseURL(finalURL, requestedURL: manifestURL),
-                  data.count <= Self.maximumResponseBytes else {
+                  Self.isAllowedFinalResponseURL(finalURL, requestedURL: manifestURL) else {
+                streamedResponse.body.cancel()
                 return .failed(.invalidResponse)
             }
-            if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
-               let declaredBytes = Int(contentLength),
-               declaredBytes > Self.maximumResponseBytes {
-                return .failed(.invalidResponse)
+            if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
+                guard let declaredBytes = Int(contentLength),
+                      declaredBytes >= 0,
+                      declaredBytes <= Self.maximumResponseBytes else {
+                    streamedResponse.body.cancel()
+                    return .failed(.invalidResponse)
+                }
             }
             guard httpResponse.statusCode == 200 else {
+                streamedResponse.body.cancel()
                 if Self.isTransient(statusCode: httpResponse.statusCode) {
                     return .failed(manual ? .actionableNetwork : .silentTransient)
                 }
                 return .failed(.invalidResponse)
             }
+            let data = try await Self.collect(
+                streamedResponse.body,
+                maximumBytes: Self.maximumResponseBytes
+            )
             return evaluate(try decodeManifest(from: data))
+        } catch UpdateTransportError.invalidResponse, UpdateTransportError.responseTooLarge {
+            return .failed(.invalidResponse)
         } catch let failure as UpdateCheckFailure {
             return .failed(failure)
         } catch let error as URLError {
@@ -241,6 +504,22 @@ struct UpdateChecker: UpdateChecking, Sendable {
             return .failed(.actionableNetwork)
         } catch {
             return .failed(.invalidManifest)
+        }
+    }
+
+    private static func collect(_ body: any UpdateResponseBody, maximumBytes: Int) async throws -> Data {
+        try await withTaskCancellationHandler {
+            var data = Data()
+            while let chunk = try await body.nextChunk() {
+                guard chunk.count <= maximumBytes - data.count else {
+                    body.cancel()
+                    throw UpdateTransportError.responseTooLarge
+                }
+                data.append(chunk)
+            }
+            return data
+        } onCancel: {
+            body.cancel()
         }
     }
 
@@ -310,7 +589,7 @@ struct UpdateChecker: UpdateChecking, Sendable {
             && components.password == nil
     }
 
-    private static func isAllowedFinalResponseURL(_ finalURL: URL, requestedURL: URL) -> Bool {
+    fileprivate static func isAllowedFinalResponseURL(_ finalURL: URL, requestedURL: URL) -> Bool {
         guard isSecureHTTPSURL(requestedURL), isSecureHTTPSURL(finalURL),
               let requested = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false),
               let final = URLComponents(url: finalURL, resolvingAgainstBaseURL: false) else {

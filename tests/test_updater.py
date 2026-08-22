@@ -120,6 +120,50 @@ class UpdateHelpersTests(unittest.TestCase):
                 self.assertIsNotNone(selected)
                 self.assertEqual(selected.is_newer_than(current), expected)
 
+    def test_structured_manifest_compares_5000_digit_core_without_integer_conversion(self):
+        huge_major = "9" * 5_001
+        selected = parse_platform_update_manifest(
+            json.dumps(self.windows_manifest(latest_version=f"{huge_major}.0.0")),
+            "windows",
+        )
+
+        self.assertIsNotNone(selected)
+        self.assertTrue(selected.is_newer_than("2.0.0"))
+        self.assertFalse(
+            selected.is_newer_than(f"{huge_major}.0.0+different-build")
+        )
+
+    def test_structured_manifest_compares_5000_digit_numeric_prerelease(self):
+        huge_identifier = "9" * 5_001
+        selected = parse_platform_update_manifest(
+            json.dumps(
+                self.windows_manifest(
+                    latest_version=f"1.0.0-{huge_identifier}"
+                )
+            ),
+            "windows",
+        )
+
+        self.assertIsNotNone(selected)
+        self.assertTrue(selected.is_newer_than("1.0.0-2"))
+        self.assertFalse(selected.is_newer_than("1.0.0"))
+
+    def test_structured_manifest_rejects_long_leading_zero_prerelease(self):
+        malformed_versions = (
+            "1.0.0-00",
+            f"1.0.0-0{'1' * 5_000}",
+            f"1.0.0-alpha.0{'1' * 5_000}",
+        )
+
+        for version in malformed_versions:
+            with self.subTest(version_length=len(version)):
+                self.assertIsNone(
+                    parse_platform_update_manifest(
+                        json.dumps(self.windows_manifest(latest_version=version)),
+                        "windows",
+                    )
+                )
+
     def test_legacy_sources_keep_numeric_comparison_semantics(self):
         selected = parse_platform_update_manifest("v1.8.9-rc.1\n", "windows")
 

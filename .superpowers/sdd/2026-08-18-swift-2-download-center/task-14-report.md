@@ -137,3 +137,64 @@
   verification, and exact Windows x64 isolation remain intact.
 - No live GitHub response, public checksum, signed bundle, released tag, or
   packaged Windows updater was exercised; those remain release-gate work.
+
+## Fix Round 2
+
+### Resolved Findings
+
+1. Structured Python SemVer no longer converts core or numeric prerelease
+   identifiers to integers. Canonical zero-trimmed digit strings are compared by
+   length and then lexicographically, so valid identifiers above Python's digit
+   conversion limit retain SemVer precedence and build metadata remains excluded
+   from equality. Strict structured parsing still rejects leading-zero numeric
+   prereleases; legacy sources retain their historical numeric semantics.
+2. Replaced the Swift `URLSession.data(for:)` boundary with a Sendable streaming
+   response/body contract and a macOS 13-compatible `URLSessionDataDelegate`
+   transport. The live transport rejects oversized declared lengths at headers,
+   validates the final HTTPS origin/path before allowing body bytes, and cancels
+   on the first callback that would exceed 192 KiB. The checker independently
+   bounds injected chunks and propagates task cancellation to the transport.
+
+### TDD Evidence
+
+- Python RED: the new 5,001-digit core and numeric prerelease tests each raised
+  Python's `ValueError: Exceeds the limit (4300 digits)` at the existing
+  `int(...)` conversions. The same focused class passed 23 tests after numeric
+  string comparison was introduced.
+- Swift RED: the chunk-stream fixtures failed to compile because
+  `UpdateResponseBody`, `UpdateSessionResponse`, and the bounded `response(for:)`
+  session contract did not exist. GREEN proves exact 192 KiB acceptance, rejection
+  and cancellation at limit plus one, no request for later chunks after overflow,
+  pre-body rejection for invalid final URLs and declared lengths, consumer-task
+  cancellation, and Sendable conformance. Existing Store tests continued to prove
+  automatic single-flight and manual supersession of stale results.
+
+### Changed Files
+
+- Swift transport and checker: `swift-2.0/Sources/YTDownloaderPro2/Services/UpdateChecker.swift`.
+- Swift streaming tests: `swift-2.0/Tests/YTDownloaderPro2Tests/UpdateCheckerTests.swift`.
+- Python SemVer and tests: `ytdp/updater.py`, `tests/test_updater.py`.
+- Maintainer contract: `updates/README.md`.
+
+### Verification
+
+- Focused strict Swift service/UI/Store/localization suite: 94 tests passed.
+- Full strict Swift suite: 274 tests passed with zero failures.
+- macOS 13 arm64 strict build passed with warnings treated as errors.
+- Focused pinned Python updater/version-source suites: 40 tests passed.
+- Complete discovery with Python 3.13.2 and pinned PyYAML 6.0.3: 193 tests passed.
+- Both manifests and `Localizable.xcstrings` passed `python3 -m json.tool`;
+  changed Python files passed `python3 -m py_compile`.
+- Regenerating the checked-in macOS placeholder with its exact fields was
+  byte-identical. `git diff --check` passed on the report-inclusive tree.
+- No package was installed and no network request was made.
+
+### Compatibility And Residual Risk
+
+- UI result visibility, Store generation/single-flight behavior, root
+  `version.txt`, legacy plain/JSON comparison, release-asset fallback, TLS
+  verification, and Windows x64 isolation are unchanged.
+- The delegate transport is deterministic at its injected stream boundary and
+  compiled for macOS 13 arm64, but no live GitHub response was exercised by
+  design. Signed bundles, public checksums, released tags, and packaged Windows
+  acceptance remain release-gate work.

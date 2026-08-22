@@ -218,6 +218,98 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(decodedResult, .failed(.invalidManifest))
     }
 
+    func testChunkedOversizedResponseStopsAtFirstByteOverLimit() async throws {
+        let body = TestUpdateResponseBody(chunks: [
+            Data(repeating: 0x20, count: UpdateChecker.maximumResponseBytes / 2),
+            Data(repeating: 0x20, count: UpdateChecker.maximumResponseBytes / 2),
+            Data([0x20]),
+            Data(repeating: 0x20, count: 1_024)
+        ])
+        let checker = try makeChecker(body: body)
+
+        let result = await checker.check(manual: true)
+
+        XCTAssertEqual(result, .failed(.invalidResponse))
+        XCTAssertEqual(body.requestCount, 3)
+        XCTAssertTrue(body.isCancelled)
+    }
+
+    func testStreamingResponseAllowsExactLimitAndRejectsLimitPlusOne() async throws {
+        let exactBody = TestUpdateResponseBody(
+            chunks: [Data(repeating: 0x20, count: UpdateChecker.maximumResponseBytes)]
+        )
+        let oversizedBody = TestUpdateResponseBody(chunks: [
+            Data(repeating: 0x20, count: UpdateChecker.maximumResponseBytes),
+            Data([0x20])
+        ])
+        let exactChecker = try makeChecker(body: exactBody)
+        let oversizedChecker = try makeChecker(body: oversizedBody)
+
+        let exactResult = await exactChecker.check(manual: true)
+        let oversizedResult = await oversizedChecker.check(manual: true)
+
+        XCTAssertEqual(exactResult, .failed(.invalidManifest))
+        XCTAssertFalse(exactBody.isCancelled)
+        XCTAssertEqual(oversizedResult, .failed(.invalidResponse))
+        XCTAssertTrue(oversizedBody.isCancelled)
+    }
+
+    func testInvalidHTTPMetadataCancelsBeforeBodyConsumption() async throws {
+        let body = TestUpdateResponseBody(chunks: [Data("unused".utf8)])
+        let responseURL = try XCTUnwrap(
+            URL(string: "https://downloads.example.invalid/updates/macos.json")
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: responseURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        ))
+        let checker = UpdateChecker(
+            manifestURL: manifestURL,
+            currentVersion: "2.0.0",
+            currentMacOSVersion: "13.6.0",
+            session: StubUpdateSession(body: body, response: response)
+        )
+
+        let result = await checker.check(manual: true)
+
+        XCTAssertEqual(result, .failed(.invalidResponse))
+        XCTAssertEqual(body.requestCount, 0)
+        XCTAssertTrue(body.isCancelled)
+    }
+
+    func testOversizedDeclaredLengthCancelsBeforeBodyConsumption() async throws {
+        let body = TestUpdateResponseBody(chunks: [Data("unused".utf8)])
+        let checker = try makeChecker(
+            body: body,
+            headers: ["Content-Length": String(UpdateChecker.maximumResponseBytes + 1)]
+        )
+
+        let result = await checker.check(manual: true)
+
+        XCTAssertEqual(result, .failed(.invalidResponse))
+        XCTAssertEqual(body.requestCount, 0)
+        XCTAssertTrue(body.isCancelled)
+    }
+
+    func testCancellingCheckCancelsStreamingTransport() async throws {
+        let body = BlockingUpdateResponseBody()
+        let checker = try makeChecker(body: body)
+        let task = Task { await checker.check(manual: true) }
+        await body.waitUntilRequested()
+
+        task.cancel()
+        _ = await task.value
+
+        XCTAssertTrue(body.isCancelled)
+    }
+
+    func testStreamingTransportBoundaryIsSendable() {
+        requireSendable(UpdateSessionResponse.self)
+        requireSendable(URLSessionUpdateSession.self)
+    }
+
     private func makeChecker(
         currentVersion: String = "2.0.0",
         currentMacOSVersion: String = "13.6.0",
@@ -237,6 +329,25 @@ final class UpdateCheckerTests: XCTestCase {
             manifest: manifest,
             statusCode: statusCode,
             responseURL: responseURL
+        )
+    }
+
+    private func makeChecker(
+        body: any UpdateResponseBody,
+        statusCode: Int = 200,
+        headers: [String: String]? = nil
+    ) throws -> UpdateChecker {
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: manifestURL,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: headers
+        ))
+        return UpdateChecker(
+            manifestURL: manifestURL,
+            currentVersion: "2.0.0",
+            currentMacOSVersion: "13.6.0",
+            session: StubUpdateSession(body: body, response: response)
         )
     }
 
@@ -338,24 +449,121 @@ final class UpdateCheckerTests: XCTestCase {
 }
 
 private actor StubUpdateSession: UpdateSession {
-    private let data: Data?
-    private let response: URLResponse?
+    private let body: (any UpdateResponseBody)?
+    private let response: HTTPURLResponse?
     private let error: URLError?
 
-    init(data: Data, response: URLResponse) {
-        self.data = data
+    init(data: Data, response: HTTPURLResponse) {
+        body = TestUpdateResponseBody(chunks: [data])
+        self.response = response
+        error = nil
+    }
+
+    init(body: any UpdateResponseBody, response: HTTPURLResponse) {
+        self.body = body
         self.response = response
         error = nil
     }
 
     init(error: URLError) {
-        data = nil
+        body = nil
         response = nil
         self.error = error
     }
 
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    func response(for request: URLRequest, maximumBytes: Int) async throws -> UpdateSessionResponse {
         if let error { throw error }
-        return (try XCTUnwrap(data), try XCTUnwrap(response))
+        guard let body, let response else { throw URLError(.unknown) }
+        return UpdateSessionResponse(response: response, body: body)
     }
 }
+
+private final class TestUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+    private let lock = NSLock()
+    private var chunks: [Data]
+    private var requested = 0
+    private var cancelled = false
+
+    init(chunks: [Data]) {
+        self.chunks = chunks
+    }
+
+    var requestCount: Int {
+        lock.withLock { requested }
+    }
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func nextChunk() async throws -> Data? {
+        nextChunkSynchronously()
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+        }
+    }
+
+    private func nextChunkSynchronously() -> Data? {
+        lock.withLock {
+            guard !cancelled else { return nil }
+            requested += 1
+            guard !chunks.isEmpty else { return nil }
+            return chunks.removeFirst()
+        }
+    }
+}
+
+private final class BlockingUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+    private let lock = NSLock()
+    private var nextContinuation: CheckedContinuation<Data?, Error>?
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requested = false
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func nextChunk() async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                requested = true
+                if cancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    nextContinuation = continuation
+                }
+                let currentWaiters = requestWaiters
+                requestWaiters.removeAll()
+                return currentWaiters
+            }
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    func cancel() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
+            cancelled = true
+            defer { nextContinuation = nil }
+            return nextContinuation
+        }
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    func waitUntilRequested() async {
+        if lock.withLock({ requested }) { return }
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock { () -> Bool in
+                if requested { return true }
+                requestWaiters.append(continuation)
+                return false
+            }
+            if shouldResume { continuation.resume() }
+        }
+    }
+}
+
+private func requireSendable<T: Sendable>(_: T.Type) {}
