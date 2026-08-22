@@ -204,6 +204,7 @@ struct DownloadCardView: View {
     @EnvironmentObject private var store: DownloadStore
 
     let job: DownloadJob
+    var isSelected = false
     var onEdit: (DownloadJob) -> Void = { _ in }
 
     @State private var pendingConfirmation: DownloadConfirmation?
@@ -211,8 +212,9 @@ struct DownloadCardView: View {
 
     private let presentation: DownloadCardPresentation
 
-    init(job: DownloadJob, onEdit: @escaping (DownloadJob) -> Void = { _ in }) {
+    init(job: DownloadJob, isSelected: Bool = false, onEdit: @escaping (DownloadJob) -> Void = { _ in }) {
         self.job = job
+        self.isSelected = isSelected
         self.onEdit = onEdit
         presentation = DownloadCardPresentation(job: job)
     }
@@ -287,7 +289,7 @@ struct DownloadCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(DownloadCenterAppearance.palette.border.color, lineWidth: 1)
+                .stroke(isSelected ? Color.accentColor : DownloadCenterAppearance.palette.border.color, lineWidth: isSelected ? 2 : 1)
         }
         .alert(item: $pendingConfirmation) { confirmation in
             Alert(

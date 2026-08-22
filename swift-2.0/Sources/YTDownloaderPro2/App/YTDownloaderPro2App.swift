@@ -14,7 +14,7 @@ struct YTDownloaderPro2App: App {
         }
 
         Settings {
-            SettingsContentView()
+            SettingsView()
                 .environmentObject(appLifecycle.store)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }

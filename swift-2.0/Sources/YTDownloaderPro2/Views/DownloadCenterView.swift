@@ -66,12 +66,97 @@ enum DownloadCenterAction: Equatable {
     }
 }
 
+enum DownloadCenterKeyboardCommand: Equatable {
+    case enter
+    case space
+    case delete
+    case commandA
+    case commandV
+}
+
+enum DownloadCenterKeyboardFocus: Equatable {
+    case permanentURLField
+    case editableText
+    case interactiveControl
+    case playlistSelectionSheet
+    case modalSheet
+    case nonEditable
+}
+
+enum DownloadCenterCommandDecision: Equatable {
+    case analyzePermanentURL
+    case toggleSelectedJob(UUID)
+    case requestRecordRemoval(UUID)
+    case selectAllPlaylistEntries
+    case placeClipboardURL(String)
+}
+
+enum DownloadCenterCommandRouter {
+    // Keep routing pure so a monitor consumes input only when the current focus makes the command legal.
+    static func route(
+        _ command: DownloadCenterKeyboardCommand,
+        focus: DownloadCenterKeyboardFocus,
+        selectedJob: DownloadJob?,
+        clipboard: String?
+    ) -> DownloadCenterCommandDecision? {
+        switch command {
+        case .enter:
+            return focus == .permanentURLField ? .analyzePermanentURL : nil
+        case .space:
+            guard focus == .nonEditable,
+                  let selectedJob,
+                  selectedJob.status.canPause || selectedJob.status == .paused else { return nil }
+            return .toggleSelectedJob(selectedJob.id)
+        case .delete:
+            guard focus == .nonEditable,
+                  let selectedJob,
+                  DownloadCardPresentation(job: selectedJob).actions.contains(.removeRecord) else { return nil }
+            return .requestRecordRemoval(selectedJob.id)
+        case .commandA:
+            return focus == .playlistSelectionSheet ? .selectAllPlaylistEntries : nil
+        case .commandV:
+            guard focus == .nonEditable,
+                  let clipboard = clipboard?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  isSupportedURL(clipboard) else { return nil }
+            return .placeClipboardURL(clipboard)
+        }
+    }
+
+    private static func isSupportedURL(_ value: String) -> Bool {
+        guard let url = URL(string: value),
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host,
+              !host.isEmpty else { return false }
+        return ["http", "https"].contains(scheme)
+    }
+}
+
+private enum AnalysisSheet: Identifiable {
+    case video(VideoAnalysis)
+    case playlist(PlaylistAnalysis)
+
+    var id: String {
+        switch self {
+        case let .video(analysis): "video-\(analysis.sourceURL)"
+        case let .playlist(analysis): "playlist-\(analysis.id)"
+        }
+    }
+}
+
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
 
     @State private var url = ""
     @State private var pendingConfirmation: DownloadConfirmation?
     @State private var editingJob: DownloadJob?
+    @State private var analysisSheet: AnalysisSheet?
+    @State private var pendingRecordRemovalJobID: UUID?
+    @State private var playlistSelectAllToken = UUID()
+    @FocusState private var focusedField: FocusedField?
+
+    private enum FocusedField: Hashable {
+        case url
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -93,8 +178,26 @@ struct DownloadCenterView: View {
             }
         }
         .sheet(item: $editingJob) { job in
-            QueuedOptionsEditor(job: job) { options in
+            MediaOptionsSheet(title: "Edit Download", options: job.options) { options in
                 Task { _ = await store.editQueuedJob(job.id, options: options) }
+            }
+        }
+        .sheet(item: $analysisSheet) { sheet in
+            switch sheet {
+            case let .video(analysis):
+                MediaOptionsSheet(analysis: analysis, defaults: store.settings.defaultOptions) { options in
+                    analysisSheet = nil
+                    Task { await store.addVideo(options: options) }
+                }
+            case let .playlist(analysis):
+                PlaylistSelectionSheet(
+                    analysis: analysis,
+                    defaults: store.settings.defaultOptions,
+                    selectAllToken: playlistSelectAllToken
+                ) { selectedIDs, options in
+                    analysisSheet = nil
+                    Task { await store.addPlaylistEntries(selectedIDs: selectedIDs, options: options) }
+                }
             }
         }
         .alert(item: $pendingConfirmation) { confirmation in
@@ -106,6 +209,28 @@ struct DownloadCenterView: View {
                 },
                 secondaryButton: .cancel()
             )
+        }
+        .onChange(of: store.analysisState) { state in
+            switch state {
+            case let .video(analysis):
+                focusedField = nil
+                analysisSheet = .video(analysis)
+            case let .playlist(analysis):
+                focusedField = nil
+                analysisSheet = .playlist(analysis)
+            case .idle, .analyzing, .failed:
+                break
+            }
+        }
+        .background {
+            KeyboardCommandMonitor(
+                urlFieldIsFocused: focusedField == .url,
+                playlistSelectionIsPresented: isPlaylistSelectionPresented,
+                modalSheetIsPresented: analysisSheet != nil || editingJob != nil,
+                selectedJob: selectedJob,
+                perform: performKeyboardDecision
+            )
+            .frame(width: 0, height: 0)
         }
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
     }
@@ -142,12 +267,12 @@ struct DownloadCenterView: View {
                 HStack(spacing: 8) {
                     TextField("Video or playlist URL", text: $url)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .url)
                         .onSubmit(analyzeURL)
                         .accessibilityLabel("Video or playlist URL")
 
                     Button("Analyze", action: analyzeURL)
                         .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAnalyzing)
-                        .keyboardShortcut(.return, modifiers: [])
                 }
 
                 bulkToolbar
@@ -165,7 +290,11 @@ struct DownloadCenterView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(store.filteredJobs) { job in
-                            DownloadCardView(job: job) { editingJob = $0 }
+                            DownloadCardView(job: job, isSelected: store.selection.contains(job.id)) { editingJob = $0 }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    store.selection = [job.id]
+                                }
                         }
                     }
                     .padding(16)
@@ -249,8 +378,43 @@ struct DownloadCenterView: View {
             Task { await store.cancelActiveAndWaiting() }
         case .clearCompleted:
             Task { await store.clearCompleted() }
-        case .cancelMerging, .removeRecord:
+        case .removeRecord:
+            guard let jobID = pendingRecordRemovalJobID else { return }
+            pendingRecordRemovalJobID = nil
+            Task { await store.removeRecord(jobID) }
+        case .cancelMerging:
             return
+        }
+    }
+
+    private var selectedJob: DownloadJob? {
+        store.jobs.first(where: { store.selection.contains($0.id) })
+    }
+
+    private var isPlaylistSelectionPresented: Bool {
+        guard case .some(.playlist) = analysisSheet else { return false }
+        return true
+    }
+
+    private func performKeyboardDecision(_ decision: DownloadCenterCommandDecision) {
+        switch decision {
+        case .analyzePermanentURL:
+            analyzeURL()
+        case let .toggleSelectedJob(jobID):
+            guard let job = store.jobs.first(where: { $0.id == jobID }) else { return }
+            if job.status == .paused {
+                Task { await store.resume(jobID) }
+            } else if job.status.canPause {
+                Task { await store.pause(jobID) }
+            }
+        case let .requestRecordRemoval(jobID):
+            pendingRecordRemovalJobID = jobID
+            pendingConfirmation = .removeRecord
+        case .selectAllPlaylistEntries:
+            playlistSelectAllToken = UUID()
+        case let .placeClipboardURL(clipboardURL):
+            url = clipboardURL
+            focusedField = .url
         }
     }
 
@@ -312,72 +476,107 @@ struct DownloadCenterView: View {
     }
 }
 
-private struct QueuedOptionsEditor: View {
-    @Environment(\.dismiss) private var dismiss
+private struct KeyboardCommandMonitor: NSViewRepresentable {
+    let urlFieldIsFocused: Bool
+    let playlistSelectionIsPresented: Bool
+    let modalSheetIsPresented: Bool
+    let selectedJob: DownloadJob?
+    let perform: (DownloadCenterCommandDecision) -> Void
 
-    let job: DownloadJob
-    let onSave: (DownloadOptions) -> Void
-
-    @State private var outputKind: OutputKind
-
-    init(job: DownloadJob, onSave: @escaping (DownloadOptions) -> Void) {
-        self.job = job
-        self.onSave = onSave
-        _outputKind = State(initialValue: job.options.outputKind)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Download")
-                .font(.title3.weight(.semibold))
-            Text(job.title)
-                .lineLimit(2)
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.install()
+        return NSView(frame: .zero)
+    }
 
-            Picker("Output", selection: $outputKind) {
-                Text("MP4 video").tag(OutputKind.mp4)
-                Text("MP3 audio").tag(OutputKind.mp3)
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator {
+        var parent: KeyboardCommandMonitor
+        private var monitor: Any?
+
+        init(parent: KeyboardCommandMonitor) {
+            self.parent = parent
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
             }
-            .pickerStyle(.segmented)
+        }
 
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save") {
-                    var options = job.options
-                    options.outputKind = outputKind
-                    onSave(options)
-                    dismiss()
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard let command = keyboardCommand(for: event) else { return event }
+            let focus = keyboardFocus(for: NSApp.keyWindow?.firstResponder)
+            let clipboard = command == .commandV ? NSPasteboard.general.string(forType: .string) : nil
+            guard let decision = DownloadCenterCommandRouter.route(
+                command,
+                focus: focus,
+                selectedJob: parent.selectedJob,
+                clipboard: clipboard
+            ) else {
+                return event
+            }
+            parent.perform(decision)
+            return nil
+        }
+
+        private func keyboardCommand(for event: NSEvent) -> DownloadCenterKeyboardCommand? {
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let characters = event.charactersIgnoringModifiers
+            if modifiers == [] {
+                switch characters {
+                case " ": return .space
+                case "\r", "\n": return .enter
+                case "\u{7F}", "\u{8}": return .delete
+                default: return nil
                 }
-                .keyboardShortcut(.defaultAction)
+            }
+            guard modifiers == .command else { return nil }
+            switch characters?.lowercased() {
+            case "a": return .commandA
+            case "v": return .commandV
+            default: return nil
             }
         }
-        .padding(20)
-        .frame(width: 380)
-    }
-}
 
-struct SettingsContentView: View {
-    @EnvironmentObject private var store: DownloadStore
-
-    var body: some View {
-        Form {
-            Stepper("Concurrent downloads: \(store.settings.maximumConcurrentDownloads)", value: maximumDownloads, in: 1...10)
-        }
-        .padding(20)
-        .frame(width: 360)
-        .background(DownloadCenterAppearance.palette.windowBackground.color)
-        .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
-        .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
-    }
-
-    private var maximumDownloads: Binding<Int> {
-        Binding(
-            get: { store.settings.maximumConcurrentDownloads },
-            set: { value in
-                var settings = store.settings
-                settings.maximumConcurrentDownloads = value
-                store.settings = settings
+        private func keyboardFocus(for responder: NSResponder?) -> DownloadCenterKeyboardFocus {
+            if responderHierarchy(responder, contains: { $0 is NSTextView || $0 is NSTextField }) {
+                return parent.urlFieldIsFocused ? .permanentURLField : .editableText
             }
-        )
+            if responderHierarchy(responder, contains: { $0 is NSControl }) {
+                return .interactiveControl
+            }
+            if parent.playlistSelectionIsPresented {
+                return .playlistSelectionSheet
+            }
+            if parent.modalSheetIsPresented {
+                return .modalSheet
+            }
+            return parent.urlFieldIsFocused ? .permanentURLField : .nonEditable
+        }
+
+        private func responderHierarchy(_ responder: NSResponder?, contains predicate: (NSResponder) -> Bool) -> Bool {
+            var current = responder
+            while let candidate = current {
+                if predicate(candidate) {
+                    return true
+                }
+                current = candidate.nextResponder
+            }
+            return false
+        }
     }
 }
