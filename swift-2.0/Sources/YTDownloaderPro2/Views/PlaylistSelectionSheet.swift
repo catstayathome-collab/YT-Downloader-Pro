@@ -31,6 +31,7 @@ struct PlaylistSelectionPresentation: Equatable {
 
 struct PlaylistSelectionSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     let selectAllToken: UUID
     let onConfirm: (Set<String>, DownloadOptions) -> Void
@@ -54,10 +55,10 @@ struct PlaylistSelectionSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(selection.analysis.title)
+                    Text(MediaFallbackText.localized(selection.analysis.title, locale: locale))
                         .font(.title3.weight(.semibold))
                         .lineLimit(2)
-                    Text("\(selection.selectedCount) selected")
+                    Text(L10n.string(.playlistSelectedCount, locale: locale, Int64(selection.selectedCount)))
                         .font(.subheadline)
                         .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                 }
@@ -67,31 +68,35 @@ struct PlaylistSelectionSheet: View {
                 } label: {
                     Image(systemName: "checkmark.circle")
                 }
-                .help("Select all available entries")
-                .accessibilityLabel("Select all available entries")
+                .help(L10n.string(.playlistSelectAll, locale: locale))
+                .accessibilityLabel(L10n.string(.playlistSelectAll, locale: locale))
                 Button {
                     selection.clearSelection()
                 } label: {
                     Image(systemName: "minus.circle")
                 }
-                .help("Clear selection")
-                .accessibilityLabel("Clear selection")
+                .help(L10n.string(.playlistClearSelection, locale: locale))
+                .accessibilityLabel(L10n.string(.playlistClearSelection, locale: locale))
             }
 
             List(selection.analysis.entries) { entry in
                 Toggle(isOn: entrySelection(entry)) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.title)
+                        Text(MediaFallbackText.localized(entry.title, locale: locale))
                             .lineLimit(2)
                         if !entry.isAvailable {
-                            Text(entry.unavailabilityReason ?? "Unavailable")
+                            Text(L10n.string(.playlistEntryUnavailable, locale: locale))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
                 .disabled(!entry.isAvailable)
-                .accessibilityLabel(entry.isAvailable ? "Select \(entry.title)" : "\(entry.title), unavailable")
+                .accessibilityLabel(
+                    entry.isAvailable
+                        ? L10n.string(.playlistEntrySelect, locale: locale, MediaFallbackText.localized(entry.title, locale: locale))
+                        : L10n.string(.playlistEntryUnavailableNamed, locale: locale, MediaFallbackText.localized(entry.title, locale: locale))
+                )
             }
             .frame(minHeight: 170, maxHeight: 230)
 
@@ -103,12 +108,12 @@ struct PlaylistSelectionSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Add Selected") {
+                Button(L10n.string(.commonCancel, locale: locale)) { dismiss() }
+                Button(L10n.string(.commonAddSelected, locale: locale)) {
                     onConfirm(selection.selectedIDs, options)
                     dismiss()
                 }
-                .disabled(selection.selectedIDs.isEmpty || !DownloadOptionsViewState(options: options).canSubmit)
+                .disabled(selection.selectedIDs.isEmpty || !DownloadOptionsViewState(options: options, locale: locale).canSubmit)
                 .keyboardShortcut(.defaultAction)
             }
         }

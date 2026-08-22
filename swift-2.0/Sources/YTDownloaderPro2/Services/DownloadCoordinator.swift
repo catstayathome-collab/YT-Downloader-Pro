@@ -208,7 +208,7 @@ actor DownloadCoordinator {
                 }
             } catch {
                 let failure = error as? DownloadFailure ?? DownloadFailure(
-                    category: .unknown,
+                    category: .downloadFailed,
                     technicalDetail: String(describing: error)
                 )
                 result = .failure(failure)

@@ -283,7 +283,7 @@ final class OutputNameAllocatorTests: XCTestCase {
                 _ = try await OutputNameAllocator().reserve(title: "Title", extension: fileExtension, directory: root, jobID: UUID())
                 XCTFail("Expected invalid extension failure for \(fileExtension)")
             } catch let failure as DownloadFailure {
-                XCTAssertEqual(failure.category, .unknown)
+                XCTAssertEqual(failure.category, .downloadFailed)
                 XCTAssertEqual(failure.technicalDetail, "The selected output file extension is invalid.")
                 XCTAssertFalse(failure.technicalDetail?.contains(fileExtension) ?? true)
             } catch {
@@ -329,7 +329,7 @@ final class OutputNameAllocatorTests: XCTestCase {
             _ = try await OutputNameAllocator().reserve(title: "Title", extension: "mp4", directory: directory, jobID: UUID())
             XCTFail("Expected output-directory failure")
         } catch let failure as DownloadFailure {
-            XCTAssertEqual(failure.category, .unknown)
+            XCTAssertEqual(failure.category, .outputPermissionDenied)
             XCTAssertEqual(failure.technicalDetail, "The selected download folder is unavailable or not writable.")
             XCTAssertFalse(failure.technicalDetail?.contains(directory.path) ?? true)
         } catch {

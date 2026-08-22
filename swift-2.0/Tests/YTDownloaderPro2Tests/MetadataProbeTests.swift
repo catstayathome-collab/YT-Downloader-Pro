@@ -81,7 +81,7 @@ final class MetadataProbeTests: XCTestCase {
         await assertFailure(
             from: MetadataProbe(toolchain: .fixture(), processRunner: runner),
             url: "https://youtu.be/example",
-            category: .unavailableMedia
+            category: .formatReselectionRequired
         )
         let commandCount = await runner.commandCount()
         XCTAssertEqual(commandCount, 1)
@@ -113,7 +113,7 @@ final class MetadataProbeTests: XCTestCase {
         await assertFailure(
             from: MetadataProbe(toolchain: .fixture(), processRunner: runner),
             url: "https://youtu.be/example",
-            category: .authenticationRequired
+            category: .clientValidationFailed
         )
         let commandCount = await runner.commandCount()
         XCTAssertEqual(commandCount, 2)
@@ -127,9 +127,9 @@ final class MetadataProbeTests: XCTestCase {
 
         do {
             _ = try await probe.analyze(url: "https://youtu.be/example", options: .fixture(cookies: .chrome))
-            XCTFail("Expected authentication failure")
+            XCTFail("Expected client validation failure")
         } catch let failure as DownloadFailure {
-            XCTAssertEqual(failure.category, .authenticationRequired)
+            XCTAssertEqual(failure.category, .clientValidationFailed)
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

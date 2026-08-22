@@ -34,8 +34,10 @@ actor MetadataProbe: MetadataAnalyzing {
             do {
                 let request = try analysisRequest(url: url, options: options, attempt: attempt)
                 result = try await runAnalysisProcess(request)
+            } catch let failure as DownloadFailure {
+                throw failure
             } catch {
-                throw DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start.")
+                throw Toolchain.failure(for: "yt-dlp_macos")
             }
 
             guard result.exitCode == 0 else {
@@ -49,7 +51,7 @@ actor MetadataProbe: MetadataAnalyzing {
             return try decodeAnalysisOutput(result.stdout, requestedURL: url)
         }
 
-        throw DownloadFailure(category: .authenticationRequired, technicalDetail: "YouTube client validation did not succeed.")
+        throw DownloadFailure(category: .clientValidationFailed, technicalDetail: "Video service client validation did not succeed.")
     }
 
     private func runAnalysisProcess(_ request: MetadataAnalysisRequest) async throws -> ProcessResult {
@@ -188,7 +190,8 @@ actor MetadataProbe: MetadataAnalyzing {
             framesPerSecond: format.framesPerSecond,
             bitrate: format.totalBitrate,
             language: format.language,
-            estimatedFileSize: format.fileSize ?? format.estimatedFileSize
+            estimatedFileSize: format.fileSize ?? format.estimatedFileSize,
+            note: format.note
         )
     }
 
@@ -209,7 +212,8 @@ actor MetadataProbe: MetadataAnalyzing {
             framesPerSecond: nil,
             bitrate: format.audioBitrate ?? format.totalBitrate,
             language: format.language,
-            estimatedFileSize: format.fileSize ?? format.estimatedFileSize
+            estimatedFileSize: format.fileSize ?? format.estimatedFileSize,
+            note: format.note
         )
     }
 
@@ -240,24 +244,10 @@ actor MetadataProbe: MetadataAnalyzing {
     }
 
     private func failure(for result: ProcessResult) -> DownloadFailure {
-        let detail = result.stderr.lowercased()
-        let category: DownloadFailure.Category
-        if isRetryableClientFailure(result) {
-            category = .authenticationRequired
-        } else if detail.contains("network") || detail.contains("timed out") || detail.contains("connection") || detail.contains("dns") {
-            category = .networkUnavailable
-        } else if detail.contains("requested format") || detail.contains("unavailable") || detail.contains("private") || detail.contains("removed") {
-            category = .unavailableMedia
-        } else if detail.contains("unsupported url") || detail.contains("invalid url") {
-            category = .invalidURL
-        } else {
-            category = .metadataUnavailable
-        }
-
-        return DownloadFailure(
-            category: category,
-            technicalDetail: "Video analysis did not complete.",
-            toolExitCode: result.exitCode
+        DownloadFailure.classify(
+            stderr: result.stderr,
+            context: .analysis,
+            exitCode: result.exitCode
         )
     }
 }

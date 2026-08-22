@@ -4,6 +4,30 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testUnrecoverablePersistenceLoadPublishesLocalizedRecoveryFailure() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("not-json".utf8).write(to: root.appendingPathComponent("downloads.json"))
+        let suiteName = "DownloadStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = DownloadStore.live(
+            applicationSupportRoot: root,
+            settingsStore: AppSettingsStore(defaults: defaults)
+        )
+
+        try await waitUntil("persistence recovery failure") {
+            if case .failed = store.analysisState { return true }
+            return false
+        }
+
+        guard case let .failed(failure) = store.analysisState else {
+            return XCTFail("Expected persistence recovery failure")
+        }
+        XCTAssertEqual(failure.category, .persistenceRecovery)
+        try await store.prepareToQuit()
+    }
+
     func testSelectingOutputDirectoryCreatesBookmarkThroughInjectedStoreBoundary() throws {
         let directory = URL(fileURLWithPath: "/chosen/downloads", isDirectory: true)
         let bookmark = Data("stored-bookmark".utf8)

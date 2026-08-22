@@ -33,9 +33,27 @@ final class DownloadRunnerTests: XCTestCase {
             _ = try await collect(fixture.runner.events(for: fixture.job()))
             XCTFail("Expected missing-final-output failure")
         } catch let failure as DownloadFailure {
-            XCTAssertEqual(failure.category, .unknown)
+            XCTAssertEqual(failure.category, .downloadFailed)
         }
         XCTAssertEqual(fixture.scope.stopCount, 1)
+    }
+
+    func testDownloadFailuresUseStableActionableCategories() async throws {
+        let cases: [(String, DownloadFailure.Category)] = [
+            ("permission-error", .outputPermissionDenied),
+            ("disk-full", .diskFull),
+            ("postprocess-error", .postProcessingFailed)
+        ]
+
+        for (mode, expected) in cases {
+            let fixture = try RunnerFixture(mode: mode)
+            do {
+                _ = try await collect(fixture.runner.events(for: fixture.job()))
+                XCTFail("Expected \(expected)")
+            } catch let failure as DownloadFailure {
+                XCTAssertEqual(failure.category, expected, mode)
+            }
+        }
     }
 
     func testPausePreservesPartAndMarkerAndResumeReusesBasenameWithContinue() async throws {
@@ -221,7 +239,7 @@ final class DownloadRunnerTests: XCTestCase {
             _ = try await collect(fixture.runner.events(for: fixture.job()))
             XCTFail("Expected a download failure")
         } catch let failure as DownloadFailure {
-            XCTAssertEqual(failure.category, .unknown)
+            XCTAssertEqual(failure.category, .downloadFailed)
         }
         XCTAssertEqual(fixture.traceLines(), ["download"])
     }
@@ -251,7 +269,7 @@ final class DownloadRunnerTests: XCTestCase {
             _ = try await collect(fixture.runner.events(for: job))
             XCTFail("Expected duplicate active job failure")
         } catch let failure as DownloadFailure {
-            XCTAssertEqual(failure.category, .unknown)
+            XCTAssertEqual(failure.category, .downloadFailed)
         }
 
         first.cancel()

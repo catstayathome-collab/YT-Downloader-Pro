@@ -2,29 +2,34 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
+    @Environment(\.locale) private var locale
 
     var body: some View {
         Form {
-            Section("Downloads") {
+            Section(L10n.string(.settingsDownloads, locale: locale)) {
                 Stepper(
-                    "Concurrent downloads: \(store.settings.maximumConcurrentDownloads)",
+                    L10n.string(
+                        .settingsConcurrentDownloads,
+                        locale: locale,
+                        Int64(store.settings.maximumConcurrentDownloads)
+                    ),
                     value: maximumDownloads,
                     in: AppSettings.supportedConcurrentDownloads
                 )
             }
 
-            Section("Default options") {
+            Section(L10n.string(.settingsDefaultOptions, locale: locale)) {
                 DownloadOptionsEditor(options: defaultOptions, videoChoices: [], audioChoices: [])
             }
 
-            Section("Preferences") {
-                Picker("Language", selection: languageOverride) {
-                    Text("System default").tag(String?.none)
-                    Text("Traditional Chinese").tag(Optional("zh-Hant"))
-                    Text("English").tag(Optional("en"))
-                    Text("Japanese").tag(Optional("ja"))
+            Section(L10n.string(.settingsPreferences, locale: locale)) {
+                Picker(L10n.string(.settingsLanguage, locale: locale), selection: languageOverride) {
+                    Text(L10n.string(.settingsLanguageSystem, locale: locale)).tag(String?.none)
+                    Text(L10n.string(.settingsLanguageTraditionalChinese, locale: locale)).tag(Optional("zh-Hant"))
+                    Text(L10n.string(.settingsLanguageEnglish, locale: locale)).tag(Optional("en"))
+                    Text(L10n.string(.settingsLanguageJapanese, locale: locale)).tag(Optional("ja"))
                 }
-                Toggle("Automatically check for updates", isOn: automaticUpdateChecks)
+                Toggle(L10n.string(.settingsAutomaticUpdates, locale: locale), isOn: automaticUpdateChecks)
             }
         }
         .formStyle(.grouped)

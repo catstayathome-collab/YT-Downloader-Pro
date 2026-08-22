@@ -16,8 +16,8 @@ enum ErrorDetailsPresentation {
     static let layout = ErrorDetailsLayout(
         sheetWidth: 520,
         sheetHeight: 420,
-        headerHeight: 110,
-        technicalDetailHeight: 190,
+        headerHeight: 140,
+        technicalDetailHeight: 160,
         doneRowHeight: 28,
         contentSpacing: 12,
         verticalPadding: 40,
@@ -28,6 +28,7 @@ enum ErrorDetailsPresentation {
 
 struct ErrorDetailsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     let failure: DownloadFailure
 
@@ -36,17 +37,17 @@ struct ErrorDetailsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: layout.contentSpacing) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Download Error")
+                Text(L10n.string(.errorDetailsTitle, locale: locale))
                     .font(.title3.weight(.semibold))
 
                 Text(summary)
                     .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
-                    .lineLimit(2)
+                    .lineLimit(3)
 
                 if let recovery = failure.recoverySuggestionKey {
-                    Text(recovery)
+                    Text(L10n.string(recovery, locale: locale))
                         .font(.subheadline)
-                        .lineLimit(2)
+                        .lineLimit(3)
                 }
 
                 Spacer(minLength: 0)
@@ -54,17 +55,21 @@ struct ErrorDetailsView: View {
             .frame(height: layout.headerHeight, alignment: .topLeading)
 
             if let detail = failure.technicalDetail, !detail.isEmpty {
-                ScrollView(.vertical) {
-                    Text(detail)
-                        .font(.system(.body, design: .monospaced))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.string(.errorDetailsTechnical, locale: locale))
+                        .font(.caption.weight(.semibold))
+                    ScrollView(.vertical) {
+                        Text(detail)
+                            .font(.system(.body, design: .monospaced))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    .background(DownloadCenterAppearance.palette.thumbnailBackground.color)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
                 .frame(height: layout.technicalDetailHeight)
-                .background(DownloadCenterAppearance.palette.thumbnailBackground.color)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             } else {
                 Spacer(minLength: 0)
             }
@@ -73,7 +78,7 @@ struct ErrorDetailsView: View {
 
             HStack {
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(L10n.string(.commonDone, locale: locale)) { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
             .frame(height: layout.doneRowHeight)
@@ -86,6 +91,6 @@ struct ErrorDetailsView: View {
     }
 
     private var summary: String {
-        failure.summaryKey.replacingOccurrences(of: "error.", with: "").replacingOccurrences(of: ".summary", with: "")
+        L10n.string(failure.summaryKey, locale: locale)
     }
 }

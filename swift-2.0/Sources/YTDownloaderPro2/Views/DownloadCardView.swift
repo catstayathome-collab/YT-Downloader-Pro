@@ -31,19 +31,21 @@ enum DownloadCardAction: Equatable, Hashable {
         }
     }
 
-    var accessibilityLabel: String {
+    var accessibilityLabel: String { accessibilityLabel(locale: Locale(identifier: "en")) }
+
+    func accessibilityLabel(locale: Locale) -> String {
         switch self {
-        case .edit: "Edit download options"
-        case .startNow: "Start now"
-        case .pause: "Pause download"
-        case .resume: "Resume download"
-        case .cancel, .cancelWithConfirmation: "Cancel download"
-        case .play: "Play downloaded media"
-        case .revealInFinder: "Reveal in Finder"
-        case .retry: "Retry download"
-        case .errorDetails: "Show error details"
-        case .reAdd: "Add download again"
-        case .removeRecord: "Remove record"
+        case .edit: L10n.string(.downloadActionEdit, locale: locale)
+        case .startNow: L10n.string(.downloadActionStartNow, locale: locale)
+        case .pause: L10n.string(.downloadActionPause, locale: locale)
+        case .resume: L10n.string(.downloadActionResume, locale: locale)
+        case .cancel, .cancelWithConfirmation: L10n.string(.downloadActionCancel, locale: locale)
+        case .play: L10n.string(.downloadActionPlay, locale: locale)
+        case .revealInFinder: L10n.string(.downloadActionReveal, locale: locale)
+        case .retry: L10n.string(.downloadActionRetry, locale: locale)
+        case .errorDetails: L10n.string(.downloadActionErrorDetails, locale: locale)
+        case .reAdd: L10n.string(.downloadActionReAdd, locale: locale)
+        case .removeRecord: L10n.string(.downloadActionRemoveRecord, locale: locale)
         }
     }
 }
@@ -56,34 +58,36 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: String { title(locale: Locale(identifier: "en")) }
+
+    func title(locale: Locale) -> String {
         switch self {
-        case .cancelMerging: "Cancel this download?"
-        case .cancelActiveAndWaiting: "Cancel active and waiting downloads?"
-        case .removeRecord: "Remove this record?"
-        case .clearCompleted: "Clear completed records?"
+        case .cancelMerging: L10n.string(.confirmationCancelMergingTitle, locale: locale)
+        case .cancelActiveAndWaiting: L10n.string(.confirmationCancelActiveTitle, locale: locale)
+        case .removeRecord: L10n.string(.confirmationRemoveRecordTitle, locale: locale)
+        case .clearCompleted: L10n.string(.confirmationClearCompletedTitle, locale: locale)
         }
     }
 
-    var destructiveButtonTitle: String {
+    var destructiveButtonTitle: String { destructiveButtonTitle(locale: Locale(identifier: "en")) }
+
+    func destructiveButtonTitle(locale: Locale) -> String {
         switch self {
-        case .cancelMerging: "Cancel Download"
-        case .cancelActiveAndWaiting: "Cancel Downloads"
-        case .removeRecord: "Remove Record"
-        case .clearCompleted: "Clear Completed"
+        case .cancelMerging: L10n.string(.confirmationCancelDownloadButton, locale: locale)
+        case .cancelActiveAndWaiting: L10n.string(.confirmationCancelDownloadsButton, locale: locale)
+        case .removeRecord: L10n.string(.confirmationRemoveRecordButton, locale: locale)
+        case .clearCompleted: L10n.string(.confirmationClearCompletedButton, locale: locale)
         }
     }
 
-    var message: String {
+    var message: String { message(locale: Locale(identifier: "en")) }
+
+    func message(locale: Locale) -> String {
         switch self {
-        case .cancelMerging:
-            "Cancelling now removes partial download files created by this job."
-        case .cancelActiveAndWaiting:
-            "Partial files for active and waiting downloads will be removed."
-        case .removeRecord:
-            "The media file will remain. Only this history record and its cached thumbnail will be removed."
-        case .clearCompleted:
-            "Downloaded media files will remain. Only completed history records and their cached thumbnails will be removed."
+        case .cancelMerging: L10n.string(.confirmationCancelMergingMessage, locale: locale)
+        case .cancelActiveAndWaiting: L10n.string(.confirmationCancelActiveMessage, locale: locale)
+        case .removeRecord: L10n.string(.confirmationRemoveRecordMessage, locale: locale)
+        case .clearCompleted: L10n.string(.confirmationClearCompletedMessage, locale: locale)
         }
     }
 }
@@ -135,21 +139,25 @@ struct DownloadCardPresentation: Equatable {
         }
     }
 
-    var statusLabel: String {
+    var statusLabel: String { statusLabel(locale: Locale(identifier: "en")) }
+
+    func statusLabel(locale: Locale) -> String {
         switch job.status {
-        case .queued: "Queued"
-        case .analyzing: "Analyzing"
-        case .downloading: "Downloading"
-        case .paused: "Paused"
-        case .merging: "Finishing"
-        case .completed: "Completed"
-        case .failed: "Failed"
-        case .cancelled: "Cancelled"
+        case .queued: L10n.string(.downloadStatusQueued, locale: locale)
+        case .analyzing: L10n.string(.downloadStatusAnalyzing, locale: locale)
+        case .downloading: L10n.string(.downloadStatusDownloading, locale: locale)
+        case .paused: L10n.string(.downloadStatusPaused, locale: locale)
+        case .merging: L10n.string(.downloadStatusFinishing, locale: locale)
+        case .completed: L10n.string(.downloadStatusCompleted, locale: locale)
+        case .failed: L10n.string(.downloadStatusFailed, locale: locale)
+        case .cancelled: L10n.string(.downloadStatusCancelled, locale: locale)
         }
     }
 
-    var formatSummary: String {
-        job.options.outputKind == .mp3 ? "MP3 audio" : "MP4 video"
+    var formatSummary: String { formatSummary(locale: Locale(identifier: "en")) }
+
+    func formatSummary(locale: Locale) -> String {
+        L10n.string(job.options.outputKind == .mp3 ? .downloadCardFormatMP3 : .downloadCardFormatMP4, locale: locale)
     }
 
     var layout: DownloadCardLayout { .approved }
@@ -175,20 +183,27 @@ struct DownloadCardPresentation: Equatable {
     }
 
     func help(for action: DownloadCardAction) -> String {
-        guard !isEnabled(action) else { return action.accessibilityLabel }
+        help(for: action, locale: Locale(identifier: "en"))
+    }
+
+    func help(for action: DownloadCardAction, locale: Locale) -> String {
+        guard !isEnabled(action) else { return action.accessibilityLabel(locale: locale) }
         return switch action {
-        case .play:
-            "Play unavailable: file is missing or is not a regular file"
-        case .revealInFinder:
-            "Reveal unavailable: file is missing or is not a regular file"
+        case .play: L10n.string(.downloadActionPlayUnavailable, locale: locale)
+        case .revealInFinder: L10n.string(.downloadActionRevealUnavailable, locale: locale)
         case .edit, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
-            action.accessibilityLabel
+            action.accessibilityLabel(locale: locale)
         }
     }
 
     func accessibilityLabel(for action: DownloadCardAction) -> String {
-        guard !isEnabled(action) else { return action.accessibilityLabel }
-        return "\(action.accessibilityLabel), unavailable because the file is missing or is not a regular file"
+        accessibilityLabel(for: action, locale: Locale(identifier: "en"))
+    }
+
+    func accessibilityLabel(for action: DownloadCardAction, locale: Locale) -> String {
+        let label = action.accessibilityLabel(locale: locale)
+        guard !isEnabled(action) else { return label }
+        return L10n.string(.downloadActionFileUnavailable, locale: locale, label)
     }
 
     private static func existingRegularFileURL(_ url: URL?, fileManager: FileManager) -> URL? {
@@ -202,6 +217,7 @@ struct DownloadCardPresentation: Equatable {
 
 struct DownloadCardView: View {
     @EnvironmentObject private var store: DownloadStore
+    @Environment(\.locale) private var locale
 
     let job: DownloadJob
     var isSelected = false
@@ -225,20 +241,20 @@ struct DownloadCardView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(job.title)
+                    Text(MediaFallbackText.localized(job.title, locale: locale))
                         .font(.headline)
                         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
                         .lineLimit(presentation.layout.titleLineCount)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
-                    Text(presentation.statusLabel)
+                    Text(presentation.statusLabel(locale: locale))
                         .font(.caption)
                         .foregroundStyle(statusColor)
                         .fixedSize()
                 }
                 .frame(height: 34, alignment: .top)
 
-                Text(presentation.formatSummary)
+                Text(presentation.formatSummary(locale: locale))
                     .font(.subheadline)
                     .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                     .lineLimit(1)
@@ -248,7 +264,7 @@ struct DownloadCardView: View {
                     if showsProgress {
                         ProgressView(value: max(0, min(job.progress, 1)))
                             .progressViewStyle(.linear)
-                            .accessibilityLabel("Download progress")
+                            .accessibilityLabel(L10n.string(.downloadCardProgress, locale: locale))
                             .accessibilityValue(progressAccessibilityValue)
                     } else {
                         Color.clear
@@ -293,12 +309,12 @@ struct DownloadCardView: View {
         }
         .alert(item: $pendingConfirmation) { confirmation in
             Alert(
-                title: Text(confirmation.title),
-                message: Text(confirmation.message),
-                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle)) {
+                title: Text(confirmation.title(locale: locale)),
+                message: Text(confirmation.message(locale: locale)),
+                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle(locale: locale))) {
                     performConfirmed(confirmation)
                 },
-                secondaryButton: .cancel()
+                secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
             )
         }
         .sheet(isPresented: $showsErrorDetails) {
@@ -338,8 +354,8 @@ struct DownloadCardView: View {
         }
         .buttonStyle(.borderless)
         .disabled(!presentation.isEnabled(action))
-        .help(presentation.help(for: action))
-        .accessibilityLabel(presentation.accessibilityLabel(for: action))
+        .help(presentation.help(for: action, locale: locale))
+        .accessibilityLabel(presentation.accessibilityLabel(for: action, locale: locale))
     }
 
     // Views route intent through the Store; only desktop file opening stays local to the presentation layer.
@@ -410,26 +426,50 @@ struct DownloadCardView: View {
     }
 
     private var detailLine: String {
-        let transfer = byteDescription(job.downloadedBytes) + " of " + byteDescription(job.totalBytes)
+        let transfer = L10n.string(
+            .downloadCardDetailTransfer,
+            locale: locale,
+            byteDescription(job.downloadedBytes),
+            byteDescription(job.totalBytes)
+        )
         guard job.status == .downloading else { return transfer }
-        let speed = job.speedBytesPerSecond.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) + "/s" }
-        let eta = job.estimatedTimeRemaining.map { "ETA " + durationDescription($0) }
-        return [transfer, speed, eta].compactMap { $0 }.joined(separator: "  |  ")
+        let speed = job.speedBytesPerSecond.map {
+            L10n.string(.downloadCardDetailSpeed, locale: locale, byteDescription(Int64($0)))
+        }
+        let eta = job.estimatedTimeRemaining.map {
+            L10n.string(.downloadCardDetailETA, locale: locale, durationDescription($0))
+        }
+        switch (speed, eta) {
+        case let (.some(speed), .some(eta)):
+            return L10n.string(.downloadCardDetailTransferSpeedETA, locale: locale, transfer, speed, eta)
+        case let (.some(speed), .none):
+            return L10n.string(.downloadCardDetailTransferSpeed, locale: locale, transfer, speed)
+        case let (.none, .some(eta)):
+            return L10n.string(.downloadCardDetailTransferETA, locale: locale, transfer, eta)
+        case (.none, .none):
+            return transfer
+        }
     }
 
     private var progressAccessibilityValue: String {
-        NumberFormatter.localizedString(from: NSNumber(value: max(0, min(job.progress, 1))), number: .percent)
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .percent
+        return formatter.string(from: NSNumber(value: max(0, min(job.progress, 1)))) ?? ""
     }
 
     private func byteDescription(_ value: Int64?) -> String {
-        guard let value else { return "Unknown size" }
-        return ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
+        guard let value else { return L10n.string(.downloadCardUnknownSize, locale: locale) }
+        return value.formatted(.byteCount(style: .file).locale(locale))
     }
 
     private func durationDescription(_ duration: TimeInterval) -> String {
         let formatter = DateComponentsFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        formatter.calendar = calendar
         formatter.allowedUnits = duration >= 3_600 ? [.hour, .minute, .second] : [.minute, .second]
         formatter.unitsStyle = .abbreviated
-        return formatter.string(from: duration) ?? "Unknown"
+        return formatter.string(from: duration) ?? L10n.string(.downloadCardUnknown, locale: locale)
     }
 }

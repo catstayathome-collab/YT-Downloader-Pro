@@ -101,7 +101,7 @@ final class DownloadCenterViewTests: XCTestCase {
         XCTAssertFalse(missing.isEnabled(.revealInFinder))
         XCTAssertNil(directory.validatedOutputFileURL)
         XCTAssertNil(missing.validatedOutputFileURL)
-        XCTAssertEqual(missing.help(for: .play), "Play unavailable: file is missing or is not a regular file")
+        XCTAssertEqual(missing.help(for: .play), "Play unavailable: the file is missing or is not a regular file")
         XCTAssertEqual(
             missing.accessibilityLabel(for: .revealInFinder),
             "Reveal in Finder, unavailable because the file is missing or is not a regular file"

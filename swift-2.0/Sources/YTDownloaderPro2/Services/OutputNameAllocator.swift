@@ -297,21 +297,21 @@ actor OutputNameAllocator {
 
     private func destinationFailure() -> DownloadFailure {
         DownloadFailure(
-            category: .unknown,
+            category: .outputPermissionDenied,
             technicalDetail: "The selected download folder is unavailable or not writable."
         )
     }
 
     private func filesystemFailure() -> DownloadFailure {
         DownloadFailure(
-            category: .unknown,
+            category: .outputPermissionDenied,
             technicalDetail: "Unable to reserve a download filename in the selected folder."
         )
     }
 
     private func invalidExtensionFailure() -> DownloadFailure {
         DownloadFailure(
-            category: .unknown,
+            category: .downloadFailed,
             technicalDetail: "The selected output file extension is invalid."
         )
     }

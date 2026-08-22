@@ -7,17 +7,35 @@ struct YTDownloaderPro2App: App {
 
     var body: some Scene {
         WindowGroup {
-            DownloadCenterView()
+            LocalizedSceneRoot {
+                DownloadCenterView()
+            }
                 .environmentObject(appLifecycle.store)
                 .frame(minWidth: 760, minHeight: 540)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
 
         Settings {
-            SettingsView()
+            LocalizedSceneRoot {
+                SettingsView()
+            }
                 .environmentObject(appLifecycle.store)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
+    }
+}
+
+struct LocalizedSceneRoot<Content: View>: View {
+    @EnvironmentObject private var store: DownloadStore
+
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content.environment(\.locale, store.settings.locale)
     }
 }
 

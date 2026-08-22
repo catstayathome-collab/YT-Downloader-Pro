@@ -100,6 +100,11 @@ case "$url" in
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
+    *postprocess-error*)
+        printf 'ytdp:phase|postprocessing\n'
+        printf 'conversion failed\n' >&2
+        exit 1
+        ;;
     *postprocess*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.mp4.part"
@@ -136,6 +141,14 @@ case "$url" in
         ;;
     *arbitrary-error*)
         printf 'converter explosion\n' >&2
+        exit 1
+        ;;
+    *permission-error*)
+        printf 'Operation not permitted while writing output\n' >&2
+        exit 1
+        ;;
+    *disk-full*)
+        printf 'No space left on device\n' >&2
         exit 1
         ;;
     *)

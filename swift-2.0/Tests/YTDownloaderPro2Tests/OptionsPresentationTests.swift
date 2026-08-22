@@ -80,7 +80,7 @@ final class OptionsPresentationTests: XCTestCase {
         let state = DownloadOptionsViewState(options: .defaults)
 
         XCTAssertFalse(state.canSubmit)
-        XCTAssertEqual(state.outputFolderLabel, "Choose an output folder")
+        XCTAssertEqual(state.outputFolderLabel, "Choose output folder")
     }
 
     func testSavedOptionsWithBookmarkRemainReadyAndKeepTheirFolderLabel() {

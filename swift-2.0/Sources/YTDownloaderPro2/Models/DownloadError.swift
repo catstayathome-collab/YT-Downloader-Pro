@@ -6,16 +6,28 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         case metadataUnavailable
         case networkUnavailable
         case authenticationRequired
+        case clientValidationFailed
         case formatReselectionRequired
         case unavailableMedia
         case bundledDownloaderUnavailable
         case bundledConverterUnavailable
+        case outputPermissionDenied
         case diskFull
+        case downloadFailed
         case postProcessingFailed
+        case persistenceRecovery
         case unknown
 
         var summaryKey: String { "error.\(rawValue).summary" }
         var recoveryKey: String { "error.\(rawValue).recovery" }
+    }
+
+    enum Context: Sendable {
+        case analysis
+        case download
+        case postProcessing
+        case persistence
+        case toolchain
     }
 
     var category: Category
@@ -87,6 +99,59 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
 
     static func sanitizedTechnicalDetail(_ detail: String) -> String {
         sanitize(detail) ?? ""
+    }
+
+    static func classify(
+        stderr: String,
+        context: Context = .download,
+        exitCode: Int32? = nil
+    ) -> DownloadFailure {
+        let detail = stderr.lowercased()
+        let category: Category
+
+        if context == .toolchain {
+            category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
+        } else if containsAny(detail, ["no space left on device", "disk full", "insufficient disk space"]) {
+            category = .diskFull
+        } else if containsAny(detail, ["operation not permitted", "permission denied", "read-only file system"]) {
+            category = .outputPermissionDenied
+        } else if containsAny(detail, ["unsupported url", "invalid url", "not a valid url"]) {
+            category = .invalidURL
+        } else if containsAny(detail, ["sign in", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
+            category = .authenticationRequired
+        } else if containsAny(detail, ["private video", "video is private", "video unavailable", "not made this video available in your country", "not available in your country", "region", "geo-restricted", "removed by the uploader"]) {
+            category = .unavailableMedia
+        } else if containsAny(detail, ["network", "connection", "offline", "timed out", "temporary failure in name resolution", "dns lookup failed"]) {
+            category = .networkUnavailable
+        } else if containsAny(detail, ["http error 403", "403 forbidden", "client validation", "player client"]) {
+            category = .clientValidationFailed
+        } else if containsAny(detail, ["requested format is not available", "selected format is no longer available", "format selection failed"]) {
+            category = .formatReselectionRequired
+        } else if containsAny(detail, ["bad cpu type", "not executable", "incompatible helper", "helper is unavailable", "is not installed"]) {
+            category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
+        } else {
+            category = switch context {
+            case .analysis: .metadataUnavailable
+            case .download: .downloadFailed
+            case .postProcessing: .postProcessingFailed
+            case .persistence: .persistenceRecovery
+            case .toolchain: .bundledDownloaderUnavailable
+            }
+        }
+
+        return DownloadFailure(
+            category: category,
+            technicalDetail: stderr,
+            toolExitCode: exitCode
+        )
+    }
+
+    func userSummary(locale: String) -> String {
+        L10n.string(summaryKey, localeIdentifier: locale)
+    }
+
+    func userRecoverySuggestion(locale: String) -> String {
+        L10n.string(recoverySuggestionKey ?? category.recoveryKey, localeIdentifier: locale)
     }
 
     static func sanitizedDiagnosticDetail(_ detail: String) -> String {
@@ -211,5 +276,9 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             range: NSRange(value.startIndex..., in: value),
             withTemplate: template
         )
+    }
+
+    private static func containsAny(_ value: String, _ candidates: [String]) -> Bool {
+        candidates.contains(where: value.contains)
     }
 }

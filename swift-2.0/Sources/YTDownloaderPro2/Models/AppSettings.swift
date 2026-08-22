@@ -2,6 +2,7 @@ import Foundation
 
 struct AppSettings: Codable, Equatable, Sendable {
     static let supportedConcurrentDownloads = 1...10
+    static let supportedLanguageOverrides = Set(L10n.supportedLocaleIdentifiers)
 
     var maximumConcurrentDownloads: Int
     var languageOverride: String?
@@ -17,7 +18,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         automaticallyCheckForUpdates: Bool = true
     ) {
         self.maximumConcurrentDownloads = Self.clamp(maximumConcurrentDownloads)
-        self.languageOverride = languageOverride
+        self.languageOverride = Self.normalizedLanguageOverride(languageOverride)
         self.defaultOptions = defaultOptions
         self.automaticallyCheckForUpdates = automaticallyCheckForUpdates
     }
@@ -54,6 +55,10 @@ struct AppSettings: Codable, Equatable, Sendable {
             defaultOptions: defaultOptions,
             automaticallyCheckForUpdates: automaticallyCheckForUpdates
         )
+    }
+
+    var locale: Locale {
+        languageOverride.map(Locale.init(identifier:)) ?? .current
     }
 
     mutating func setDefaultOutputDirectory(
@@ -107,6 +112,11 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     private static func clamp(_ value: Int) -> Int {
         min(max(value, supportedConcurrentDownloads.lowerBound), supportedConcurrentDownloads.upperBound)
+    }
+
+    private static func normalizedLanguageOverride(_ value: String?) -> String? {
+        guard let value, supportedLanguageOverrides.contains(value) else { return nil }
+        return value
     }
 }
 

@@ -140,7 +140,7 @@ actor DownloadRunner: JobRunning {
             finishStream(
                 continuation: continuation,
                 terminationRelay: terminationRelay,
-                error: DownloadFailure(category: .unknown, technicalDetail: "This download is already running.")
+                error: DownloadFailure(category: .downloadFailed, technicalDetail: "This download is already running."),
             )
             return
         }
@@ -310,7 +310,7 @@ actor DownloadRunner: JobRunning {
               await verifiedFinalOutput(finalOutput, reservation: reservation, jobID: jobID, outputKind: activeDownload.job.options.outputKind) else {
             await finish(
                 jobID: jobID,
-                error: DownloadFailure(category: .unknown, technicalDetail: "The download did not produce a verified final file."),
+                error: DownloadFailure(category: .downloadFailed, technicalDetail: "The download did not produce a verified final file."),
                 removeMarker: false
             )
             return
@@ -349,7 +349,7 @@ actor DownloadRunner: JobRunning {
         } catch {
             await finish(
                 jobID: jobID,
-                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start."),
+                error: Toolchain.failure(for: "yt-dlp_macos"),
                 removeMarker: false
             )
             return nil
@@ -381,7 +381,7 @@ actor DownloadRunner: JobRunning {
         } catch {
             await finish(
                 jobID: jobID,
-                error: DownloadFailure(category: .metadataUnavailable, technicalDetail: "Video analysis could not start."),
+                error: Toolchain.failure(for: "yt-dlp_macos"),
                 removeMarker: false
             )
             return nil
@@ -523,16 +523,16 @@ actor DownloadRunner: JobRunning {
 
     private func outputDirectoryAccess(for job: DownloadJob) throws -> OutputDirectorySecurityScopedAccess {
         guard let bookmark = job.options.outputDirectoryBookmark else {
-            throw DownloadFailure(category: .unknown, technicalDetail: "Select a download folder before starting.")
+            throw DownloadFailure(category: .outputPermissionDenied, technicalDetail: "Select a download folder before starting.")
         }
         let resolution: OutputDirectoryBookmarkService.Resolution
         do {
             resolution = try bookmarks.resolveBookmark(bookmark)
         } catch {
-            throw DownloadFailure(category: .unknown, technicalDetail: "The selected download folder needs to be chosen again.")
+            throw DownloadFailure(category: .outputPermissionDenied, technicalDetail: "The selected download folder needs to be chosen again.")
         }
         guard !resolution.isStale, bookmarks.startAccessingSecurityScopedResource(at: resolution.url) else {
-            throw DownloadFailure(category: .unknown, technicalDetail: "The selected download folder needs to be chosen again.")
+            throw DownloadFailure(category: .outputPermissionDenied, technicalDetail: "The selected download folder needs to be chosen again.")
         }
         return OutputDirectorySecurityScopedAccess(url: resolution.url) { [bookmarks] in
             bookmarks.stopAccessingSecurityScopedResource(at: resolution.url)
@@ -541,7 +541,7 @@ actor DownloadRunner: JobRunning {
 
     private func outputDirectory(for job: DownloadJob) throws -> URL {
         guard let activeDownload = active[job.id], let scope = activeDownload.scope else {
-            throw DownloadFailure(category: .unknown, technicalDetail: "The selected download folder is unavailable.")
+            throw DownloadFailure(category: .outputPermissionDenied, technicalDetail: "The selected download folder is unavailable.")
         }
         return scope.url
     }
@@ -646,27 +646,21 @@ actor DownloadRunner: JobRunning {
     }
 
     private func failure(for result: ProcessResult, phase: DownloadPhase) -> DownloadFailure {
-        let detail = result.stderr.lowercased()
-        let category: DownloadFailure.Category
-        if retryableClientFailure(result) {
-            category = .authenticationRequired
-        } else if detail.contains("network") || detail.contains("timed out") || detail.contains("connection") || detail.contains("dns") {
-            category = .networkUnavailable
-        } else if detail.contains("disk") || detail.contains("no space") {
-            category = .diskFull
-        } else if phase == .merging || phase == .postprocessing {
-            category = .postProcessingFailed
-        } else {
-            category = .unknown
-        }
-        return DownloadFailure(category: category, technicalDetail: "The download did not complete.", toolExitCode: result.exitCode)
+        DownloadFailure.classify(
+            stderr: result.stderr,
+            context: phase == .merging || phase == .postprocessing ? .postProcessing : .download,
+            exitCode: result.exitCode
+        )
     }
 
     private func sanitizedLaunchFailure(_ error: Error) -> DownloadFailure {
         if let failure = error as? DownloadFailure {
             return failure
         }
-        return DownloadFailure(category: .unknown, technicalDetail: "The download could not be prepared.")
+        return DownloadFailure.classify(
+            stderr: "A bundled download component could not be launched.",
+            context: .toolchain
+        )
     }
 }
 

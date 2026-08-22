@@ -172,6 +172,7 @@ private enum AnalysisSheet: Identifiable {
 
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
+    @Environment(\.locale) private var locale
 
     @State private var url = ""
     @State private var pendingConfirmation: DownloadConfirmation?
@@ -179,6 +180,7 @@ struct DownloadCenterView: View {
     @State private var analysisSheet: AnalysisSheet?
     @State private var pendingRecordRemovalJobID: UUID?
     @State private var playlistSelectAllToken = UUID()
+    @State private var showsAnalysisErrorDetails = false
     @FocusState private var focusedField: FocusedField?
 
     private enum FocusedField: Hashable {
@@ -200,12 +202,12 @@ struct DownloadCenterView: View {
                 } label: {
                     Image(systemName: "gearshape")
                 }
-                .help("Settings")
-                .accessibilityLabel("Settings")
+                .help(L10n.string(.appSettings, locale: locale))
+                .accessibilityLabel(L10n.string(.appSettings, locale: locale))
             }
         }
         .sheet(item: $editingJob) { job in
-            MediaOptionsSheet(title: "Edit Download", options: job.options) { options in
+            MediaOptionsSheet(titleKey: .mediaEditDownload, options: job.options) { options in
                 Task { _ = await store.editQueuedJob(job.id, options: options) }
             }
         }
@@ -227,14 +229,19 @@ struct DownloadCenterView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsAnalysisErrorDetails) {
+            if case let .failed(failure) = store.analysisState {
+                ErrorDetailsView(failure: failure)
+            }
+        }
         .alert(item: $pendingConfirmation) { confirmation in
             Alert(
-                title: Text(confirmation.title),
-                message: Text(confirmation.message),
-                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle)) {
+                title: Text(confirmation.title(locale: locale)),
+                message: Text(confirmation.message(locale: locale)),
+                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle(locale: locale))) {
                     performConfirmed(confirmation)
                 },
-                secondaryButton: .cancel()
+                secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
             )
         }
         .onChange(of: store.analysisState) { state in
@@ -264,11 +271,11 @@ struct DownloadCenterView: View {
 
     private var sidebar: some View {
         List(selection: $store.sidebarSection) {
-            Section("Downloads") {
+            Section(L10n.string(.downloadCenterTitle, locale: locale)) {
                 ForEach(DownloadStatus.SidebarSection.allCases, id: \.self) { section in
                     Label {
                         HStack {
-                            Text(sidebarTitle(for: section))
+                            Text(sidebarTitle(for: section, locale: locale))
                             Spacer(minLength: 8)
                             Text("\(count(for: section))")
                                 .foregroundStyle(.secondary)
@@ -285,20 +292,20 @@ struct DownloadCenterView: View {
         .scrollContentBackground(.hidden)
         .background(DownloadCenterAppearance.palette.sidebarBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
-        .navigationTitle("Downloads")
+        .navigationTitle(L10n.string(.downloadCenterTitle, locale: locale))
     }
 
     private var mainPane: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    TextField("Video or playlist URL", text: $url)
+                    TextField(L10n.string(.downloadCenterURLPlaceholder, locale: locale), text: $url)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .url)
                         .onSubmit(analyzeURL)
-                        .accessibilityLabel("Video or playlist URL")
+                        .accessibilityLabel(L10n.string(.downloadCenterURLPlaceholder, locale: locale))
 
-                    Button("Analyze", action: analyzeURL)
+                    Button(L10n.string(.downloadCenterAnalyze, locale: locale), action: analyzeURL)
                         .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAnalyzing)
                 }
 
@@ -308,9 +315,11 @@ struct DownloadCenterView: View {
 
             Divider()
 
+            analysisStatus
+
             if store.filteredJobs.isEmpty {
                 Spacer()
-                Text("No downloads in this section")
+                Text(L10n.string(.downloadCenterEmpty, locale: locale))
                     .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                 Spacer()
             } else {
@@ -330,13 +339,51 @@ struct DownloadCenterView: View {
         }
         .background(DownloadCenterAppearance.palette.windowBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
-        .navigationTitle(sidebarTitle(for: store.sidebarSection))
+        .navigationTitle(sidebarTitle(for: store.sidebarSection, locale: locale))
+    }
+
+    @ViewBuilder
+    private var analysisStatus: some View {
+        switch store.analysisState {
+        case .analyzing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(L10n.string(.downloadCenterAnalyzing, locale: locale))
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case let .failed(failure):
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string(failure.summaryKey, locale: locale))
+                        .font(.subheadline.weight(.semibold))
+                    Text(L10n.string(failure.recoverySuggestionKey ?? failure.category.recoveryKey, locale: locale))
+                        .font(.caption)
+                        .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Button(L10n.string(.downloadActionErrorDetails, locale: locale)) {
+                    showsAnalysisErrorDetails = true
+                }
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        case .idle, .video, .playlist:
+            EmptyView()
+        }
     }
 
     private var bulkToolbar: some View {
         HStack(spacing: 8) {
             bulkActionButton(
-                title: "Start All",
+                title: L10n.string(.downloadCenterBulkStart, locale: locale),
                 systemImage: "play.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status == .queued })
             ) {
@@ -344,7 +391,7 @@ struct DownloadCenterView: View {
             }
 
             bulkActionButton(
-                title: "Pause All",
+                title: L10n.string(.downloadCenterBulkPause, locale: locale),
                 systemImage: "pause.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status.canPause })
             ) {
@@ -352,7 +399,7 @@ struct DownloadCenterView: View {
             }
 
             bulkActionButton(
-                title: "Resume All",
+                title: L10n.string(.downloadCenterBulkResume, locale: locale),
                 systemImage: "play.fill",
                 isDisabled: !store.jobs.contains(where: { $0.status == .paused })
             ) {
@@ -360,7 +407,7 @@ struct DownloadCenterView: View {
             }
 
             bulkActionButton(
-                title: "Cancel Active/Waiting",
+                title: L10n.string(.downloadCenterBulkCancel, locale: locale),
                 systemImage: "xmark",
                 role: .destructive,
                 isDisabled: !store.jobs.contains(where: { $0.status == .queued || $0.status.isActive })
@@ -371,7 +418,7 @@ struct DownloadCenterView: View {
             Spacer(minLength: 0)
 
             bulkActionButton(
-                title: "Clear Completed",
+                title: L10n.string(.downloadCenterBulkClearCompleted, locale: locale),
                 systemImage: "trash",
                 isDisabled: !store.jobs.contains(where: { $0.status == .completed })
             ) {
@@ -482,13 +529,13 @@ struct DownloadCenterView: View {
             : store.jobs.filter { $0.status.sidebarSection == section }.count
     }
 
-    private func sidebarTitle(for section: DownloadStatus.SidebarSection) -> String {
+    private func sidebarTitle(for section: DownloadStatus.SidebarSection, locale: Locale) -> String {
         switch section {
-        case .all: "All"
-        case .running: "Running"
-        case .stopped: "Stopped"
-        case .completed: "Completed"
-        case .failed: "Failed"
+        case .all: L10n.string(.downloadCenterSidebarAll, locale: locale)
+        case .running: L10n.string(.downloadCenterSidebarRunning, locale: locale)
+        case .stopped: L10n.string(.downloadCenterSidebarStopped, locale: locale)
+        case .completed: L10n.string(.downloadCenterSidebarCompleted, locale: locale)
+        case .failed: L10n.string(.downloadCenterSidebarFailed, locale: locale)
         }
     }
 

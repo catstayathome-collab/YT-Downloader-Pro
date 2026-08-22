@@ -35,12 +35,12 @@ struct DownloadOptionsViewState: Equatable {
     let outputFolderLabel: String
     let canSubmit: Bool
 
-    init(options: DownloadOptions) {
+    init(options: DownloadOptions, locale: Locale = Locale(identifier: "en")) {
         availableSubtitleModes = options.outputKind == .mp3 ? [.none, .download] : [.none, .download, .embed]
         let hasBookmark = options.outputDirectoryBookmark?.isEmpty == false
         outputFolderLabel = hasBookmark
-            ? options.outputDirectoryDisplayPath ?? "Selected output folder"
-            : "Choose an output folder"
+            ? options.outputDirectoryDisplayPath ?? L10n.string(.mediaSelectedOutputFolder, locale: locale)
+            : L10n.string(.mediaChooseOutputFolder, locale: locale)
         canSubmit = hasBookmark
     }
 }
@@ -144,9 +144,10 @@ struct MediaOptionsPresentation: Equatable {
 
 struct MediaOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
-    private let title: String
-    private let actionTitle: String
+    private let titleKey: L10n.Key
+    private let actionKey: L10n.Key
     private let identity: MediaIdentityPresentation?
     private let videoChoices: [MediaFormat]
     private let audioChoices: [MediaFormat]
@@ -157,13 +158,13 @@ struct MediaOptionsSheet: View {
     init(
         analysis: VideoAnalysis,
         defaults: DownloadOptions,
-        title: String = "Media Options",
-        actionTitle: String = "Add to Queue",
+        titleKey: L10n.Key = .mediaOptionsTitle,
+        actionKey: L10n.Key = .commonAddToQueue,
         onConfirm: @escaping (DownloadOptions) -> Void
     ) {
         let presentation = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
-        self.title = title
-        self.actionTitle = actionTitle
+        self.titleKey = titleKey
+        self.actionKey = actionKey
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
@@ -172,14 +173,14 @@ struct MediaOptionsSheet: View {
     }
 
     init(
-        title: String,
+        titleKey: L10n.Key,
         options: DownloadOptions,
-        actionTitle: String = "Save",
+        actionKey: L10n.Key = .commonSave,
         onConfirm: @escaping (DownloadOptions) -> Void
     ) {
         let presentation = MediaOptionsPresentation(options: options)
-        self.title = title
-        self.actionTitle = actionTitle
+        self.titleKey = titleKey
+        self.actionKey = actionKey
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
@@ -189,7 +190,7 @@ struct MediaOptionsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title)
+            Text(L10n.string(titleKey, locale: locale))
                 .font(.title3.weight(.semibold))
 
             if let identity {
@@ -205,12 +206,12 @@ struct MediaOptionsSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                Button(actionTitle) {
+                Button(L10n.string(.commonCancel, locale: locale)) { dismiss() }
+                Button(L10n.string(actionKey, locale: locale)) {
                     onConfirm(options)
                     dismiss()
                 }
-                .disabled(!DownloadOptionsViewState(options: options).canSubmit)
+                .disabled(!DownloadOptionsViewState(options: options, locale: locale).canSubmit)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -229,7 +230,7 @@ struct MediaOptionsSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(identity.title)
+                Text(MediaFallbackText.localized(identity.title, locale: locale))
                     .font(.headline)
                     .lineLimit(identity.titleLineLimit)
                     .fixedSize(horizontal: false, vertical: true)
@@ -265,12 +266,13 @@ struct MediaOptionsSheet: View {
             .font(.title2)
             .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityLabel("Thumbnail unavailable")
+            .accessibilityLabel(L10n.string(.mediaThumbnailUnavailable, locale: locale))
     }
 }
 
 struct DownloadOptionsEditor: View {
     @EnvironmentObject private var store: DownloadStore
+    @Environment(\.locale) private var locale
     @Binding var options: DownloadOptions
 
     let videoChoices: [MediaFormat]
@@ -280,53 +282,53 @@ struct DownloadOptionsEditor: View {
 
     var body: some View {
         Group {
-            Section("Output") {
-                Picker("Output format", selection: outputKind) {
-                    Text("MP4 video").tag(OutputKind.mp4)
-                    Text("MP3 audio").tag(OutputKind.mp3)
+            Section(L10n.string(.mediaOutput, locale: locale)) {
+                Picker(L10n.string(.mediaOutputFormat, locale: locale), selection: outputKind) {
+                    Text(L10n.string(.downloadCardFormatMP4, locale: locale)).tag(OutputKind.mp4)
+                    Text(L10n.string(.downloadCardFormatMP3, locale: locale)).tag(OutputKind.mp3)
                 }
                 .pickerStyle(.segmented)
 
-                Picker("Video format", selection: videoSelection) {
-                    Text("Highest available").tag(nil as String?)
+                Picker(L10n.string(.mediaVideoFormat, locale: locale), selection: videoSelection) {
+                    Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
                     ForEach(videoChoices) { format in
-                        Text(format.label)
+                        Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
                     }
                 }
 
-                Picker("Audio format", selection: audioSelection) {
-                    Text("Highest available").tag(nil as String?)
+                Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
+                    Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
                     ForEach(audioChoices) { format in
-                        Text(format.label)
+                        Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
                     }
                 }
             }
 
-            Section("Subtitles") {
-                Picker("Subtitle mode", selection: $options.subtitleMode) {
+            Section(L10n.string(.mediaSubtitles, locale: locale)) {
+                Picker(L10n.string(.mediaSubtitleMode, locale: locale), selection: $options.subtitleMode) {
                     ForEach(viewState.availableSubtitleModes, id: \.self) { mode in
                         Text(subtitleModeLabel(mode)).tag(mode)
                     }
                 }
-                TextField("Subtitle language", text: subtitleLanguage)
+                TextField(L10n.string(.mediaSubtitleLanguage, locale: locale), text: subtitleLanguage)
                     .disabled(options.subtitleMode == .none)
             }
 
-            Section("Metadata") {
-                Toggle("Embed thumbnail", isOn: $options.embedThumbnail)
-                Toggle("Embed metadata", isOn: $options.embedMetadata)
-                Picker("Browser cookies", selection: $options.cookies) {
-                    Text("None").tag(CookieMode.none)
-                    Text("Chrome").tag(CookieMode.chrome)
-                    Text("Safari").tag(CookieMode.safari)
+            Section(L10n.string(.mediaMetadata, locale: locale)) {
+                Toggle(L10n.string(.mediaEmbedThumbnail, locale: locale), isOn: $options.embedThumbnail)
+                Toggle(L10n.string(.mediaEmbedMetadata, locale: locale), isOn: $options.embedMetadata)
+                Picker(L10n.string(.mediaBrowserCookies, locale: locale), selection: $options.cookies) {
+                    Text(L10n.string(.mediaCookiesNone, locale: locale)).tag(CookieMode.none)
+                    Text(L10n.string(.mediaCookiesChrome, locale: locale)).tag(CookieMode.chrome)
+                    Text(L10n.string(.mediaCookiesSafari, locale: locale)).tag(CookieMode.safari)
                 }
             }
 
-            Section("Output folder") {
+            Section(L10n.string(.mediaOutputFolder, locale: locale)) {
                 HStack(spacing: 8) {
                     Text(viewState.outputFolderLabel)
                         .lineLimit(2)
@@ -337,8 +339,8 @@ struct DownloadOptionsEditor: View {
                     } label: {
                         Image(systemName: "folder")
                     }
-                    .help("Choose output folder")
-                    .accessibilityLabel("Choose output folder")
+                    .help(L10n.string(.mediaChooseOutputFolder, locale: locale))
+                    .accessibilityLabel(L10n.string(.mediaChooseOutputFolder, locale: locale))
                 }
                 if let folderError {
                     Text(folderError)
@@ -350,7 +352,7 @@ struct DownloadOptionsEditor: View {
     }
 
     private var viewState: DownloadOptionsViewState {
-        DownloadOptionsViewState(options: options)
+        DownloadOptionsViewState(options: options, locale: locale)
     }
 
     private var outputKind: Binding<OutputKind> {
@@ -362,9 +364,9 @@ struct DownloadOptionsEditor: View {
 
     private func subtitleModeLabel(_ mode: SubtitleMode) -> String {
         switch mode {
-        case .none: "None"
-        case .download: "Download"
-        case .embed: "Embed"
+        case .none: L10n.string(.mediaSubtitleNone, locale: locale)
+        case .download: L10n.string(.mediaSubtitleDownload, locale: locale)
+        case .embed: L10n.string(.mediaSubtitleEmbed, locale: locale)
         }
     }
 
@@ -409,25 +411,24 @@ struct DownloadOptionsEditor: View {
 
     @MainActor
     private func chooseFolder() {
-        guard let directory = OutputFolderPicker.choose() else { return }
+        guard let directory = OutputFolderPicker.choose(prompt: L10n.string(.commonChoose, locale: locale)) else { return }
         do {
             options = try store.optionsBySelectingOutputDirectory(directory, in: options)
             folderError = nil
         } catch {
-            folderError = (error as? LocalizedError)?.errorDescription
-                ?? "The selected folder could not be saved. Choose it again."
+            folderError = L10n.string(.mediaFolderSaveFailed, locale: locale)
         }
     }
 }
 
 enum OutputFolderPicker {
     @MainActor
-    static func choose() -> URL? {
+    static func choose(prompt: String) -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
+        panel.prompt = prompt
         return panel.runModal() == .OK ? panel.url : nil
     }
 

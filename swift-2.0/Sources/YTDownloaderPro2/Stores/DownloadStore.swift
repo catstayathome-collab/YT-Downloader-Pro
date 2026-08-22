@@ -13,7 +13,7 @@ enum OutputDirectorySelectionError: Error, Equatable, LocalizedError {
     case bookmarkCreationFailed
 
     var errorDescription: String? {
-        "The selected folder could not be saved. Choose it again."
+        L10n.string(.mediaFolderSaveFailed, locale: .current)
     }
 }
 
@@ -508,7 +508,12 @@ final class DownloadStore: ObservableObject {
             jobs = restored
             selection = selection.intersection(Set(jobs.map(\.id)))
         } catch {
-            await recordDiagnostic(jobID: nil, stage: "persistence-recovery", detail: String(describing: error))
+            let failure = DownloadFailure.classify(
+                stderr: String(describing: error),
+                context: .persistence
+            )
+            analysisState = .failed(failure)
+            await recordDiagnostic(jobID: nil, stage: "persistence-recovery", detail: failure.technicalDetail)
         }
     }
 
@@ -548,7 +553,7 @@ final class DownloadStore: ObservableObject {
             }
             if status == .failed, jobs[index].failure == nil {
                 jobs[index].failure = DownloadFailure(
-                    category: .unknown,
+                    category: .downloadFailed,
                     technicalDetail: "The download worker stopped unexpectedly."
                 )
             }
@@ -712,7 +717,10 @@ final class DownloadStore: ObservableObject {
     }
 
     private func failure(from error: Error) -> DownloadFailure {
-        error as? DownloadFailure ?? DownloadFailure(category: .unknown, technicalDetail: String(describing: error))
+        error as? DownloadFailure ?? DownloadFailure.classify(
+            stderr: String(describing: error),
+            context: .analysis
+        )
     }
 
     private func makeGeneration() -> UInt64 {

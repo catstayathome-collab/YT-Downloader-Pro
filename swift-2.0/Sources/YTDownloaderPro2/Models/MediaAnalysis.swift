@@ -14,6 +14,7 @@ struct MediaFormat: Codable, Equatable, Sendable, Identifiable {
     var bitrate: Double?
     var language: String?
     var estimatedFileSize: Int64?
+    var note: String?
 }
 
 struct VideoAnalysis: Codable, Equatable, Sendable {
