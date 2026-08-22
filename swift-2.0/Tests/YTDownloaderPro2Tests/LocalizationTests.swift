@@ -129,6 +129,9 @@ final class LocalizationTests: XCTestCase {
             ("ERROR: Video is unavailable", .analysis, .unavailableMedia),
             ("ERROR: Video is region restricted", .analysis, .unavailableMedia),
             ("ERROR: This video is restricted in your region", .analysis, .unavailableMedia),
+            ("ERROR: [youtube] abc123: Video is region restricted", .download, .unavailableMedia),
+            ("ERROR: [youtube] abc123: This video is restricted in your region", .download, .unavailableMedia),
+            ("WARNING: Retrying metadata\nERROR: [youtube] abc123: This video is restricted in your region", .analysis, .unavailableMedia),
             ("ERROR: Requested format not available", .download, .formatReselectionRequired),
             ("urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed", .download, .networkUnavailable),
             ("socket.gaierror: Name or service not known", .download, .networkUnavailable),
@@ -165,7 +168,15 @@ final class LocalizationTests: XCTestCase {
             ("Postprocessing failed while writing /Exports/Access Is Denied.mp4", .postProcessing, .postProcessingFailed),
             ("Metadata parser failed for Regional Highlights", .analysis, .metadataUnavailable),
             ("Metadata parser failed for Network Connections", .analysis, .metadataUnavailable),
-            ("Metadata parser failed for Offline Collection", .analysis, .metadataUnavailable)
+            ("Metadata parser failed for Offline Collection", .analysis, .metadataUnavailable),
+            ("Metadata parser failed for Region Restricted", .analysis, .metadataUnavailable),
+            ("ERROR: Metadata parser failed for Restricted in Your Region", .analysis, .metadataUnavailable),
+            ("[youtube] Region Restricted: Downloading webpage\nERROR: metadata response was malformed", .analysis, .metadataUnavailable),
+            ("This Video Is Restricted in Your Region", .analysis, .metadataUnavailable),
+            ("Download failed while writing /Exports/Region Restricted.mp4", .download, .downloadFailed),
+            ("ERROR: Download failed while writing /Exports/Restricted in Your Region.mp4", .download, .downloadFailed),
+            ("[download] Destination: /Exports/Restricted in Your Region.mp4\nERROR: download exited with status 1", .download, .downloadFailed),
+            ("Video Is Region Restricted", .download, .downloadFailed)
         ]
 
         for (stderr, context, expected) in cases {

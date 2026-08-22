@@ -139,7 +139,8 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
                   containsAny(detail, ["sign in to confirm", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
             category = .authenticationRequired
         } else if isSourceFailureContext,
-                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "region restricted", "restricted in your region", "geo-restricted", "removed by the uploader"]) {
+                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "geo-restricted", "removed by the uploader"])
+                    || containsRegionRestrictionDiagnostic(detail) {
             category = .unavailableMedia
         } else if isSourceFailureContext,
                   containsAny(detail, [
@@ -342,6 +343,32 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             return ["access denied", "access is denied"].contains { phrase in
                 message == phrase || message.hasPrefix("\(phrase) while ")
             }
+        }
+    }
+
+    private static func containsRegionRestrictionDiagnostic(_ detail: String) -> Bool {
+        let exactMessages: Set<String> = [
+            "video is region restricted",
+            "this video is restricted in your region"
+        ]
+
+        return detail.split(whereSeparator: \Character.isNewline).contains { rawLine in
+            var message = rawLine.trimmingCharacters(in: .whitespaces)
+            guard message.hasPrefix("error:") else { return false }
+            message = message.dropFirst("error:".count).trimmingCharacters(in: .whitespaces)
+
+            // Region failures require ERROR: plus an exact maintained message. The optional
+            // extractor prefix is stripped without treating title or path text as diagnostics.
+            for prefix in ["[youtube] ", "[youtube:tab] "] where message.hasPrefix(prefix) {
+                let remainder = message.dropFirst(prefix.count)
+                guard let separator = remainder.firstIndex(of: ":") else { break }
+                message = remainder[remainder.index(after: separator)...]
+                    .trimmingCharacters(in: .whitespaces)
+                break
+            }
+
+            let terminalPunctuation = CharacterSet(charactersIn: ".!?")
+            return exactMessages.contains(message.trimmingCharacters(in: terminalPunctuation))
         }
     }
 }
