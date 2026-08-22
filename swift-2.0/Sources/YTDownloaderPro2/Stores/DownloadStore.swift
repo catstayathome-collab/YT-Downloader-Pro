@@ -9,6 +9,15 @@ enum AnalysisState: Equatable {
     case failed(DownloadFailure)
 }
 
+struct FailedJobEditSession: Equatable, Sendable, Identifiable {
+    let jobID: UUID
+    let generation: UInt64
+    let analysis: VideoAnalysis
+    let options: DownloadOptions
+
+    var id: String { "\(jobID.uuidString)-\(generation)" }
+}
+
 enum OutputDirectorySelectionError: Error, Equatable, LocalizedError {
     case bookmarkCreationFailed
 
@@ -199,6 +208,7 @@ final class DownloadStore: ObservableObject {
         let job = DownloadJob(
             sourceURL: video.sourceURL,
             title: video.title,
+            titleSource: video.titleSource,
             duration: video.duration,
             sourceMetadata: video.sourceURL,
             options: options
@@ -218,6 +228,7 @@ final class DownloadStore: ObservableObject {
                     sourceURL: entry.sourceURL,
                     playlistID: playlist.id,
                     title: entry.title,
+                    titleSource: entry.titleSource,
                     duration: entry.duration,
                     sourceMetadata: entry.sourceURL,
                     options: options
@@ -408,6 +419,7 @@ final class DownloadStore: ObservableObject {
                   jobs[refreshedIndex].status == .failed else { return }
             jobs[refreshedIndex].sourceURL = video.sourceURL
             jobs[refreshedIndex].title = video.title
+            jobs[refreshedIndex].titleSource = video.titleSource
             jobs[refreshedIndex].duration = video.duration
             jobs[refreshedIndex].sourceMetadata = video.sourceURL
             jobs[refreshedIndex].failure = nil
@@ -425,6 +437,89 @@ final class DownloadStore: ObservableObject {
         case let .failure(error):
             await retainRetryFailure(failure(from: error), for: jobID, generation: generation)
         }
+    }
+
+    /// Reanalyzes a failed record with edited credentials/folder settings without mutating it.
+    func prepareFailedJobEdit(_ jobID: UUID, options: DownloadOptions) async -> FailedJobEditSession? {
+        guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status == .failed,
+              job.failure?.category.supportsOptionsRecovery == true else { return nil }
+        let generation = makeGeneration()
+        currentRetryGeneration[jobID] = generation
+        retryOperations[jobID]?.values.forEach { $0.task.cancel() }
+        let analyzer = metadataAnalyzer
+        let task = Task { try await analyzer.analyze(url: job.sourceURL, options: options) }
+        retryOperations[jobID, default: [:]][generation] = RetryOperation(generation: generation, task: task)
+        let result = await task.result
+        retryOperations[jobID]?[generation] = nil
+        if retryOperations[jobID]?.isEmpty == true {
+            retryOperations[jobID] = nil
+        }
+
+        guard ownsRetry(jobID: jobID, generation: generation),
+              jobs.contains(where: { $0.id == jobID && $0.status == .failed }) else { return nil }
+        switch result {
+        case let .success(.video(video)):
+            return FailedJobEditSession(
+                jobID: jobID,
+                generation: generation,
+                analysis: video,
+                options: options.replacingStaleSelections(with: video)
+            )
+        case .success(.playlist):
+            await retainRetryFailure(
+                DownloadFailure(
+                    category: .metadataUnavailable,
+                    technicalDetail: "Recovery analysis returned a playlist instead of the requested media."
+                ),
+                for: jobID,
+                generation: generation
+            )
+            return nil
+        case let .failure(error):
+            await retainRetryFailure(failure(from: error), for: jobID, generation: generation)
+            return nil
+        }
+    }
+
+    /// Applies only options selected from this session's fresh metadata snapshot.
+    func applyFailedJobEdit(_ session: FailedJobEditSession, options: DownloadOptions) async -> Bool {
+        guard ownsRetry(jobID: session.jobID, generation: session.generation),
+              let index = jobs.firstIndex(where: { $0.id == session.jobID }),
+              jobs[index].status == .failed else { return false }
+        let analysis = AnalysisResult.video(session.analysis)
+        guard options.selectedFormatsRemainAvailable(in: analysis) else {
+            await retainRetryFailure(
+                DownloadFailure(
+                    category: .formatReselectionRequired,
+                    technicalDetail: "The edited format was not present in the fresh analysis."
+                ),
+                for: session.jobID,
+                generation: session.generation
+            )
+            return false
+        }
+
+        jobs[index].sourceURL = session.analysis.sourceURL
+        jobs[index].title = session.analysis.title
+        jobs[index].titleSource = session.analysis.titleSource
+        jobs[index].duration = session.analysis.duration
+        jobs[index].sourceMetadata = session.analysis.sourceURL
+        jobs[index].options = options
+        jobs[index].failure = nil
+        jobs[index].retryCount += 1
+        jobs[index].progress = 0
+        jobs[index].downloadedBytes = nil
+        jobs[index].totalBytes = nil
+        jobs[index].speedBytesPerSecond = nil
+        jobs[index].estimatedTimeRemaining = nil
+        transitionJob(at: index, to: .queued)
+        currentRetryGeneration[session.jobID] = nil
+        await persist(flush: true)
+        guard !isPreparingToQuit, jobs.contains(where: { $0.id == session.jobID }) else { return true }
+        cacheThumbnail(from: session.analysis.thumbnailURL, for: session.jobID)
+        return true
     }
 
     /// Removes retained state and owned cache metadata, never a completed media output.
@@ -470,6 +565,7 @@ final class DownloadStore: ObservableObject {
             sourceURL: job.sourceURL,
             playlistID: job.playlistID,
             title: job.title,
+            titleSource: job.titleSource,
             duration: job.duration,
             sourceMetadata: job.sourceMetadata,
             options: job.options

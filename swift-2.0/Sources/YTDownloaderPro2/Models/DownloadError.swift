@@ -20,6 +20,17 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
 
         var summaryKey: String { "error.\(rawValue).summary" }
         var recoveryKey: String { "error.\(rawValue).recovery" }
+
+        var supportsOptionsRecovery: Bool {
+            switch self {
+            case .authenticationRequired, .formatReselectionRequired, .outputPermissionDenied, .diskFull:
+                true
+            case .invalidURL, .metadataUnavailable, .networkUnavailable, .clientValidationFailed,
+                 .unavailableMedia, .bundledDownloaderUnavailable, .bundledConverterUnavailable,
+                 .downloadFailed, .postProcessingFailed, .persistenceRecovery, .unknown:
+                false
+            }
+        }
     }
 
     enum Context: Sendable {
@@ -33,7 +44,7 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     var category: Category
     var summaryKey: String
     var recoverySuggestionKey: String?
-    var technicalDetail: String?
+    private(set) var technicalDetail: String?
     var toolExitCode: Int32?
     var occurredAt: Date
 
@@ -71,6 +82,9 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     private static let sensitiveFlagInTextPattern = try! NSRegularExpression(
         pattern: #"(?<!\S)((?:-[up2]|(?i:--(?:add-header|ap-password|ap-username|cookies|cookies-from-browser|extractor-args|http-header|netrc-cmd|netrc-location|password|twofactor|username|video-password)))(?:\s+|=))(?:(?:\"[^\"]*\"|'[^']*')|\S+)"#
     )
+    private static let attachedSensitiveShortFlagPattern = try! NSRegularExpression(
+        pattern: #"(?<!\S)(-[up2])\S+"#
+    )
     private static let cookiePathPattern = try! NSRegularExpression(
         pattern: #"(?i)(\bcookies?(?:[-_ ]+file)?(?:\s+(?:from|to|at|path))?\s*[=:]?\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|(?:~?/|/)[^\s,;\r\n]+)"#
     )
@@ -83,22 +97,20 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
 
     init(
         category: Category,
-        summaryKey: String? = nil,
-        recoverySuggestionKey: String? = nil,
         technicalDetail: String? = nil,
         toolExitCode: Int32? = nil,
         occurredAt: Date = .now
     ) {
         self.category = category
-        self.summaryKey = summaryKey ?? category.summaryKey
-        self.recoverySuggestionKey = recoverySuggestionKey ?? category.recoveryKey
-        self.technicalDetail = Self.sanitize(technicalDetail)
+        self.summaryKey = category.summaryKey
+        self.recoverySuggestionKey = category.recoveryKey
+        self.technicalDetail = technicalDetail.map(Self.sanitizedDiagnosticDetail)
         self.toolExitCode = toolExitCode
         self.occurredAt = occurredAt
     }
 
     static func sanitizedTechnicalDetail(_ detail: String) -> String {
-        sanitize(detail) ?? ""
+        sanitizedDiagnosticDetail(detail)
     }
 
     static func classify(
@@ -113,19 +125,23 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
         } else if containsAny(detail, ["no space left on device", "disk full", "insufficient disk space"]) {
             category = .diskFull
-        } else if containsAny(detail, ["operation not permitted", "permission denied", "read-only file system"]) {
+        } else if containsAny(detail, ["operation not permitted", "permission denied", "access is denied", "read-only file system"]) {
             category = .outputPermissionDenied
         } else if containsAny(detail, ["unsupported url", "invalid url", "not a valid url"]) {
             category = .invalidURL
         } else if containsAny(detail, ["sign in", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
             category = .authenticationRequired
-        } else if containsAny(detail, ["private video", "video is private", "video unavailable", "not made this video available in your country", "not available in your country", "region", "geo-restricted", "removed by the uploader"]) {
+        } else if containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "region", "geo-restricted", "removed by the uploader"]) {
             category = .unavailableMedia
-        } else if containsAny(detail, ["network", "connection", "offline", "timed out", "temporary failure in name resolution", "dns lookup failed"]) {
+        } else if containsAny(detail, [
+            "network", "connection", "offline", "timed out", "temporary failure in name resolution",
+            "dns lookup failed", "name or service not known", "could not resolve host", "getaddrinfo failed",
+            "certificate_verify_failed", "certificate verify failed"
+        ]) {
             category = .networkUnavailable
-        } else if containsAny(detail, ["http error 403", "403 forbidden", "client validation", "player client"]) {
+        } else if containsAny(detail, ["http error 403", "403 forbidden", "403: forbidden", "client validation", "player client"]) {
             category = .clientValidationFailed
-        } else if containsAny(detail, ["requested format is not available", "selected format is no longer available", "format selection failed"]) {
+        } else if containsAny(detail, ["requested format is not available", "requested format not available", "selected format is no longer available", "format selection failed"]) {
             category = .formatReselectionRequired
         } else if containsAny(detail, ["bad cpu type", "not executable", "incompatible helper", "helper is unavailable", "is not installed"]) {
             category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
@@ -155,15 +171,20 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     }
 
     static func sanitizedDiagnosticDetail(_ detail: String) -> String {
-        let sanitizedURLs = sanitizeStructuredURLs(in: sanitizedTechnicalDetail(detail))
+        let sanitizedURLs = sanitizeStructuredURLs(in: sanitizeBasic(detail))
         let sanitizedFlags = replacingMatches(
             sensitiveFlagInTextPattern,
             in: sanitizedURLs,
             withTemplate: "$1[REDACTED]"
         )
+        let sanitizedAttachedFlags = replacingMatches(
+            attachedSensitiveShortFlagPattern,
+            in: sanitizedFlags,
+            withTemplate: "$1[REDACTED]"
+        )
         let sanitizedCookiePaths = replacingMatches(
             cookiePathPattern,
-            in: sanitizedFlags,
+            in: sanitizedAttachedFlags,
             withTemplate: "$1[REDACTED]"
         )
         let sanitizedCredentials = replacingMatches(
@@ -219,9 +240,7 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         return sanitized
     }
 
-    private static func sanitize(_ detail: String?) -> String? {
-        guard let detail else { return nil }
-
+    private static func sanitizeBasic(_ detail: String) -> String {
         let range = NSRange(detail.startIndex..., in: detail)
         let redactedHeaders = sensitiveHeaderPattern.stringByReplacingMatches(
             in: detail,
@@ -233,6 +252,26 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             in: redactedHeaders,
             range: headerRange,
             withTemplate: "$1$2[REDACTED]"
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case category
+        case summaryKey
+        case recoverySuggestionKey
+        case technicalDetail
+        case toolExitCode
+        case occurredAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let category = try container.decode(Category.self, forKey: .category)
+        self.init(
+            category: category,
+            technicalDetail: try container.decodeIfPresent(String.self, forKey: .technicalDetail),
+            toolExitCode: try container.decodeIfPresent(Int32.self, forKey: .toolExitCode),
+            occurredAt: try container.decodeIfPresent(Date.self, forKey: .occurredAt) ?? .now
         )
     }
 

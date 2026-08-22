@@ -3,6 +3,7 @@ import SwiftUI
 
 enum DownloadCardAction: Equatable, Hashable {
     case edit
+    case editAndRetry
     case startNow
     case pause
     case resume
@@ -17,7 +18,7 @@ enum DownloadCardAction: Equatable, Hashable {
 
     var symbolName: String {
         switch self {
-        case .edit: "slider.horizontal.3"
+        case .edit, .editAndRetry: "slider.horizontal.3"
         case .startNow: "play.fill"
         case .pause: "pause.fill"
         case .resume: "play.fill"
@@ -36,6 +37,7 @@ enum DownloadCardAction: Equatable, Hashable {
     func accessibilityLabel(locale: Locale) -> String {
         switch self {
         case .edit: L10n.string(.downloadActionEdit, locale: locale)
+        case .editAndRetry: L10n.string(.downloadActionEditAndRetry, locale: locale)
         case .startNow: L10n.string(.downloadActionStartNow, locale: locale)
         case .pause: L10n.string(.downloadActionPause, locale: locale)
         case .resume: L10n.string(.downloadActionResume, locale: locale)
@@ -93,21 +95,32 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
 }
 
 struct DownloadCardLayout: Equatable {
+    let minimumWidth: Double
     let cardHeight: Double
     let thumbnailHeight: Double
     let titleLineCount: Int
     let reservesProgressRow: Bool
     let reservesDetailRow: Bool
     let reservesOutputPathRow: Bool
+    let failureSummaryLineCount: Int
+    let failureRecoveryLineCount: Int
 
     static let approved = DownloadCardLayout(
+        minimumWidth: 500,
         cardHeight: 140,
         thumbnailHeight: 81,
         titleLineCount: 2,
         reservesProgressRow: true,
         reservesDetailRow: true,
-        reservesOutputPathRow: true
+        reservesOutputPathRow: true,
+        failureSummaryLineCount: 1,
+        failureRecoveryLineCount: 2
     )
+}
+
+struct DownloadCardFailureText: Equatable {
+    let summary: String
+    let recovery: String
 }
 
 struct DownloadCardPresentation: Equatable {
@@ -133,7 +146,9 @@ struct DownloadCardPresentation: Equatable {
         case .completed:
             [.play, .revealInFinder, .removeRecord]
         case .failed:
-            [.retry, .errorDetails, .removeRecord]
+            job.failure?.category.supportsOptionsRecovery == true
+                ? [.editAndRetry, .errorDetails, .removeRecord]
+                : [.retry, .errorDetails, .removeRecord]
         case .cancelled:
             [.reAdd, .removeRecord]
         }
@@ -162,13 +177,22 @@ struct DownloadCardPresentation: Equatable {
 
     var layout: DownloadCardLayout { .approved }
 
+    func failureText(locale: Locale) -> DownloadCardFailureText? {
+        guard job.status == .failed else { return nil }
+        let failure = job.failure ?? DownloadFailure(category: .downloadFailed)
+        return DownloadCardFailureText(
+            summary: failure.userSummary(locale: locale.identifier),
+            recovery: failure.userRecoverySuggestion(locale: locale.identifier)
+        )
+    }
+
     func confirmation(for action: DownloadCardAction) -> DownloadConfirmation? {
         switch action {
         case .cancelWithConfirmation:
             .cancelMerging
         case .removeRecord:
             .removeRecord
-        case .edit, .startNow, .pause, .resume, .cancel, .play, .revealInFinder, .retry, .errorDetails, .reAdd:
+        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .play, .revealInFinder, .retry, .errorDetails, .reAdd:
             nil
         }
     }
@@ -177,7 +201,7 @@ struct DownloadCardPresentation: Equatable {
         switch action {
         case .play, .revealInFinder:
             validatedOutputFileURL != nil
-        case .edit, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
             true
         }
     }
@@ -191,7 +215,7 @@ struct DownloadCardPresentation: Equatable {
         return switch action {
         case .play: L10n.string(.downloadActionPlayUnavailable, locale: locale)
         case .revealInFinder: L10n.string(.downloadActionRevealUnavailable, locale: locale)
-        case .edit, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
             action.accessibilityLabel(locale: locale)
         }
     }
@@ -241,7 +265,7 @@ struct DownloadCardView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(MediaFallbackText.localized(job.title, locale: locale))
+                    Text(MediaFallbackText.localized(job.title, source: job.titleSource, locale: locale))
                         .font(.headline)
                         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
                         .lineLimit(presentation.layout.titleLineCount)
@@ -260,35 +284,26 @@ struct DownloadCardView: View {
                     .lineLimit(1)
                     .frame(height: 17, alignment: .topLeading)
 
-                Group {
-                    if showsProgress {
-                        ProgressView(value: max(0, min(job.progress, 1)))
-                            .progressViewStyle(.linear)
-                            .accessibilityLabel(L10n.string(.downloadCardProgress, locale: locale))
-                            .accessibilityValue(progressAccessibilityValue)
-                    } else {
-                        Color.clear
-                            .accessibilityHidden(true)
+                if let failureText = presentation.failureText(locale: locale) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(failureText.summary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(red: 0.70, green: 0.12, blue: 0.12))
+                            .lineLimit(presentation.layout.failureSummaryLineCount)
+                            .truncationMode(.tail)
+                            .frame(height: 14, alignment: .topLeading)
+                        Text(failureText.recovery)
+                            .font(.caption2)
+                            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                            .lineLimit(presentation.layout.failureRecoveryLineCount)
+                            .truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(height: 34, alignment: .topLeading)
                     }
+                    .frame(height: 51, alignment: .topLeading)
+                } else {
+                    lifecycleRows
                 }
-                .frame(height: 8)
-
-                Text(detailLine)
-                    .font(.caption)
-                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(height: 14, alignment: .leading)
-
-                Text(job.outputURL?.path ?? " ")
-                    .font(.caption2)
-                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .opacity(job.outputURL == nil ? 0 : 1)
-                    .accessibilityHidden(job.outputURL == nil)
-                    .frame(height: 14, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -299,7 +314,7 @@ struct DownloadCardView: View {
             }
             .frame(minWidth: 30, alignment: .trailing)
         }
-        .frame(height: presentation.layout.cardHeight - 24, alignment: .top)
+        .frame(minWidth: presentation.layout.minimumWidth, minHeight: presentation.layout.cardHeight - 24, maxHeight: presentation.layout.cardHeight - 24, alignment: .top)
         .padding(12)
         .background(DownloadCenterAppearance.palette.cardBackground.color)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -321,6 +336,40 @@ struct DownloadCardView: View {
             if let failure = job.failure {
                 ErrorDetailsView(failure: failure)
             }
+        }
+    }
+
+    private var lifecycleRows: some View {
+        Group {
+            Group {
+                if showsProgress {
+                    ProgressView(value: max(0, min(job.progress, 1)))
+                        .progressViewStyle(.linear)
+                        .accessibilityLabel(L10n.string(.downloadCardProgress, locale: locale))
+                        .accessibilityValue(progressAccessibilityValue)
+                } else {
+                    Color.clear
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(height: 8)
+
+            Text(detailLine)
+                .font(.caption)
+                .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(height: 14, alignment: .leading)
+
+            Text(job.outputURL?.path ?? " ")
+                .font(.caption2)
+                .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .opacity(job.outputURL == nil ? 0 : 1)
+                .accessibilityHidden(job.outputURL == nil)
+                .frame(height: 14, alignment: .leading)
         }
     }
 
@@ -367,7 +416,7 @@ struct DownloadCardView: View {
             return
         }
         switch action {
-        case .edit:
+        case .edit, .editAndRetry:
             onEdit(job)
         case .startNow:
             Task { await store.start(job.id) }

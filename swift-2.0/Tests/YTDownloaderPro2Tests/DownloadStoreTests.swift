@@ -227,6 +227,94 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.jobs.first?.retryCount, 0)
     }
 
+    func testFailedJobEditReanalyzesWithChangedOptionsAndReturnsOnlyFreshFormats() async throws {
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.failure = DownloadFailure(category: .authenticationRequired)
+        failed.options = DownloadOptions(
+            videoQuality: .format(id: "stale-video", label: "Old video"),
+            audioQuality: .format(id: "stale-audio", label: "Old audio")
+        )
+        let fresh = VideoAnalysis.fixture(
+            sourceURL: failed.sourceURL,
+            title: "Fresh metadata",
+            videoFormats: [.fixture(id: "fresh-video")],
+            audioFormats: [.fixture(id: "fresh-audio")]
+        )
+        let analysis = AnalysisRecorder(result: .video(fresh))
+        let fixture = try StoreFixture(jobs: [failed], analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+        var changedOptions = failed.options
+        changedOptions.cookies = .safari
+        changedOptions.outputDirectoryBookmark = Data("new-folder".utf8)
+        changedOptions.outputDirectoryDisplayPath = "/tmp/New Folder"
+
+        let session = await fixture.store.prepareFailedJobEdit(failed.id, options: changedOptions)
+
+        let prepared = try XCTUnwrap(session)
+        let recordedOptions = await analysis.recordedOptions()
+        XCTAssertEqual(recordedOptions.map(\.cookies), [.safari])
+        XCTAssertEqual(prepared.analysis, fresh)
+        XCTAssertEqual(prepared.options.cookies, .safari)
+        XCTAssertEqual(prepared.options.outputDirectoryDisplayPath, "/tmp/New Folder")
+        XCTAssertEqual(prepared.options.videoQuality, .format(id: "fresh-video", label: "fresh-video"))
+        XCTAssertEqual(prepared.options.audioQuality, .format(id: "fresh-audio", label: "fresh-audio"))
+        XCTAssertEqual(fixture.store.jobs.first?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first?.options.videoQuality, .format(id: "stale-video", label: "Old video"))
+    }
+
+    func testApplyingFreshFailedJobEditSessionUpdatesSameRecordAndQueuesRetry() async throws {
+        var failed = DownloadJob.fixture(title: "Old metadata", status: .failed)
+        failed.failure = DownloadFailure(category: .formatReselectionRequired)
+        let fresh = VideoAnalysis.fixture(
+            sourceURL: failed.sourceURL,
+            title: "Fresh metadata",
+            videoFormats: [.fixture(id: "fresh-video")],
+            audioFormats: [.fixture(id: "fresh-audio")]
+        )
+        let fixture = try StoreFixture(jobs: [failed], analysis: .video(fresh))
+        defer { fixture.cleanUp() }
+        let preparedSession = await fixture.store.prepareFailedJobEdit(failed.id, options: failed.options)
+        let session = try XCTUnwrap(preparedSession)
+
+        let applied = await fixture.store.applyFailedJobEdit(session, options: session.options)
+
+        let retained = try XCTUnwrap(fixture.store.jobs.first)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(retained.id, failed.id)
+        XCTAssertEqual(retained.title, "Fresh metadata")
+        XCTAssertEqual(retained.status, .queued)
+        XCTAssertNil(retained.failure)
+        XCTAssertEqual(retained.retryCount, 1)
+        XCTAssertEqual(retained.options, session.options)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first, retained)
+    }
+
+    func testFailedJobEditRejectsFormatOutsideFreshSession() async throws {
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.failure = DownloadFailure(category: .formatReselectionRequired)
+        let fresh = VideoAnalysis.fixture(
+            sourceURL: failed.sourceURL,
+            videoFormats: [.fixture(id: "fresh-video")],
+            audioFormats: [.fixture(id: "fresh-audio")]
+        )
+        let fixture = try StoreFixture(jobs: [failed], analysis: .video(fresh))
+        defer { fixture.cleanUp() }
+        let preparedSession = await fixture.store.prepareFailedJobEdit(failed.id, options: failed.options)
+        let session = try XCTUnwrap(preparedSession)
+        var staleOptions = session.options
+        staleOptions.videoQuality = .format(id: "stale-video", label: "Stale")
+
+        let applied = await fixture.store.applyFailedJobEdit(session, options: staleOptions)
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(fixture.store.jobs.first?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first?.failure?.category, .formatReselectionRequired)
+        XCTAssertEqual(fixture.store.jobs.first?.retryCount, 0)
+    }
+
     func testNewestAnalysisResultWinsWhenEarlierRequestFinishesLast() async throws {
         let analysis = ControlledAnalysis()
         let fixture = try StoreFixture(analysis: { url, options in
@@ -259,6 +347,48 @@ final class DownloadStoreTests: XCTestCase {
 
         let persisted = try await fixture.persistence.loadJobs()
         XCTAssertEqual(persisted.map(\.status), [.queued])
+    }
+
+    func testSynthesizedTitleSourceCarriesFromAnalysisIntoPersistedJobs() async throws {
+        let analysis = VideoAnalysis.fixture(
+            title: "Untitled video",
+            titleSource: .synthesizedUntitledVideo
+        )
+        let fixture = try StoreFixture(analysis: .video(analysis))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL(analysis.sourceURL)
+        await fixture.store.addVideo(options: .defaults)
+
+        XCTAssertEqual(fixture.store.jobs.first?.titleSource, .synthesizedUntitledVideo)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.titleSource, .synthesizedUntitledVideo)
+    }
+
+    func testSynthesizedPlaylistEntryTitleSourceCarriesIntoPersistedJob() async throws {
+        let entry = PlaylistEntry(
+            id: "entry",
+            sourceURL: "https://youtube.test/watch?v=entry",
+            title: "Unavailable video",
+            titleSource: .synthesizedUnavailableVideo,
+            duration: nil,
+            thumbnailURL: nil
+        )
+        let playlist = PlaylistAnalysis(
+            id: "playlist",
+            title: "Untitled playlist",
+            titleSource: .synthesizedUntitledPlaylist,
+            entries: [entry]
+        )
+        let fixture = try StoreFixture(analysis: .playlist(playlist))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/playlist")
+        await fixture.store.addPlaylistEntries(selectedIDs: [entry.id], options: .defaults)
+
+        XCTAssertEqual(fixture.store.jobs.first?.titleSource, .synthesizedUnavailableVideo)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.titleSource, .synthesizedUnavailableVideo)
     }
 
     func testCoordinatorStartedImmediatelyTransitionsAndPersistsAnalyzing() async throws {
@@ -948,6 +1078,7 @@ private actor StoreRunner: JobRunning {
 private actor AnalysisRecorder {
     private let result: AnalysisResult
     private var requestedURLs: [String] = []
+    private var requestedOptions: [DownloadOptions] = []
 
     init(result: AnalysisResult) {
         self.result = result
@@ -955,10 +1086,12 @@ private actor AnalysisRecorder {
 
     func analyze(url: String, options: DownloadOptions) async throws -> AnalysisResult {
         requestedURLs.append(url)
+        requestedOptions.append(options)
         return result
     }
 
     func recordedURLs() -> [String] { requestedURLs }
+    func recordedOptions() -> [DownloadOptions] { requestedOptions }
 }
 
 private struct ClosureMetadataAnalyzer: MetadataAnalyzing {
@@ -1101,6 +1234,7 @@ private extension VideoAnalysis {
     static func fixture(
         sourceURL: String = "https://youtube.test/video",
         title: String = "Fixture video",
+        titleSource: MediaTitleSource? = .metadata,
         thumbnailURL: URL? = nil,
         videoFormats: [MediaFormat] = [],
         audioFormats: [MediaFormat] = []
@@ -1108,6 +1242,7 @@ private extension VideoAnalysis {
         VideoAnalysis(
             sourceURL: sourceURL,
             title: title,
+            titleSource: titleSource,
             duration: 30,
             thumbnailURL: thumbnailURL,
             videoFormats: videoFormats,

@@ -76,9 +76,87 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(detail.contains("url-signature"))
         XCTAssertFalse(detail.contains("url-token"))
         XCTAssertTrue(detail.contains("HTTP 403"))
-        XCTAssertTrue(detail.contains("v=public"))
-        XCTAssertTrue(detail.contains("format=best"))
+        XCTAssertTrue(detail.contains("v="))
+        XCTAssertTrue(detail.contains("format="))
         XCTAssertTrue(detail.contains("[REDACTED]"))
+    }
+
+    func testClassifiedFailureTechnicalDetailUsesCompleteTask9RedactionCorpus() throws {
+        let stderr = """
+        ERROR: HTTP Error 403: Forbidden
+        Loading cookies from /Users/example/Library/Cookies/private-cookies.txt
+        Request https://url-user:url-password@media.test/watch?v=query-value&list=playlist-value#url-fragment
+        Proxy tunnel: socks5://detail-user:detail-password@proxy.test:1080/path?token=detail-query#detail-fragment
+        Command output: yt-dlp -u output-user -p output-password -2 output-twofactor \
+        -uattached-user -pattached-password -2attached-twofactor \
+        --username=long-user --password long-password \
+        --cookies "/Users/example/Library/Application Support/browser/cookies.sqlite" \
+        --cookies-from-browser="chrome:Profile 1" \
+        --proxy https://proxy-user:proxy-password@proxy.test:8443/tunnel?session=proxy-query#proxy-fragment \
+        --geo-verification-proxy=socks5://geo-user:geo-password@geo-proxy.test:1080?route=geo-query#geo-fragment \
+        --http-header "Authorization: Bearer header-secret"
+        Cookie: SID=browser-secret
+        Credentials username=prose-user password: prose-password; bearer bearer-secret
+        """
+
+        let failure = DownloadFailure.classify(stderr: stderr, context: .download)
+        let detail = try XCTUnwrap(failure.technicalDetail)
+
+        XCTAssertEqual(failure.category, .clientValidationFailed)
+        for secret in [
+            "private-cookies.txt", "url-user", "url-password", "query-value", "playlist-value", "url-fragment",
+            "detail-user", "detail-password", "detail-query", "detail-fragment",
+            "output-user", "output-password", "output-twofactor", "attached-user", "attached-password",
+            "attached-twofactor", "long-user", "long-password", "cookies.sqlite", "Profile 1",
+            "proxy-user", "proxy-password", "proxy-query", "proxy-fragment",
+            "geo-user", "geo-password", "geo-query", "geo-fragment", "header-secret", "browser-secret",
+            "prose-user", "prose-password", "bearer-secret"
+        ] {
+            XCTAssertFalse(detail.contains(secret), "Classified failure leaked \(secret)")
+        }
+        XCTAssertTrue(detail.contains("HTTP Error 403"))
+        XCTAssertTrue(detail.contains("media.test/watch"))
+        XCTAssertTrue(detail.contains("v="))
+        XCTAssertTrue(detail.contains("list="))
+        XCTAssertTrue(detail.contains("[REDACTED]"))
+    }
+
+    func testDecodingPersistedFailureSanitizesLegacyTechnicalDetailAtModelBoundary() throws {
+        let safe = DownloadFailure(category: .networkUnavailable, technicalDetail: "placeholder")
+        let encoded = try JSONEncoder().encode(safe)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["technicalDetail"] = "Loading cookies from /Users/example/private.txt; https://user:password@example.test/watch?token=secret#fragment"
+        object["summaryKey"] = "raw-helper-summary-secret"
+        object["recoverySuggestionKey"] = "raw-helper-recovery-secret"
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(DownloadFailure.self, from: legacyData)
+        let detail = try XCTUnwrap(decoded.technicalDetail)
+
+        for secret in ["private.txt", "user", "password", "secret", "fragment"] {
+            XCTAssertFalse(detail.contains(secret), "Decoded failure leaked \(secret)")
+        }
+        XCTAssertTrue(detail.contains("example.test/watch"))
+        XCTAssertTrue(detail.contains("[REDACTED]"))
+        XCTAssertEqual(decoded.summaryKey, DownloadFailure.Category.networkUnavailable.summaryKey)
+        XCTAssertEqual(decoded.recoverySuggestionKey, DownloadFailure.Category.networkUnavailable.recoveryKey)
+    }
+
+    func testLegacyJobWithoutTitleSourceDefaultsToRealMetadataSemantics() throws {
+        let job = DownloadJob.fixture(title: "Untitled video")
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as? [String: Any])
+        object.removeValue(forKey: "titleSource")
+
+        let restored = try JSONDecoder().decode(
+            DownloadJob.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertNil(restored.titleSource)
+        XCTAssertEqual(
+            MediaFallbackText.localized(restored.title, source: restored.titleSource, locale: Locale(identifier: "ja")),
+            "Untitled video"
+        )
     }
 
     func testDownloadFailureRedactsEveryCookieHeaderValue() throws {

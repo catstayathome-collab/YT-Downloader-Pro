@@ -25,6 +25,7 @@ enum L10n {
         case confirmationRemoveRecordTitle = "confirmation.removeRecord.title"
         case downloadActionCancel = "download.action.cancel"
         case downloadActionEdit = "download.action.edit"
+        case downloadActionEditAndRetry = "download.action.editAndRetry"
         case downloadActionErrorDetails = "download.action.errorDetails"
         case downloadActionFileUnavailable = "download.action.fileUnavailable"
         case downloadActionPause = "download.action.pause"
@@ -79,6 +80,7 @@ enum L10n {
         case mediaCookiesChrome = "media.cookies.chrome"
         case mediaCookiesNone = "media.cookies.none"
         case mediaCookiesSafari = "media.cookies.safari"
+        case mediaEditAndRetry = "media.editAndRetry"
         case mediaEditDownload = "media.editDownload"
         case mediaEmbedMetadata = "media.embedMetadata"
         case mediaEmbedThumbnail = "media.embedThumbnail"
@@ -94,6 +96,7 @@ enum L10n {
         case mediaOutput = "media.output"
         case mediaOutputFolder = "media.outputFolder"
         case mediaOutputFormat = "media.outputFormat"
+        case mediaReanalyze = "media.reanalyze"
         case mediaSelectedOutputFolder = "media.selectedOutputFolder"
         case mediaSubtitleDownload = "media.subtitle.download"
         case mediaSubtitleEmbed = "media.subtitle.embed"
@@ -170,12 +173,12 @@ enum L10n {
 }
 
 enum MediaFallbackText {
-    static func localized(_ value: String, locale: Locale) -> String {
-        let key: L10n.Key? = switch value {
-        case "Untitled video": .mediaUntitledVideo
-        case "Untitled playlist": .mediaUntitledPlaylist
-        case "Unavailable video": .mediaUnavailableVideo
-        default: nil
+    static func localized(_ value: String, source: MediaTitleSource?, locale: Locale) -> String {
+        let key: L10n.Key? = switch source {
+        case .synthesizedUntitledVideo: .mediaUntitledVideo
+        case .synthesizedUntitledPlaylist: .mediaUntitledPlaylist
+        case .synthesizedUnavailableVideo: .mediaUnavailableVideo
+        case .metadata, nil: nil
         }
         return key.map { L10n.string($0, locale: locale) } ?? value
     }

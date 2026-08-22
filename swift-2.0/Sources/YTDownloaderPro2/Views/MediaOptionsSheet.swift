@@ -8,12 +8,14 @@ struct MediaIdentityPresentation: Equatable {
     }
 
     let title: String
+    let titleSource: MediaTitleSource?
     let durationText: String?
     let thumbnail: Thumbnail
     let titleLineLimit = 3
 
     init(analysis: VideoAnalysis) {
         title = analysis.title
+        titleSource = analysis.titleSource
         durationText = analysis.duration.map(Self.formatDuration)
         thumbnail = analysis.thumbnailURL.map(Thumbnail.remote) ?? .fallback
     }
@@ -72,8 +74,8 @@ struct MediaOptionsPresentation: Equatable {
         self.options = options
         selectedVideoID = Self.selectedID(for: options.videoQuality, in: [])
         selectedAudioID = Self.selectedID(for: options.audioQuality, in: [])
-        videoChoices = Self.currentChoice(for: options.videoQuality)
-        audioChoices = Self.currentChoice(for: options.audioQuality)
+        videoChoices = Self.currentChoice(for: options.videoQuality, structured: options.selectedVideoFormat)
+        audioChoices = Self.currentChoice(for: options.audioQuality, structured: options.selectedAudioFormat)
     }
 
     mutating func selectVideo(_ id: String?) {
@@ -100,14 +102,20 @@ struct MediaOptionsPresentation: Equatable {
         return id
     }
 
-    private static func currentChoice(for quality: VideoQuality) -> [MediaFormat] {
+    private static func currentChoice(for quality: VideoQuality, structured: PersistedFormatPresentation?) -> [MediaFormat] {
         guard case let .format(id, label) = quality else { return [] }
-        return [storedFormat(id: id, label: label)]
+        if let structured, structured.id == id {
+            return [structured.mediaFormat(fallbackLabel: label ?? id)]
+        }
+        return [storedFormat(id: id, label: label ?? id)]
     }
 
-    private static func currentChoice(for quality: AudioQuality) -> [MediaFormat] {
+    private static func currentChoice(for quality: AudioQuality, structured: PersistedFormatPresentation?) -> [MediaFormat] {
         guard case let .format(id, label) = quality else { return [] }
-        return [storedFormat(id: id, label: label)]
+        if let structured, structured.id == id {
+            return [structured.mediaFormat(fallbackLabel: label ?? id)]
+        }
+        return [storedFormat(id: id, label: label ?? id)]
     }
 
     private static func storedFormat(id: String, label: String) -> MediaFormat {
@@ -130,14 +138,14 @@ struct MediaOptionsPresentation: Equatable {
 
     private mutating func applySelectedFormats() {
         if let selectedVideoID, let format = videoChoices.first(where: { $0.id == selectedVideoID }) {
-            options.videoQuality = .format(id: format.id, label: format.label)
+            options.selectVideoFormat(format)
         } else {
-            options.videoQuality = .best
+            options.selectVideoFormat(nil)
         }
         if let selectedAudioID, let format = audioChoices.first(where: { $0.id == selectedAudioID }) {
-            options.audioQuality = .format(id: format.id, label: format.label)
+            options.selectAudioFormat(format)
         } else {
-            options.audioQuality = .best
+            options.selectAudioFormat(nil)
         }
     }
 }
@@ -230,7 +238,7 @@ struct MediaOptionsSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(MediaFallbackText.localized(identity.title, locale: locale))
+                Text(MediaFallbackText.localized(identity.title, source: identity.titleSource, locale: locale))
                     .font(.headline)
                     .lineLimit(identity.titleLineLimit)
                     .fixedSize(horizontal: false, vertical: true)
@@ -378,10 +386,10 @@ struct DownloadOptionsEditor: View {
             },
             set: { selectedID in
                 guard let selectedID, let format = videoChoices.first(where: { $0.id == selectedID }) else {
-                    options.videoQuality = .best
+                    options.selectVideoFormat(nil)
                     return
                 }
-                options.videoQuality = .format(id: format.id, label: format.label)
+                options.selectVideoFormat(format)
             }
         )
     }
@@ -394,10 +402,10 @@ struct DownloadOptionsEditor: View {
             },
             set: { selectedID in
                 guard let selectedID, let format = audioChoices.first(where: { $0.id == selectedID }) else {
-                    options.audioQuality = .best
+                    options.selectAudioFormat(nil)
                     return
                 }
-                options.audioQuality = .format(id: format.id, label: format.label)
+                options.selectAudioFormat(format)
             }
         )
     }

@@ -42,6 +42,87 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.selectedAudioID, "audio-high")
         XCTAssertEqual(model.options.videoQuality, .format(id: "video-high", label: "2160p"))
         XCTAssertEqual(model.options.audioQuality, .format(id: "audio-high", label: "Opus 160 kbps"))
+        XCTAssertEqual(model.options.selectedVideoFormat, analysis.videoFormats.first.map(PersistedFormatPresentation.init))
+        XCTAssertEqual(model.options.selectedAudioFormat, analysis.audioFormats.first.map(PersistedFormatPresentation.init))
+    }
+
+    func testPersistedStructuredFormatChoicesRelocalizeWithoutReanalysis() throws {
+        let video = MediaFormat(
+            id: "137",
+            label: "1080p - mp4 (60fps)",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1080,
+            note: "60fps"
+        )
+        let audio = MediaFormat(
+            id: "140",
+            label: "Audio: original (medium) - m4a",
+            audioCodec: "mp4a",
+            container: "m4a",
+            language: nil,
+            note: "medium"
+        )
+        let options = DownloadOptions(
+            videoQuality: .format(id: video.id, label: video.label),
+            audioQuality: .format(id: audio.id, label: audio.label),
+            selectedVideoFormat: PersistedFormatPresentation(video),
+            selectedAudioFormat: PersistedFormatPresentation(audio)
+        )
+
+        let encoded = try JSONEncoder().encode(options)
+        let encodedText = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        XCTAssertFalse(encodedText.contains(video.label))
+        XCTAssertFalse(encodedText.contains(audio.label))
+
+        let restored = try JSONDecoder().decode(DownloadOptions.self, from: encoded)
+        let presentation = MediaOptionsPresentation(options: restored)
+        let restoredVideo = try XCTUnwrap(presentation.videoChoices.first)
+        let restoredAudio = try XCTUnwrap(presentation.audioChoices.first)
+
+        XCTAssertEqual(MediaFormatPresentation.label(for: restoredVideo, locale: Locale(identifier: "en")), "1080p - mp4 (60fps)")
+        XCTAssertEqual(MediaFormatPresentation.label(for: restoredVideo, locale: Locale(identifier: "ja")), "1080p - mp4（60fps）")
+        XCTAssertEqual(MediaFormatPresentation.label(for: restoredAudio, locale: Locale(identifier: "zh-Hant")), "音訊：原始語言（medium）- m4a")
+        XCTAssertEqual(MediaFormatPresentation.label(for: restoredAudio, locale: Locale(identifier: "ja")), "オーディオ：オリジナル（medium）- m4a")
+    }
+
+    func testLegacyEnglishFormatLabelsMigrateToStructuredPresentationOnDecode() throws {
+        let options = DownloadOptions(
+            videoQuality: .format(id: "137", label: "1080p - mp4 (60fps)"),
+            audioQuality: .format(id: "140", label: "Audio: original (medium) - m4a")
+        )
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "selectedVideoFormat")
+        legacyObject.removeValue(forKey: "selectedAudioFormat")
+        legacyObject["videoQuality"] = [
+            "format": ["id": "137", "label": "1080p - mp4 (60fps)"]
+        ]
+        legacyObject["audioQuality"] = [
+            "format": ["id": "140", "label": "Audio: original (medium) - m4a"]
+        ]
+
+        let restored = try JSONDecoder().decode(
+            DownloadOptions.self,
+            from: JSONSerialization.data(withJSONObject: legacyObject)
+        )
+        let presentation = MediaOptionsPresentation(options: restored)
+
+        XCTAssertEqual(restored.selectedVideoFormat?.height, 1080)
+        XCTAssertEqual(restored.selectedVideoFormat?.container, "mp4")
+        XCTAssertEqual(restored.selectedVideoFormat?.note, "60fps")
+        XCTAssertEqual(restored.selectedAudioFormat?.audioCodec, "legacy-audio")
+        XCTAssertEqual(restored.selectedAudioFormat?.container, "m4a")
+        XCTAssertEqual(restored.selectedAudioFormat?.note, "medium")
+        XCTAssertEqual(
+            MediaFormatPresentation.label(for: try XCTUnwrap(presentation.videoChoices.first), locale: Locale(identifier: "ja")),
+            "1080p - mp4（60fps）"
+        )
+        XCTAssertEqual(
+            MediaFormatPresentation.label(for: try XCTUnwrap(presentation.audioChoices.first), locale: Locale(identifier: "zh-Hant")),
+            "音訊：原始語言（medium）- m4a"
+        )
     }
 
     func testVideoOptionsPreserveSupportedDefaultChoicesAndExposeAllOutputOptions() {

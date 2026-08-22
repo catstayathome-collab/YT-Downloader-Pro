@@ -13,7 +13,7 @@ final class LocalizationTests: XCTestCase {
             "confirmation.cancelDownloads.button", "confirmation.cancelMerging.message", "confirmation.cancelMerging.title",
             "confirmation.clearCompleted.button", "confirmation.clearCompleted.message", "confirmation.clearCompleted.title",
             "confirmation.removeRecord.button", "confirmation.removeRecord.message", "confirmation.removeRecord.title",
-            "download.action.cancel", "download.action.edit", "download.action.errorDetails", "download.action.play",
+            "download.action.cancel", "download.action.edit", "download.action.editAndRetry", "download.action.errorDetails", "download.action.play",
             "download.action.reAdd", "download.action.removeRecord", "download.action.resume", "download.action.retry",
             "download.action.reveal", "download.action.startNow", "download.action.pause",
             "download.action.fileUnavailable", "download.action.playUnavailable", "download.action.revealUnavailable",
@@ -29,9 +29,9 @@ final class LocalizationTests: XCTestCase {
             "downloadCenter.sidebar.running", "downloadCenter.sidebar.stopped",
             "error.details.technical", "error.details.title",
             "media.audioFormat", "media.browserCookies", "media.chooseOutputFolder", "media.cookies.chrome",
-            "media.cookies.none", "media.cookies.safari", "media.editDownload", "media.embedMetadata",
+            "media.cookies.none", "media.cookies.safari", "media.editAndRetry", "media.editDownload", "media.embedMetadata",
             "media.embedThumbnail", "media.folderSaveFailed", "media.highestAvailable", "media.options.title",
-            "media.metadata", "media.output", "media.outputFolder", "media.outputFormat", "media.selectedOutputFolder",
+            "media.metadata", "media.output", "media.outputFolder", "media.outputFormat", "media.reanalyze", "media.selectedOutputFolder",
             "media.subtitleLanguage", "media.subtitleMode", "media.subtitles", "media.thumbnailUnavailable",
             "media.videoFormat", "media.subtitle.download", "media.subtitle.embed", "media.subtitle.none",
             "media.format.audioLabel", "media.format.original", "media.format.unknown", "media.format.videoLabel",
@@ -123,6 +123,25 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    func testClassifierMatchesMaintainedRealWorldVariants() {
+        let cases: [(String, DownloadFailure.Context, DownloadFailure.Category)] = [
+            ("ERROR: 403: Forbidden", .download, .clientValidationFailed),
+            ("ERROR: Video is unavailable", .analysis, .unavailableMedia),
+            ("ERROR: Requested format not available", .download, .formatReselectionRequired),
+            ("urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed", .download, .networkUnavailable),
+            ("socket.gaierror: Name or service not known", .download, .networkUnavailable),
+            ("Temporary failure in name resolution", .download, .networkUnavailable),
+            ("Network is unreachable", .download, .networkUnavailable),
+            ("Could not resolve host: www.youtube.com", .download, .networkUnavailable),
+            ("getaddrinfo failed", .download, .networkUnavailable),
+            ("Access is denied while writing output", .download, .outputPermissionDenied)
+        ]
+
+        for (stderr, context, expected) in cases {
+            XCTAssertEqual(DownloadFailure.classify(stderr: stderr, context: context).category, expected, stderr)
+        }
+    }
+
     func testUserRecoveryNeverContainsRawHelperOutputSecretsOrInternalToolNames() {
         let stderr = "ffmpeg is not installed authorization: Bearer secret-token"
         let failure = DownloadFailure.classify(stderr: stderr, context: .toolchain)
@@ -167,7 +186,22 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(state.outputFolderLabel, "保存先フォルダを選択")
     }
 
-    func testFallbackTitlesAndGeneratedFormatLabelsSwitchLocale() {
+    func testOnlyExplicitlySynthesizedFallbackTitlesSwitchLocale() {
+        let japanese = Locale(identifier: "ja")
+        let cases: [(String, MediaTitleSource, String)] = [
+            ("Untitled video", .synthesizedUntitledVideo, "タイトルなしの動画"),
+            ("Untitled playlist", .synthesizedUntitledPlaylist, "タイトルなしの再生リスト"),
+            ("Unavailable video", .synthesizedUnavailableVideo, "利用できない動画")
+        ]
+
+        for (title, source, localized) in cases {
+            XCTAssertEqual(MediaFallbackText.localized(title, source: source, locale: japanese), localized)
+            XCTAssertEqual(MediaFallbackText.localized(title, source: .metadata, locale: japanese), title)
+            XCTAssertEqual(MediaFallbackText.localized(title, source: nil, locale: japanese), title)
+        }
+    }
+
+    func testGeneratedFormatLabelsSwitchLocale() {
         let japanese = Locale(identifier: "ja")
         let audio = MediaFormat(
             id: "140",
@@ -186,7 +220,6 @@ final class LocalizationTests: XCTestCase {
             note: "60fps"
         )
 
-        XCTAssertEqual(MediaFallbackText.localized("Untitled video", locale: japanese), "タイトルなしの動画")
         XCTAssertEqual(MediaFormatPresentation.label(for: audio, locale: japanese), "オーディオ：オリジナル（不明）- 不明")
         XCTAssertEqual(MediaFormatPresentation.label(for: video, locale: japanese), "1080p - mp4（60fps）")
     }

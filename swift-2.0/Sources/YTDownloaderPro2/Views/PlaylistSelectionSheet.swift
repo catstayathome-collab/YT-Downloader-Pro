@@ -55,7 +55,11 @@ struct PlaylistSelectionSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(MediaFallbackText.localized(selection.analysis.title, locale: locale))
+                    Text(MediaFallbackText.localized(
+                        selection.analysis.title,
+                        source: selection.analysis.titleSource,
+                        locale: locale
+                    ))
                         .font(.title3.weight(.semibold))
                         .lineLimit(2)
                     Text(L10n.string(.playlistSelectedCount, locale: locale, Int64(selection.selectedCount)))
@@ -82,7 +86,7 @@ struct PlaylistSelectionSheet: View {
             List(selection.analysis.entries) { entry in
                 Toggle(isOn: entrySelection(entry)) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(MediaFallbackText.localized(entry.title, locale: locale))
+                        Text(MediaFallbackText.localized(entry.title, source: entry.titleSource, locale: locale))
                             .lineLimit(2)
                         if !entry.isAvailable {
                             Text(L10n.string(.playlistEntryUnavailable, locale: locale))
@@ -94,8 +98,16 @@ struct PlaylistSelectionSheet: View {
                 .disabled(!entry.isAvailable)
                 .accessibilityLabel(
                     entry.isAvailable
-                        ? L10n.string(.playlistEntrySelect, locale: locale, MediaFallbackText.localized(entry.title, locale: locale))
-                        : L10n.string(.playlistEntryUnavailableNamed, locale: locale, MediaFallbackText.localized(entry.title, locale: locale))
+                        ? L10n.string(
+                            .playlistEntrySelect,
+                            locale: locale,
+                            MediaFallbackText.localized(entry.title, source: entry.titleSource, locale: locale)
+                        )
+                        : L10n.string(
+                            .playlistEntryUnavailableNamed,
+                            locale: locale,
+                            MediaFallbackText.localized(entry.title, source: entry.titleSource, locale: locale)
+                        )
                 )
             }
             .frame(minHeight: 170, maxHeight: 230)

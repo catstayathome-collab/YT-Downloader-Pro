@@ -484,6 +484,29 @@
         }
       }
     },
+    "download.action.editAndRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit options and retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更して再試行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯選項並重試"
+          }
+        }
+      }
+    },
     "download.action.errorDetails": {
       "extractionState": "manual",
       "localizations": {
@@ -1726,6 +1749,29 @@
         }
       }
     },
+    "media.editAndRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Options and Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更して再試行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯選項並重試"
+          }
+        }
+      }
+    },
     "media.editDownload": {
       "extractionState": "manual",
       "localizations": {
@@ -2067,6 +2113,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "輸出格式"
+          }
+        }
+      }
+    },
+    "media.reanalyze": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanalyze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再解析"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新分析"
           }
         }
       }
@@ -2882,19 +2951,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose browser cookies in Settings, confirm access in the browser, and retry."
+            "value": "Choose Edit options and retry, select browser cookies for this download, then reanalyze."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定でブラウザのCookieを選び、ブラウザでアクセスできることを確認して再試行してください。"
+            "value": "「設定を変更して再試行」で、このダウンロードに使うブラウザCookieを選び、再解析してください。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在「設定」選擇瀏覽器 Cookie、確認瀏覽器可存取後再試。"
+            "value": "請選擇「編輯選項並重試」，為這筆下載選擇瀏覽器 Cookie，再重新分析。"
           }
         }
       }
@@ -2974,19 +3043,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit the download and choose an available format."
+            "value": "Choose Edit options and retry, reanalyze, then select one of the refreshed formats."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダウンロード設定を編集し、利用可能な形式を選んでください。"
+            "value": "「設定を変更して再試行」で再解析し、更新された形式から選んでください。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請編輯下載並選擇可用格式。"
+            "value": "請選擇「編輯選項並重試」，重新分析後再選擇更新的格式。"
           }
         }
       }
@@ -3158,19 +3227,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a folder you can write to, then retry."
+            "value": "Choose Edit options and retry, select a writable output folder, then reanalyze."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "書き込み可能なフォルダを選び、再試行してください。"
+            "value": "「設定を変更して再試行」で書き込み可能な保存先を選び、再解析してください。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請選擇可寫入的資料夾，然後重試。"
+            "value": "請選擇「編輯選項並重試」，改用可寫入的輸出資料夾，再重新分析。"
           }
         }
       }
@@ -3204,19 +3273,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Free some space or choose another output folder, then retry."
+            "value": "Free disk space, or choose another folder with Edit options and retry, then reanalyze."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "空き容量を増やすか別の保存先を選び、再試行してください。"
+            "value": "空き容量を増やすか、「設定を変更して再試行」で別の保存先を選び、再解析してください。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請釋出空間或選擇其他輸出資料夾，然後重試。"
+            "value": "請釋出空間，或在「編輯選項並重試」改用其他資料夾，再重新分析。"
           }
         }
       }

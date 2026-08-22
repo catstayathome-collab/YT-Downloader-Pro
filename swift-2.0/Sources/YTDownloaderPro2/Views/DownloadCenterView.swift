@@ -170,13 +170,27 @@ private enum AnalysisSheet: Identifiable {
     }
 }
 
+private enum DownloadOptionsSheet: Identifiable {
+    case queued(DownloadJob)
+    case failedPreflight(DownloadJob)
+    case failedFresh(FailedJobEditSession)
+
+    var id: String {
+        switch self {
+        case let .queued(job): "queued-\(job.id.uuidString)"
+        case let .failedPreflight(job): "failed-preflight-\(job.id.uuidString)"
+        case let .failedFresh(session): "failed-fresh-\(session.id)"
+        }
+    }
+}
+
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
     @Environment(\.locale) private var locale
 
     @State private var url = ""
     @State private var pendingConfirmation: DownloadConfirmation?
-    @State private var editingJob: DownloadJob?
+    @State private var optionsSheet: DownloadOptionsSheet?
     @State private var analysisSheet: AnalysisSheet?
     @State private var pendingRecordRemovalJobID: UUID?
     @State private var playlistSelectAllToken = UUID()
@@ -206,9 +220,36 @@ struct DownloadCenterView: View {
                 .accessibilityLabel(L10n.string(.appSettings, locale: locale))
             }
         }
-        .sheet(item: $editingJob) { job in
-            MediaOptionsSheet(titleKey: .mediaEditDownload, options: job.options) { options in
-                Task { _ = await store.editQueuedJob(job.id, options: options) }
+        .sheet(item: $optionsSheet) { sheet in
+            switch sheet {
+            case let .queued(job):
+                MediaOptionsSheet(titleKey: .mediaEditDownload, options: job.options) { options in
+                    optionsSheet = nil
+                    Task { _ = await store.editQueuedJob(job.id, options: options) }
+                }
+            case let .failedPreflight(job):
+                MediaOptionsSheet(
+                    titleKey: .mediaEditAndRetry,
+                    options: job.options,
+                    actionKey: .mediaReanalyze
+                ) { options in
+                    optionsSheet = nil
+                    Task {
+                        if let session = await store.prepareFailedJobEdit(job.id, options: options) {
+                            optionsSheet = .failedFresh(session)
+                        }
+                    }
+                }
+            case let .failedFresh(session):
+                MediaOptionsSheet(
+                    analysis: session.analysis,
+                    defaults: session.options,
+                    titleKey: .mediaEditAndRetry,
+                    actionKey: .downloadActionRetry
+                ) { options in
+                    optionsSheet = nil
+                    Task { _ = await store.applyFailedJobEdit(session, options: options) }
+                }
             }
         }
         .sheet(item: $analysisSheet) { sheet in
@@ -260,7 +301,7 @@ struct DownloadCenterView: View {
             KeyboardCommandMonitor(
                 urlFieldIsFocused: focusedField == .url,
                 playlistSelectionIsPresented: isPlaylistSelectionPresented,
-                modalSheetIsPresented: analysisSheet != nil || editingJob != nil,
+                modalSheetIsPresented: analysisSheet != nil || optionsSheet != nil,
                 selectedJob: selectedJob,
                 perform: performKeyboardDecision
             )
@@ -326,7 +367,9 @@ struct DownloadCenterView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(store.filteredJobs) { job in
-                            DownloadCardView(job: job, isSelected: store.selection.contains(job.id)) { editingJob = $0 }
+                            DownloadCardView(job: job, isSelected: store.selection.contains(job.id)) { job in
+                                optionsSheet = job.status == .failed ? .failedPreflight(job) : .queued(job)
+                            }
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     store.selection = [job.id]

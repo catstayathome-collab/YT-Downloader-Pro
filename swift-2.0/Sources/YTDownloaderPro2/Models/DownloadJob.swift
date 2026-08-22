@@ -11,6 +11,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
     var sourceURL: String
     var playlistID: String?
     var title: String
+    var titleSource: MediaTitleSource?
     var duration: TimeInterval?
     var thumbnailCachePath: String?
     var sourceMetadata: String?
@@ -35,6 +36,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         sourceURL: String,
         playlistID: String? = nil,
         title: String,
+        titleSource: MediaTitleSource? = nil,
         duration: TimeInterval? = nil,
         thumbnailCachePath: String? = nil,
         sourceMetadata: String? = nil,
@@ -58,6 +60,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         self.sourceURL = sourceURL
         self.playlistID = playlistID
         self.title = title
+        self.titleSource = titleSource
         self.duration = duration
         self.thumbnailCachePath = thumbnailCachePath
         self.sourceMetadata = sourceMetadata

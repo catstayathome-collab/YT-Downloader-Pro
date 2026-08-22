@@ -45,11 +45,56 @@ final class DownloadCenterViewTests: XCTestCase {
         )
     }
 
+    func testFailedCardUsesEditAndRetryOnlyForActionableOptionCategories() {
+        let editable: Set<DownloadFailure.Category> = [
+            .authenticationRequired,
+            .formatReselectionRequired,
+            .outputPermissionDenied,
+            .diskFull
+        ]
+
+        for category in DownloadFailure.Category.allCases {
+            var job = DownloadJob.fixture(status: .failed)
+            job.failure = DownloadFailure(category: category)
+            let actions = DownloadCardPresentation(job: job).actions
+
+            if editable.contains(category) {
+                XCTAssertEqual(actions, [.editAndRetry, .errorDetails, .removeRecord], category.rawValue)
+            } else {
+                XCTAssertEqual(actions, [.retry, .errorDetails, .removeRecord], category.rawValue)
+            }
+        }
+    }
+
+    func testFailedCardTextIsBoundedLocalizedAndNeverUsesTechnicalDetail() throws {
+        let secret = "raw-helper-secret"
+        var job = DownloadJob.fixture(status: .failed)
+        job.failure = DownloadFailure(
+            category: .authenticationRequired,
+            technicalDetail: "helper stderr \(secret)"
+        )
+        let presentation = DownloadCardPresentation(job: job)
+
+        for identifier in ["en", "ja", "zh-Hant"] {
+            let text = try XCTUnwrap(presentation.failureText(locale: Locale(identifier: identifier)))
+            XCTAssertFalse(text.summary.isEmpty)
+            XCTAssertFalse(text.recovery.isEmpty)
+            XCTAssertFalse(text.summary.contains(secret))
+            XCTAssertFalse(text.recovery.contains(secret))
+            XCTAssertNotEqual(text.summary, job.failure?.technicalDetail)
+            XCTAssertNotEqual(text.recovery, job.failure?.technicalDetail)
+        }
+
+        XCTAssertEqual(presentation.layout.failureSummaryLineCount, 1)
+        XCTAssertEqual(presentation.layout.failureRecoveryLineCount, 2)
+        XCTAssertLessThanOrEqual(presentation.layout.minimumWidth, 532)
+    }
+
     func testOnlyDestructiveCardActionsRequireConfirmation() {
         let presentation = DownloadCardPresentation(job: .fixture(status: .completed))
         let immediateActions: [DownloadCardAction] = [
             .edit, .startNow, .pause, .resume, .cancel, .play,
-            .revealInFinder, .retry, .errorDetails, .reAdd
+            .revealInFinder, .retry, .editAndRetry, .errorDetails, .reAdd
         ]
 
         XCTAssertEqual(presentation.confirmation(for: .removeRecord), .removeRecord)
@@ -131,6 +176,9 @@ final class DownloadCenterViewTests: XCTestCase {
         XCTAssertTrue(layouts.allSatisfy(\.reservesProgressRow))
         XCTAssertTrue(layouts.allSatisfy(\.reservesDetailRow))
         XCTAssertTrue(layouts.allSatisfy(\.reservesOutputPathRow))
+        XCTAssertEqual(Set(layouts.map(\.minimumWidth)).count, 1)
+        XCTAssertEqual(Set(layouts.map(\.failureSummaryLineCount)).count, 1)
+        XCTAssertEqual(Set(layouts.map(\.failureRecoveryLineCount)).count, 1)
         XCTAssertGreaterThanOrEqual(layouts[0].cardHeight, layouts[0].thumbnailHeight)
     }
 

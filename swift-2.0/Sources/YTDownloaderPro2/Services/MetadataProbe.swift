@@ -116,9 +116,11 @@ actor MetadataProbe: MetadataAnalyzing {
             throw DownloadFailure(category: .unavailableMedia, technicalDetail: "No usable media formats were returned.")
         }
 
+        let title = metadata.title?.nonEmpty
         return .video(VideoAnalysis(
             sourceURL: metadata.webpageURL ?? metadata.originalURL ?? requestedURL,
-            title: metadata.title?.nonEmpty ?? "Untitled video",
+            title: title ?? "Untitled video",
+            titleSource: title == nil ? .synthesizedUntitledVideo : .metadata,
             duration: metadata.duration,
             thumbnailURL: metadata.thumbnail.flatMap(URL.init(string:)),
             videoFormats: videoFormats,
@@ -133,10 +135,12 @@ actor MetadataProbe: MetadataAnalyzing {
             let isAvailable = availability == nil || availability == "public"
             let sourceURL = entry?.webpageURL ?? entry?.originalURL ?? entry?.url ?? "https://www.youtube.com/watch?v=\(id)"
 
+            let title = entry?.title?.nonEmpty
             return PlaylistEntry(
                 id: id,
                 sourceURL: sourceURL,
-                title: entry?.title?.nonEmpty ?? "Unavailable video",
+                title: title ?? "Unavailable video",
+                titleSource: title == nil ? .synthesizedUnavailableVideo : .metadata,
                 duration: entry?.duration,
                 thumbnailURL: entry?.thumbnail.flatMap(URL.init(string:)),
                 isAvailable: isAvailable,
@@ -148,9 +152,11 @@ actor MetadataProbe: MetadataAnalyzing {
             throw DownloadFailure(category: .unavailableMedia, technicalDetail: "The playlist has no selectable entries.")
         }
 
+        let title = metadata.title?.nonEmpty
         return .playlist(PlaylistAnalysis(
             id: id,
-            title: metadata.title?.nonEmpty ?? "Untitled playlist",
+            title: title ?? "Untitled playlist",
+            titleSource: title == nil ? .synthesizedUntitledPlaylist : .metadata,
             entries: entries
         ))
     }

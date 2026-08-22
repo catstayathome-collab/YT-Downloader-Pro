@@ -59,6 +59,48 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertEqual(playlist.entries[1].unavailabilityReason, "private")
     }
 
+    func testMetadataTitleSourceDistinguishesRealSentinelsFromSynthesizedFallbacks() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let format = #"{"format_id":"137","url":"https://media.test/video","vcodec":"avc1","acodec":"none","ext":"mp4","height":1080}"#
+        let real = try await probe.decodeAnalysisOutput(
+            "{\"title\":\"Untitled video\",\"formats\":[\(format)]}",
+            requestedURL: "https://youtube.test/real"
+        )
+        let synthesized = try await probe.decodeAnalysisOutput(
+            "{\"formats\":[\(format)]}",
+            requestedURL: "https://youtube.test/fallback"
+        )
+
+        guard case let .video(realVideo) = real, case let .video(synthesizedVideo) = synthesized else {
+            return XCTFail("Expected video analyses")
+        }
+        XCTAssertEqual(realVideo.title, "Untitled video")
+        XCTAssertEqual(realVideo.titleSource, .metadata)
+        XCTAssertEqual(synthesizedVideo.title, "Untitled video")
+        XCTAssertEqual(synthesizedVideo.titleSource, .synthesizedUntitledVideo)
+    }
+
+    func testPlaylistAndEntryTitleSourcesPreserveRealFallbackWords() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let real = try await probe.decodeAnalysisOutput(
+            #"{"_type":"playlist","id":"real","title":"Untitled playlist","entries":[{"id":"one","title":"Unavailable video"}]}"#,
+            requestedURL: "https://youtube.test/playlist"
+        )
+        let synthesized = try await probe.decodeAnalysisOutput(
+            #"{"_type":"playlist","id":"fallback","entries":[{"id":"two"}]}"#,
+            requestedURL: "https://youtube.test/playlist"
+        )
+
+        guard case let .playlist(realPlaylist) = real,
+              case let .playlist(synthesizedPlaylist) = synthesized else {
+            return XCTFail("Expected playlist analyses")
+        }
+        XCTAssertEqual(realPlaylist.titleSource, .metadata)
+        XCTAssertEqual(realPlaylist.entries.first?.titleSource, .metadata)
+        XCTAssertEqual(synthesizedPlaylist.titleSource, .synthesizedUntitledPlaylist)
+        XCTAssertEqual(synthesizedPlaylist.entries.first?.titleSource, .synthesizedUnavailableVideo)
+    }
+
     func testMalformedJSONBecomesSanitizedMetadataFailureWithoutRetry() async {
         let runner = AnalysisProcessRunner(results: [
             .init(exitCode: 0, stdout: "{not-json", stderr: "raw-stderr-secret")
