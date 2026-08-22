@@ -47,7 +47,7 @@ struct PlaylistSelectionSheet: View {
         self.selectAllToken = selectAllToken
         self.onConfirm = onConfirm
         _selection = State(initialValue: PlaylistSelectionPresentation(analysis: analysis))
-        _options = State(initialValue: defaults)
+        _options = State(initialValue: defaults.normalizedForExecution())
     }
 
     var body: some View {
@@ -108,7 +108,7 @@ struct PlaylistSelectionSheet: View {
                     onConfirm(selection.selectedIDs, options)
                     dismiss()
                 }
-                .disabled(selection.selectedIDs.isEmpty)
+                .disabled(selection.selectedIDs.isEmpty || !DownloadOptionsViewState(options: options).canSubmit)
                 .keyboardShortcut(.defaultAction)
             }
         }

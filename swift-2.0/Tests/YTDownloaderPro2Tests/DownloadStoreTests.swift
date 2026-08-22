@@ -4,6 +4,47 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testSelectingOutputDirectoryCreatesBookmarkThroughInjectedStoreBoundary() throws {
+        let directory = URL(fileURLWithPath: "/chosen/downloads", isDirectory: true)
+        let bookmark = Data("stored-bookmark".utf8)
+        let fixture = try StoreFixture(
+            bookmarks: OutputDirectoryBookmarkService(
+                makeBookmark: { requestedURL in
+                    guard requestedURL == directory else { throw BookmarkFixtureError.unexpectedURL }
+                    return bookmark
+                },
+                resolveBookmark: { _ in .init(url: directory, isStale: false) }
+            )
+        )
+        defer { fixture.cleanUp() }
+
+        let selected = try fixture.store.optionsBySelectingOutputDirectory(directory, in: .defaults)
+
+        XCTAssertEqual(selected.outputDirectoryBookmark, bookmark)
+        XCTAssertEqual(selected.outputDirectoryDisplayPath, directory.path)
+    }
+
+    func testSelectingOutputDirectoryReportsActionableFailureWithoutMutatingOptions() throws {
+        let fixture = try StoreFixture(
+            bookmarks: OutputDirectoryBookmarkService(
+                makeBookmark: { _ in throw BookmarkFixtureError.creationFailed },
+                resolveBookmark: { _ in throw BookmarkFixtureError.creationFailed }
+            )
+        )
+        defer { fixture.cleanUp() }
+        let original = DownloadOptions.defaults
+
+        XCTAssertThrowsError(
+            try fixture.store.optionsBySelectingOutputDirectory(
+                URL(fileURLWithPath: "/unavailable", isDirectory: true),
+                in: original
+            )
+        ) { error in
+            XCTAssertEqual(error as? OutputDirectorySelectionError, .bookmarkCreationFailed)
+        }
+        XCTAssertEqual(original, .defaults)
+    }
+
     func testPlaylistBatchCreatesOneQueuedJobPerSelectedEntry() async throws {
         let fixture = try StoreFixture(analysis: .playlist(.fixture(entryCount: 3)))
         defer { fixture.cleanUp() }
@@ -669,14 +710,16 @@ private final class StoreFixture {
         jobs: [DownloadJob] = [],
         analysis: AnalysisResult = .video(.fixture()),
         thumbnailLoader: ThumbnailDataLoader = .live,
-        coordinatorLimit: Int = 1
+        coordinatorLimit: Int = 1,
+        bookmarks: OutputDirectoryBookmarkService = .live
     ) throws {
         try self.init(
             root: temporaryDirectory(),
             jobs: jobs,
             analysis: { _, _ in analysis },
             thumbnailLoader: thumbnailLoader,
-            coordinatorLimit: coordinatorLimit
+            coordinatorLimit: coordinatorLimit,
+            bookmarks: bookmarks
         )
     }
 
@@ -696,7 +739,8 @@ private final class StoreFixture {
         jobs: [DownloadJob],
         analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
         thumbnailLoader: ThumbnailDataLoader = .live,
-        coordinatorLimit: Int = 1
+        coordinatorLimit: Int = 1,
+        bookmarks: OutputDirectoryBookmarkService = .live
     ) throws {
         self.root = root
         runner = StoreRunner()
@@ -709,6 +753,7 @@ private final class StoreFixture {
             persistence: persistence,
             thumbnailCache: thumbnailCache,
             diagnostics: DiagnosticsLogger(root: root),
+            outputDirectoryBookmarks: bookmarks,
             metadataAnalyzer: ClosureMetadataAnalyzer(analysis)
         )
     }
@@ -725,6 +770,11 @@ private final class StoreFixture {
     func cleanUp() {
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+private enum BookmarkFixtureError: Error {
+    case creationFailed
+    case unexpectedURL
 }
 
 private actor StoreRunner: JobRunning {

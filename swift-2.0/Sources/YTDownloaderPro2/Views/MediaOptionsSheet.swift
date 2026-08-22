@@ -1,7 +1,52 @@
 import AppKit
 import SwiftUI
 
+struct MediaIdentityPresentation: Equatable {
+    enum Thumbnail: Equatable {
+        case remote(URL)
+        case fallback
+    }
+
+    let title: String
+    let durationText: String?
+    let thumbnail: Thumbnail
+    let titleLineLimit = 3
+
+    init(analysis: VideoAnalysis) {
+        title = analysis.title
+        durationText = analysis.duration.map(Self.formatDuration)
+        thumbnail = analysis.thumbnailURL.map(Thumbnail.remote) ?? .fallback
+    }
+
+    private static func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration.rounded()))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+struct DownloadOptionsViewState: Equatable {
+    let availableSubtitleModes: [SubtitleMode]
+    let outputFolderLabel: String
+    let canSubmit: Bool
+
+    init(options: DownloadOptions) {
+        availableSubtitleModes = options.outputKind == .mp3 ? [.none, .download] : [.none, .download, .embed]
+        let hasBookmark = options.outputDirectoryBookmark?.isEmpty == false
+        outputFolderLabel = hasBookmark
+            ? options.outputDirectoryDisplayPath ?? "Selected output folder"
+            : "Choose an output folder"
+        canSubmit = hasBookmark
+    }
+}
+
 struct MediaOptionsPresentation: Equatable {
+    let identity: MediaIdentityPresentation?
     let videoChoices: [MediaFormat]
     let audioChoices: [MediaFormat]
     private(set) var selectedVideoID: String?
@@ -10,9 +55,10 @@ struct MediaOptionsPresentation: Equatable {
 
     // MetadataProbe sorts typed formats highest-first, so the first usable choice is the reviewed default.
     init(analysis: VideoAnalysis, defaults: DownloadOptions) {
+        identity = MediaIdentityPresentation(analysis: analysis)
         videoChoices = analysis.videoFormats
         audioChoices = analysis.audioFormats
-        options = defaults
+        options = defaults.normalizedForExecution()
         selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: analysis.videoFormats)
             ?? analysis.videoFormats.first?.id
         selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: analysis.audioFormats)
@@ -21,6 +67,8 @@ struct MediaOptionsPresentation: Equatable {
     }
 
     init(options: DownloadOptions) {
+        let options = options.normalizedForExecution()
+        identity = nil
         self.options = options
         selectedVideoID = Self.selectedID(for: options.videoQuality, in: [])
         selectedAudioID = Self.selectedID(for: options.audioQuality, in: [])
@@ -99,6 +147,7 @@ struct MediaOptionsSheet: View {
 
     private let title: String
     private let actionTitle: String
+    private let identity: MediaIdentityPresentation?
     private let videoChoices: [MediaFormat]
     private let audioChoices: [MediaFormat]
     private let onConfirm: (DownloadOptions) -> Void
@@ -115,6 +164,7 @@ struct MediaOptionsSheet: View {
         let presentation = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
         self.title = title
         self.actionTitle = actionTitle
+        identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
         self.onConfirm = onConfirm
@@ -130,6 +180,7 @@ struct MediaOptionsSheet: View {
         let presentation = MediaOptionsPresentation(options: options)
         self.title = title
         self.actionTitle = actionTitle
+        identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
         self.onConfirm = onConfirm
@@ -140,6 +191,10 @@ struct MediaOptionsSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.title3.weight(.semibold))
+
+            if let identity {
+                mediaIdentityHeader(identity)
+            }
 
             ScrollView {
                 Form {
@@ -155,6 +210,7 @@ struct MediaOptionsSheet: View {
                     onConfirm(options)
                     dismiss()
                 }
+                .disabled(!DownloadOptionsViewState(options: options).canSubmit)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -164,9 +220,57 @@ struct MediaOptionsSheet: View {
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
     }
+
+    private func mediaIdentityHeader(_ identity: MediaIdentityPresentation) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            mediaThumbnail(identity.thumbnail)
+                .frame(width: 112, height: 63)
+                .background(DownloadCenterAppearance.palette.thumbnailBackground.color)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(identity.title)
+                    .font(.headline)
+                    .lineLimit(identity.titleLineLimit)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let durationText = identity.durationText {
+                    Text(durationText)
+                        .font(.caption)
+                        .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func mediaThumbnail(_ thumbnail: MediaIdentityPresentation.Thumbnail) -> some View {
+        switch thumbnail {
+        case let .remote(url):
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    thumbnailFallback
+                }
+            }
+        case .fallback:
+            thumbnailFallback
+        }
+    }
+
+    private var thumbnailFallback: some View {
+        Image(systemName: "film")
+            .font(.title2)
+            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Thumbnail unavailable")
+    }
 }
 
 struct DownloadOptionsEditor: View {
+    @EnvironmentObject private var store: DownloadStore
     @Binding var options: DownloadOptions
 
     let videoChoices: [MediaFormat]
@@ -177,7 +281,7 @@ struct DownloadOptionsEditor: View {
     var body: some View {
         Group {
             Section("Output") {
-                Picker("Output format", selection: $options.outputKind) {
+                Picker("Output format", selection: outputKind) {
                     Text("MP4 video").tag(OutputKind.mp4)
                     Text("MP3 audio").tag(OutputKind.mp3)
                 }
@@ -204,9 +308,9 @@ struct DownloadOptionsEditor: View {
 
             Section("Subtitles") {
                 Picker("Subtitle mode", selection: $options.subtitleMode) {
-                    Text("None").tag(SubtitleMode.none)
-                    Text("Download").tag(SubtitleMode.download)
-                    Text("Embed").tag(SubtitleMode.embed)
+                    ForEach(viewState.availableSubtitleModes, id: \.self) { mode in
+                        Text(subtitleModeLabel(mode)).tag(mode)
+                    }
                 }
                 TextField("Subtitle language", text: subtitleLanguage)
                     .disabled(options.subtitleMode == .none)
@@ -224,7 +328,7 @@ struct DownloadOptionsEditor: View {
 
             Section("Output folder") {
                 HStack(spacing: 8) {
-                    Text(options.outputDirectoryDisplayPath ?? "Default download folder")
+                    Text(viewState.outputFolderLabel)
                         .lineLimit(2)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -242,6 +346,25 @@ struct DownloadOptionsEditor: View {
                         .foregroundStyle(.red)
                 }
             }
+        }
+    }
+
+    private var viewState: DownloadOptionsViewState {
+        DownloadOptionsViewState(options: options)
+    }
+
+    private var outputKind: Binding<OutputKind> {
+        Binding(
+            get: { options.outputKind },
+            set: { options.selectOutputKind($0) }
+        )
+    }
+
+    private func subtitleModeLabel(_ mode: SubtitleMode) -> String {
+        switch mode {
+        case .none: "None"
+        case .download: "Download"
+        case .embed: "Embed"
         }
     }
 
@@ -288,10 +411,11 @@ struct DownloadOptionsEditor: View {
     private func chooseFolder() {
         guard let directory = OutputFolderPicker.choose() else { return }
         do {
-            try OutputFolderPicker.apply(directory, to: &options)
+            options = try store.optionsBySelectingOutputDirectory(directory, in: options)
             folderError = nil
         } catch {
-            folderError = "The selected folder could not be saved. Choose it again."
+            folderError = (error as? LocalizedError)?.errorDescription
+                ?? "The selected folder could not be saved. Choose it again."
         }
     }
 }
@@ -307,8 +431,4 @@ enum OutputFolderPicker {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    static func apply(_ directory: URL, to options: inout DownloadOptions) throws {
-        options.outputDirectoryBookmark = try OutputDirectoryBookmarkService.live.makeBookmark(for: directory)
-        options.outputDirectoryDisplayPath = directory.path
-    }
 }

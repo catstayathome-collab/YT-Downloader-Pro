@@ -54,6 +54,7 @@ struct YouTubeStrategy: Sendable {
     }
 
     private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil) -> [String] {
+        let options = options.normalizedForExecution()
         let selectedToolchain = toolchain ?? self.toolchain
         var arguments = [
             "--js-runtimes",

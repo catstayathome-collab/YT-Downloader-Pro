@@ -83,6 +83,33 @@ enum DownloadCenterKeyboardFocus: Equatable {
     case nonEditable
 }
 
+struct DownloadCenterResponderContext: Equatable {
+    let urlFieldIsFocused: Bool
+    let playlistSelectionIsPresented: Bool
+    let modalSheetIsPresented: Bool
+    let responderIsEditableText: Bool
+    let responderIsControl: Bool
+}
+
+enum DownloadCenterFocusClassifier {
+    // Editable text always keeps native commands; a playlist otherwise owns Command-A across its controls.
+    static func classify(_ context: DownloadCenterResponderContext) -> DownloadCenterKeyboardFocus {
+        if context.responderIsEditableText {
+            return context.urlFieldIsFocused ? .permanentURLField : .editableText
+        }
+        if context.playlistSelectionIsPresented {
+            return .playlistSelectionSheet
+        }
+        if context.responderIsControl {
+            return .interactiveControl
+        }
+        if context.modalSheetIsPresented {
+            return .modalSheet
+        }
+        return context.urlFieldIsFocused ? .permanentURLField : .nonEditable
+    }
+}
+
 enum DownloadCenterCommandDecision: Equatable {
     case analyzePermanentURL
     case toggleSelectedJob(UUID)
@@ -476,6 +503,7 @@ struct DownloadCenterView: View {
     }
 }
 
+@MainActor
 private struct KeyboardCommandMonitor: NSViewRepresentable {
     let urlFieldIsFocused: Bool
     let playlistSelectionIsPresented: Bool
@@ -496,6 +524,11 @@ private struct KeyboardCommandMonitor: NSViewRepresentable {
         context.coordinator.parent = self
     }
 
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    @MainActor
     final class Coordinator {
         var parent: KeyboardCommandMonitor
         private var monitor: Any?
@@ -504,9 +537,10 @@ private struct KeyboardCommandMonitor: NSViewRepresentable {
             self.parent = parent
         }
 
-        deinit {
+        func uninstall() {
             if let monitor {
                 NSEvent.removeMonitor(monitor)
+                self.monitor = nil
             }
         }
 
@@ -553,19 +587,18 @@ private struct KeyboardCommandMonitor: NSViewRepresentable {
         }
 
         private func keyboardFocus(for responder: NSResponder?) -> DownloadCenterKeyboardFocus {
-            if responderHierarchy(responder, contains: { $0 is NSTextView || $0 is NSTextField }) {
-                return parent.urlFieldIsFocused ? .permanentURLField : .editableText
-            }
-            if responderHierarchy(responder, contains: { $0 is NSControl }) {
-                return .interactiveControl
-            }
-            if parent.playlistSelectionIsPresented {
-                return .playlistSelectionSheet
-            }
-            if parent.modalSheetIsPresented {
-                return .modalSheet
-            }
-            return parent.urlFieldIsFocused ? .permanentURLField : .nonEditable
+            DownloadCenterFocusClassifier.classify(
+                DownloadCenterResponderContext(
+                    urlFieldIsFocused: parent.urlFieldIsFocused,
+                    playlistSelectionIsPresented: parent.playlistSelectionIsPresented,
+                    modalSheetIsPresented: parent.modalSheetIsPresented,
+                    responderIsEditableText: responderHierarchy(
+                        responder,
+                        contains: { $0 is NSTextView || $0 is NSTextField }
+                    ),
+                    responderIsControl: responderHierarchy(responder, contains: { $0 is NSControl })
+                )
+            )
         }
 
         private func responderHierarchy(_ responder: NSResponder?, contains predicate: (NSResponder) -> Bool) -> Bool {

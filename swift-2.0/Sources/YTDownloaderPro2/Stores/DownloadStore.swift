@@ -9,6 +9,14 @@ enum AnalysisState: Equatable {
     case failed(DownloadFailure)
 }
 
+enum OutputDirectorySelectionError: Error, Equatable, LocalizedError {
+    case bookmarkCreationFailed
+
+    var errorDescription: String? {
+        "The selected folder could not be saved. Choose it again."
+    }
+}
+
 @MainActor
 final class DownloadStore: ObservableObject {
     @Published private(set) var jobs: [DownloadJob]
@@ -45,6 +53,7 @@ final class DownloadStore: ObservableObject {
     private let thumbnailCache: ThumbnailCache
     private let diagnostics: DiagnosticsLogger
     private let settingsStore: AppSettingsStore
+    private let outputDirectoryBookmarks: OutputDirectoryBookmarkService
     private let metadataAnalyzer: any MetadataAnalyzing
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
@@ -71,6 +80,7 @@ final class DownloadStore: ObservableObject {
         thumbnailCache: ThumbnailCache,
         diagnostics: DiagnosticsLogger,
         settingsStore: AppSettingsStore = AppSettingsStore(),
+        outputDirectoryBookmarks: OutputDirectoryBookmarkService = .live,
         metadataAnalyzer: any MetadataAnalyzing
     ) {
         self.jobs = Self.recoveredJobs(from: jobs)
@@ -83,8 +93,24 @@ final class DownloadStore: ObservableObject {
         self.thumbnailCache = thumbnailCache
         self.diagnostics = diagnostics
         self.settingsStore = settingsStore
+        self.outputDirectoryBookmarks = outputDirectoryBookmarks
         self.metadataAnalyzer = metadataAnalyzer
         consumeCoordinatorEvents()
+    }
+
+    func optionsBySelectingOutputDirectory(_ directory: URL, in options: DownloadOptions) throws -> DownloadOptions {
+        do {
+            let bookmark = try outputDirectoryBookmarks.makeBookmark(for: directory)
+            guard !bookmark.isEmpty else {
+                throw OutputDirectorySelectionError.bookmarkCreationFailed
+            }
+            var selected = options
+            selected.outputDirectoryBookmark = bookmark
+            selected.outputDirectoryDisplayPath = directory.path
+            return selected
+        } catch {
+            throw OutputDirectorySelectionError.bookmarkCreationFailed
+        }
     }
 
     deinit {

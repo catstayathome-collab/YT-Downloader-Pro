@@ -167,6 +167,19 @@ final class YouTubeStrategyTests: XCTestCase {
         ])
     }
 
+    func testPersistedMP3EmbedSubtitleSelectionNeverEmitsEmbedSubs() {
+        let strategy = YouTubeStrategy(toolchain: .fixture())
+        var job = DownloadJob.fixture(outputKind: .mp3)
+        job.options.subtitleMode = .embed
+        job.options.subtitleLanguage = "ja"
+
+        let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
+
+        XCTAssertTrue(arguments.contains("--write-subs"))
+        XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "ja")
+        XCTAssertFalse(arguments.contains("--embed-subs"))
+    }
+
     private func argument(after flag: String, in arguments: [String]) -> String? {
         guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
             return nil

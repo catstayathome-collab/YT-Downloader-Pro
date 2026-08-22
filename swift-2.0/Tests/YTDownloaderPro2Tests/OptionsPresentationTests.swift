@@ -2,6 +2,34 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class OptionsPresentationTests: XCTestCase {
+    func testVideoOptionsRetainAnalyzedIdentityForCompactSheetHeader() {
+        let thumbnailURL = URL(string: "https://images.test/video.jpg")!
+        let analysis = VideoAnalysis(
+            sourceURL: "https://www.youtube.com/watch?v=video123",
+            title: "A deliberately long analyzed title that must remain available to the sheet header",
+            duration: 125,
+            thumbnailURL: thumbnailURL,
+            videoFormats: [format(id: "video-high", label: "2160p")],
+            audioFormats: [format(id: "audio-high", label: "Opus 160 kbps")]
+        )
+
+        let model = MediaOptionsPresentation(analysis: analysis, defaults: .defaults)
+
+        XCTAssertEqual(model.identity?.title, analysis.title)
+        XCTAssertEqual(model.identity?.durationText, "2:05")
+        XCTAssertEqual(model.identity?.thumbnail, .remote(thumbnailURL))
+        XCTAssertGreaterThanOrEqual(model.identity?.titleLineLimit ?? 0, 3)
+    }
+
+    func testVideoIdentityUsesSafeThumbnailFallback() {
+        let model = MediaOptionsPresentation(
+            analysis: videoAnalysis(videoFormats: [], audioFormats: []),
+            defaults: .defaults
+        )
+
+        XCTAssertEqual(model.identity?.thumbnail, .fallback)
+    }
+
     func testVideoOptionsDefaultToHighestAvailableVideoAndAudio() {
         let analysis = videoAnalysis(
             videoFormats: [format(id: "video-high", label: "2160p"), format(id: "video-low", label: "720p")],
@@ -40,12 +68,81 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.selectedVideoID, "video-low")
         XCTAssertEqual(model.selectedAudioID, "audio-low")
         XCTAssertEqual(model.options.outputKind, .mp3)
-        XCTAssertEqual(model.options.subtitleMode, .embed)
+        XCTAssertEqual(model.options.subtitleMode, .download)
         XCTAssertEqual(model.options.subtitleLanguage, "ja")
         XCTAssertTrue(model.options.embedThumbnail)
         XCTAssertTrue(model.options.embedMetadata)
         XCTAssertEqual(model.options.cookies, .safari)
         XCTAssertEqual(model.options.outputDirectoryDisplayPath, "/tmp/Downloads")
+    }
+
+    func testFreshOptionsRequireDurableOutputFolderBeforeQueueing() {
+        let state = DownloadOptionsViewState(options: .defaults)
+
+        XCTAssertFalse(state.canSubmit)
+        XCTAssertEqual(state.outputFolderLabel, "Choose an output folder")
+    }
+
+    func testSavedOptionsWithBookmarkRemainReadyAndKeepTheirFolderLabel() {
+        let options = DownloadOptions(
+            outputDirectoryBookmark: Data("durable-bookmark".utf8),
+            outputDirectoryDisplayPath: "/Users/example/Downloads"
+        )
+
+        let state = DownloadOptionsViewState(options: options)
+
+        XCTAssertTrue(state.canSubmit)
+        XCTAssertEqual(state.outputFolderLabel, "/Users/example/Downloads")
+    }
+
+    func testMP3HidesEmbedSubtitleModeAndNormalizesExistingEmbedSelectionToSidecar() {
+        var options = DownloadOptions(outputKind: .mp4, subtitleMode: .embed)
+
+        options.selectOutputKind(.mp3)
+        let state = DownloadOptionsViewState(options: options)
+
+        XCTAssertEqual(options.subtitleMode, .download)
+        XCTAssertEqual(state.availableSubtitleModes, [.none, .download])
+        XCTAssertFalse(state.availableSubtitleModes.contains(.embed))
+    }
+
+    func testResponderClassificationKeepsEditableTextNativeThenPrioritizesPlaylistOverControls() {
+        XCTAssertEqual(
+            DownloadCenterFocusClassifier.classify(
+                .init(
+                    urlFieldIsFocused: false,
+                    playlistSelectionIsPresented: true,
+                    modalSheetIsPresented: true,
+                    responderIsEditableText: true,
+                    responderIsControl: true
+                )
+            ),
+            .editableText
+        )
+        XCTAssertEqual(
+            DownloadCenterFocusClassifier.classify(
+                .init(
+                    urlFieldIsFocused: false,
+                    playlistSelectionIsPresented: true,
+                    modalSheetIsPresented: true,
+                    responderIsEditableText: false,
+                    responderIsControl: true
+                )
+            ),
+            .playlistSelectionSheet
+        )
+        XCTAssertEqual(
+            DownloadCenterFocusClassifier.classify(
+                .init(
+                    urlFieldIsFocused: false,
+                    playlistSelectionIsPresented: false,
+                    modalSheetIsPresented: false,
+                    responderIsEditableText: false,
+                    responderIsControl: true
+                )
+            ),
+            .interactiveControl
+        )
     }
 
     func testPlaylistStartsWithEveryAvailableEntrySelectedAndCommandAReselectsOnlyAvailableEntries() {

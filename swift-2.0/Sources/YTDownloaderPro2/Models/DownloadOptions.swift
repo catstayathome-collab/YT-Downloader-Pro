@@ -88,4 +88,17 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         }
         return true
     }
+
+    mutating func selectOutputKind(_ kind: OutputKind) {
+        outputKind = kind
+        if kind == .mp3, subtitleMode == .embed {
+            subtitleMode = .download
+        }
+    }
+
+    func normalizedForExecution() -> DownloadOptions {
+        var normalized = self
+        normalized.selectOutputKind(outputKind)
+        return normalized
+    }
 }
