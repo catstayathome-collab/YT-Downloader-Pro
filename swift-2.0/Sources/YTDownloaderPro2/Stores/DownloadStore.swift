@@ -32,6 +32,7 @@ final class DownloadStore: ObservableObject {
     @Published var selection: Set<UUID>
     @Published var sidebarSection: DownloadStatus.SidebarSection
     @Published private(set) var analysisState: AnalysisState
+    @Published private(set) var updateResult: UpdateResult?
     @Published var settings: AppSettings {
         didSet {
             guard !isPreparingToQuit else { return }
@@ -64,6 +65,7 @@ final class DownloadStore: ObservableObject {
     private let settingsStore: AppSettingsStore
     private let outputDirectoryBookmarks: OutputDirectoryBookmarkService
     private let metadataAnalyzer: any MetadataAnalyzing
+    private let updateChecker: any UpdateChecking
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
@@ -90,7 +92,8 @@ final class DownloadStore: ObservableObject {
         diagnostics: DiagnosticsLogger,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         outputDirectoryBookmarks: OutputDirectoryBookmarkService = .live,
-        metadataAnalyzer: any MetadataAnalyzing
+        metadataAnalyzer: any MetadataAnalyzing,
+        updateChecker: any UpdateChecking = UpdateChecker.live()
     ) {
         self.jobs = Self.recoveredJobs(from: jobs)
         self.selection = selection
@@ -104,6 +107,7 @@ final class DownloadStore: ObservableObject {
         self.settingsStore = settingsStore
         self.outputDirectoryBookmarks = outputDirectoryBookmarks
         self.metadataAnalyzer = metadataAnalyzer
+        self.updateChecker = updateChecker
         consumeCoordinatorEvents()
     }
 
@@ -120,6 +124,16 @@ final class DownloadStore: ObservableObject {
         } catch {
             throw OutputDirectorySelectionError.bookmarkCreationFailed
         }
+    }
+
+    /// Automatic transient failures remain invisible; every manual result is published for presentation.
+    func checkForUpdates(manual: Bool) async {
+        guard manual || settings.automaticallyCheckForUpdates else { return }
+        let result = await updateChecker.check(manual: manual)
+        if !manual, result == .failed(.silentTransient) {
+            return
+        }
+        updateResult = result
     }
 
     deinit {

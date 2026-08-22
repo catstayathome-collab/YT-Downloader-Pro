@@ -4,9 +4,30 @@ import base64
 import json
 import re
 import ssl
+from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import urlparse
 
 import certifi
+
+
+_SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+_LOWERCASE_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class UpdateManifestSelection:
+    """Validated update metadata selected for one exact platform and architecture."""
+
+    latest_version: str
+    release_url: str | None
+    download_url: str | None
+    is_legacy: bool = False
 
 
 def make_update_ssl_context():
@@ -40,6 +61,109 @@ def parse_update_manifest(content):
             or ""
         ).strip().lstrip("v")
     return content.splitlines()[0].strip().lstrip("v")
+
+
+def parse_platform_update_manifest(content, platform_name, architecture="x64"):
+    """Select one platform manifest asset, while retaining legacy version sources.
+
+    Structured manifests fail closed on a platform or architecture mismatch. Plain
+    ``version.txt`` and pre-split JSON remain version-only compatibility inputs.
+    """
+    decoded = _decode_contents_api(content)
+    if decoded is None:
+        return None
+    content = decoded.strip()
+    if not content:
+        return None
+
+    try:
+        manifest = json.loads(content)
+    except json.JSONDecodeError:
+        manifest = None
+
+    if not isinstance(manifest, dict) or "platform" not in manifest:
+        version = parse_update_manifest(content)
+        if not version:
+            return None
+        return UpdateManifestSelection(version, None, None, is_legacy=True)
+
+    requested_platform = _canonical_platform(platform_name)
+    if requested_platform is None or manifest.get("platform") != requested_platform:
+        return None
+    if manifest.get("schema_version") != 1:
+        return None
+
+    version = str(manifest.get("latest_version") or "").strip()
+    release_url = str(manifest.get("release_url") or "").strip()
+    published_at = str(manifest.get("published_at") or "").strip()
+    release_notes = str(manifest.get("release_notes") or "").strip()
+    if not _SEMVER.fullmatch(version):
+        return None
+    if not _is_https_url(release_url):
+        return None
+    if not _is_utc_timestamp(published_at) or not release_notes:
+        return None
+
+    assets = manifest.get("assets")
+    if not isinstance(assets, list):
+        return None
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("platform") != requested_platform:
+            continue
+        if str(asset.get("architecture") or "").lower() != str(architecture).lower():
+            continue
+        if not str(asset.get("name") or "").strip():
+            continue
+        download_url = str(asset.get("download_url") or "").strip()
+        checksum = str(asset.get("sha256") or "").strip()
+        if _is_https_url(download_url) and _LOWERCASE_SHA256.fullmatch(checksum):
+            return UpdateManifestSelection(version, release_url, download_url)
+    return None
+
+
+def _decode_contents_api(content):
+    content = (content or "").strip()
+    if not content:
+        return ""
+    try:
+        envelope = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+    if not isinstance(envelope, dict) or "content" not in envelope:
+        return content
+    if envelope.get("encoding") not in (None, "base64"):
+        return None
+    encoded = "".join(str(envelope.get("content") or "").split())
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (ValueError, UnicodeError):
+        return None
+
+
+def _canonical_platform(platform_name):
+    platform_name = str(platform_name).lower()
+    if platform_name in {"windows", "win32"}:
+        return "windows"
+    if platform_name in {"macos", "darwin", "mac"}:
+        return "macos"
+    return None
+
+
+def _is_https_url(value):
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and bool(parsed.netloc) and not (
+        parsed.username or parsed.password
+    )
+
+
+def _is_utc_timestamp(value):
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def is_newer_version(latest, current):

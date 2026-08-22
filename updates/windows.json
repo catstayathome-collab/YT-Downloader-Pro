@@ -1,0 +1,17 @@
+{
+  "assets": [
+    {
+      "architecture": "x64",
+      "download_url": "https://example.invalid/YT-Downloader-Pro-Windows-x64-example.zip",
+      "name": "YT-Downloader-Pro-Windows-x64-example.zip",
+      "platform": "windows",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "latest_version": "0.0.0",
+  "platform": "windows",
+  "published_at": "2026-08-18T00:00:00Z",
+  "release_notes": "Placeholder example only; not a release or update claim.",
+  "release_url": "https://example.invalid/releases/windows-example",
+  "schema_version": 1
+}

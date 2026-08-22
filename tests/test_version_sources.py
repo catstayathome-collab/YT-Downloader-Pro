@@ -1,3 +1,6 @@
+import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,6 +29,60 @@ BUILD_ENTRYPOINTS = {
 
 
 class VersionSourceLayoutTests(unittest.TestCase):
+    def test_future_python_builds_use_windows_contents_manifest(self):
+        from ytdp import app
+
+        self.assertEqual(
+            app.DEFAULT_UPDATE_MANIFEST_URL,
+            "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/updates/windows.json?ref=main",
+        )
+
+    def test_split_manifests_are_valid_platform_specific_placeholders(self):
+        macos = json.loads((ROOT / "updates" / "macos.json").read_text(encoding="utf-8"))
+        windows = json.loads((ROOT / "updates" / "windows.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(macos["platform"], "macos")
+        self.assertEqual(windows["platform"], "windows")
+        self.assertEqual(macos["latest_version"], "0.0.0")
+        self.assertEqual(windows["latest_version"], "0.0.0")
+        self.assertIn("not a release", macos["release_notes"].lower())
+        self.assertIn("not a release", windows["release_notes"].lower())
+        self.assertEqual(
+            [(asset["platform"], asset["architecture"]) for asset in windows["assets"]],
+            [("windows", "x64")],
+        )
+
+    def test_macos_manifest_generator_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first.json"
+            second = Path(directory) / "second.json"
+            common = [
+                "--version", "2.0.0",
+                "--minimum-macos", "13.0.0",
+                "--release-url", "https://example.invalid/releases/macos-example",
+                "--download-url", "https://example.invalid/macos-example.zip",
+                "--sha256", "1" * 64,
+                "--published-at", "2026-08-18T00:00:00Z",
+                "--release-notes", "Example only; not a release.",
+            ]
+
+            subprocess.run(
+                ["python3", str(ROOT / "scripts" / "create_macos_manifest.py"), *common, "--output", str(first)],
+                check=True,
+                cwd=ROOT,
+            )
+            subprocess.run(
+                ["python3", str(ROOT / "scripts" / "create_macos_manifest.py"), *common, "--output", str(second)],
+                check=True,
+                cwd=ROOT,
+            )
+
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            generated = json.loads(first.read_text(encoding="utf-8"))
+            self.assertEqual(generated["platform"], "macos")
+            self.assertEqual(generated["minimum_macos"], "13.0.0")
+            self.assertTrue(first.read_bytes().endswith(b"\n"))
+
     def test_versioned_entrypoints_are_grouped_outside_the_repository_root(self):
         for version, filenames in VERSIONED_ENTRYPOINTS.items():
             for filename in filenames:

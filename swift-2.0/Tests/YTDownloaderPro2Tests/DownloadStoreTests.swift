@@ -4,6 +4,57 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testAutomaticTransientUpdateFailureRemainsUnpublished() async throws {
+        let updater = StoreUpdateChecker(result: .failed(.silentTransient))
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+
+        await fixture.store.checkForUpdates(manual: false)
+
+        let calls = await updater.manualArguments()
+        XCTAssertNil(fixture.store.updateResult)
+        XCTAssertEqual(calls, [false])
+    }
+
+    func testManualUpdateFailureIsPublishedForActionableUI() async throws {
+        let updater = StoreUpdateChecker(result: .failed(.actionableNetwork))
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+
+        await fixture.store.checkForUpdates(manual: true)
+
+        let calls = await updater.manualArguments()
+        XCTAssertEqual(fixture.store.updateResult, .failed(.actionableNetwork))
+        XCTAssertEqual(calls, [true])
+    }
+
+    func testDisabledAutomaticUpdateCheckDoesNotCallService() async throws {
+        let updater = StoreUpdateChecker(result: .upToDate)
+        let fixture = try StoreFixture(
+            settings: AppSettings(automaticallyCheckForUpdates: false),
+            updateChecker: updater
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.checkForUpdates(manual: false)
+
+        let calls = await updater.manualArguments()
+        XCTAssertEqual(calls, [])
+    }
+
+    func testAppLifecycleStartsAutomaticUpdateCheckAfterLaunch() async throws {
+        let updater = StoreUpdateChecker(result: .upToDate)
+        let fixture = try StoreFixture(updateChecker: updater)
+        defer { fixture.cleanUp() }
+        let lifecycle = AppLifecycle(store: fixture.store)
+
+        lifecycle.startAutomaticUpdateCheck()
+
+        try await updater.waitForCallCount(1)
+        let calls = await updater.manualArguments()
+        XCTAssertEqual(calls, [false])
+    }
+
     func testUnrecoverablePersistenceLoadPublishesLocalizedRecoveryFailure() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -865,7 +916,9 @@ private final class StoreFixture {
         analysis: AnalysisResult = .video(.fixture()),
         thumbnailLoader: ThumbnailDataLoader = .live,
         coordinatorLimit: Int = 1,
-        bookmarks: OutputDirectoryBookmarkService = .live
+        bookmarks: OutputDirectoryBookmarkService = .live,
+        settings: AppSettings = .defaults,
+        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate)
     ) throws {
         try self.init(
             root: temporaryDirectory(),
@@ -873,7 +926,9 @@ private final class StoreFixture {
             analysis: { _, _ in analysis },
             thumbnailLoader: thumbnailLoader,
             coordinatorLimit: coordinatorLimit,
-            bookmarks: bookmarks
+            bookmarks: bookmarks,
+            settings: settings,
+            updateChecker: updateChecker
         )
     }
 
@@ -894,7 +949,9 @@ private final class StoreFixture {
         analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
         thumbnailLoader: ThumbnailDataLoader = .live,
         coordinatorLimit: Int = 1,
-        bookmarks: OutputDirectoryBookmarkService = .live
+        bookmarks: OutputDirectoryBookmarkService = .live,
+        settings: AppSettings = .defaults,
+        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate)
     ) throws {
         self.root = root
         runner = StoreRunner()
@@ -903,12 +960,14 @@ private final class StoreFixture {
         thumbnailCache = ThumbnailCache(root: root, loader: thumbnailLoader)
         store = DownloadStore(
             jobs: jobs,
+            settings: settings,
             coordinator: coordinator,
             persistence: persistence,
             thumbnailCache: thumbnailCache,
             diagnostics: DiagnosticsLogger(root: root),
             outputDirectoryBookmarks: bookmarks,
-            metadataAnalyzer: ClosureMetadataAnalyzer(analysis)
+            metadataAnalyzer: ClosureMetadataAnalyzer(analysis),
+            updateChecker: updateChecker
         )
     }
 
@@ -929,6 +988,35 @@ private final class StoreFixture {
 private enum BookmarkFixtureError: Error {
     case creationFailed
     case unexpectedURL
+}
+
+private actor StoreUpdateChecker: UpdateChecking {
+    private let result: UpdateResult
+    private var calls: [Bool] = []
+
+    init(result: UpdateResult) {
+        self.result = result
+    }
+
+    func check(manual: Bool) async -> UpdateResult {
+        calls.append(manual)
+        return result
+    }
+
+    func manualArguments() -> [Bool] {
+        calls
+    }
+
+    func waitForCallCount(_ count: Int) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while calls.count < count {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("update checker call")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
 }
 
 private actor StoreRunner: JobRunning {

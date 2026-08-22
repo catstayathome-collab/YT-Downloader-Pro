@@ -32,13 +32,14 @@ from ytdp.toolchain import Toolchain
 from ytdp.updater import (
     is_newer_version as compare_versions,
     make_update_ssl_context as build_update_ssl_context,
+    parse_platform_update_manifest as parse_platform_manifest,
     parse_release_asset_url as parse_release_url,
     parse_update_manifest as parse_manifest,
 )
 
 VERSION = "1.8.8"
 APP_NAME = "YT Downloader Pro"
-DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/version.txt?ref=main"
+DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/contents/updates/windows.json?ref=main"
 DEFAULT_UPDATE_DOWNLOAD_URL = "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/latest"
 DEFAULT_UPDATE_RELEASE_API_URL = "https://api.github.com/repos/catstayathome-collab/YT-Downloader-Pro/releases/latest"
 PUBLIC_UPDATE_MANIFEST_URL = os.environ.get("YTDP_UPDATE_MANIFEST_URL", DEFAULT_UPDATE_MANIFEST_URL).strip()
@@ -386,12 +387,18 @@ class YTDownloaderApp:
                     timeout=5,
                     context=context,
                 ) as resp:
-                    latest = self.parse_update_manifest(resp.read().decode('utf-8'))
-                if not latest:
+                    manifest_content = resp.read().decode('utf-8')
+                platform_name = self.platform.filename_platform()
+                selection = self.parse_platform_update_manifest(
+                    manifest_content,
+                    platform_name,
+                )
+                if not selection:
                     raise ValueError("missing latest version")
+                latest = selection.latest_version
                 if self.is_newer_version(latest, self.version):
-                    download_url = UPDATE_DOWNLOAD_URL
-                    if self.platform.filename_platform() in {"windows", "win32"}:
+                    download_url = selection.download_url or UPDATE_DOWNLOAD_URL
+                    if platform_name in {"windows", "win32"} and not selection.download_url:
                         with urllib.request.urlopen(
                             urllib.request.Request(DEFAULT_UPDATE_RELEASE_API_URL),
                             timeout=5,
@@ -415,6 +422,9 @@ class YTDownloaderApp:
 
     def parse_update_manifest(self, content):
         return parse_manifest(content)
+
+    def parse_platform_update_manifest(self, content, platform_name):
+        return parse_platform_manifest(content, platform_name, architecture="x64")
 
     def is_newer_version(self, latest, current):
         return compare_versions(latest, current)

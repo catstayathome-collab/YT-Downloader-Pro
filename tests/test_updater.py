@@ -9,6 +9,7 @@ from ytdp.localization import clean_download_error
 from ytdp.updater import (
     is_newer_version,
     make_update_ssl_context,
+    parse_platform_update_manifest,
     parse_release_asset_url,
     parse_update_manifest,
     select_release_asset,
@@ -16,6 +17,77 @@ from ytdp.updater import (
 
 
 class UpdateHelpersTests(unittest.TestCase):
+    def test_contents_api_windows_manifest_selects_only_x64_asset(self):
+        manifest = self.windows_manifest(
+            assets=[
+                self.manifest_asset("arm64", "https://downloads.example/windows-arm64.zip"),
+                self.manifest_asset("x64", "https://downloads.example/windows-x64.zip"),
+            ]
+        )
+        encoded = base64.b64encode(json.dumps(manifest).encode()).decode()
+
+        selected = parse_platform_update_manifest(
+            json.dumps({"encoding": "base64", "content": encoded}),
+            "windows",
+            architecture="x64",
+        )
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected.latest_version, "1.8.9")
+        self.assertEqual(
+            selected.download_url,
+            "https://downloads.example/windows-x64.zip",
+        )
+        self.assertFalse(selected.is_legacy)
+
+    def test_windows_client_rejects_macos_platform_manifest(self):
+        manifest = self.windows_manifest()
+        manifest["platform"] = "macos"
+
+        self.assertIsNone(
+            parse_platform_update_manifest(json.dumps(manifest), "windows")
+        )
+
+    def test_windows_manifest_without_exact_x64_asset_is_rejected(self):
+        manifest = self.windows_manifest(
+            assets=[
+                self.manifest_asset("arm64", "https://downloads.example/windows-arm64.zip"),
+                self.manifest_asset("x86", "https://downloads.example/windows-x86.zip"),
+            ]
+        )
+
+        self.assertIsNone(
+            parse_platform_update_manifest(
+                json.dumps(manifest), "windows", architecture="x64"
+            )
+        )
+
+    def test_legacy_version_txt_remains_a_compatible_version_source(self):
+        selected = parse_platform_update_manifest("v1.8.9\n", "windows")
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected.latest_version, "1.8.9")
+        self.assertIsNone(selected.download_url)
+        self.assertTrue(selected.is_legacy)
+
+    def test_windows_manifest_rejects_unsafe_urls_and_checksums(self):
+        cases = []
+        unsafe_release = self.windows_manifest()
+        unsafe_release["release_url"] = "http://downloads.example/releases"
+        cases.append(unsafe_release)
+        unsafe_asset = self.windows_manifest()
+        unsafe_asset["assets"][0]["download_url"] = "http://downloads.example/windows.zip"
+        cases.append(unsafe_asset)
+        uppercase_checksum = self.windows_manifest()
+        uppercase_checksum["assets"][0]["sha256"] = "A" * 64
+        cases.append(uppercase_checksum)
+
+        for manifest in cases:
+            with self.subTest(manifest=manifest):
+                self.assertIsNone(
+                    parse_platform_update_manifest(json.dumps(manifest), "windows")
+                )
+
     def test_manifest_parses_plain_json_and_github_contents_versions(self):
         encoded = base64.b64encode(b"v1.8.9\n").decode()
 
@@ -150,6 +222,33 @@ class UpdateHelpersTests(unittest.TestCase):
         for release in cases:
             with self.subTest(release=release):
                 self.assertIsNone(parse_release_asset_url(json.dumps(release), "windows"))
+
+    @staticmethod
+    def manifest_asset(architecture, download_url):
+        return {
+            "platform": "windows",
+            "architecture": architecture,
+            "name": f"YT-Downloader-Pro-Windows-{architecture}.zip",
+            "download_url": download_url,
+            "sha256": "0" * 64,
+        }
+
+    def windows_manifest(self, assets=None):
+        return {
+            "schema_version": 1,
+            "platform": "windows",
+            "latest_version": "1.8.9",
+            "release_url": "https://example.invalid/releases/windows-example",
+            "published_at": "2026-08-18T00:00:00Z",
+            "release_notes": "Example manifest only; not a release.",
+            "assets": assets
+            if assets is not None
+            else [
+                self.manifest_asset(
+                    "x64", "https://downloads.example/windows-x64.zip"
+                )
+            ],
+        }
 
 
 class DownloadErrorLocalizationTests(unittest.TestCase):

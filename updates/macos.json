@@ -1,0 +1,11 @@
+{
+  "download_url": "https://example.invalid/YT-Downloader-Pro-macOS-universal-example.zip",
+  "latest_version": "0.0.0",
+  "minimum_macos": "13.0.0",
+  "platform": "macos",
+  "published_at": "2026-08-18T00:00:00Z",
+  "release_notes": "Placeholder example only; not a release or update claim.",
+  "release_url": "https://example.invalid/releases/macos-example",
+  "schema_version": 1,
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

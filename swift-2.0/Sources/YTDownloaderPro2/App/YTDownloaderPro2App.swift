@@ -66,6 +66,13 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .aqua)
+        startAutomaticUpdateCheck()
+    }
+
+    func startAutomaticUpdateCheck() {
+        Task { @MainActor [store] in
+            await store.checkForUpdates(manual: false)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
