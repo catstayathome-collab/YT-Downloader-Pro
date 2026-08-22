@@ -120,6 +120,10 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     ) -> DownloadFailure {
         let detail = stderr.lowercased()
         let category: Category
+        let isSourceFailureContext = switch context {
+        case .analysis, .download: true
+        case .postProcessing, .persistence, .toolchain: false
+        }
 
         if context == .toolchain {
             category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
@@ -127,21 +131,28 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             category = .diskFull
         } else if containsAny(detail, ["operation not permitted", "permission denied", "access is denied", "read-only file system"]) {
             category = .outputPermissionDenied
-        } else if containsAny(detail, ["unsupported url", "invalid url", "not a valid url"]) {
+        } else if isSourceFailureContext,
+                  containsAny(detail, ["unsupported url", "invalid url", "not a valid url"]) {
             category = .invalidURL
-        } else if containsAny(detail, ["sign in", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
+        } else if isSourceFailureContext,
+                  containsAny(detail, ["sign in to confirm", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
             category = .authenticationRequired
-        } else if containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "region", "geo-restricted", "removed by the uploader"]) {
+        } else if isSourceFailureContext,
+                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "geo-restricted", "removed by the uploader"]) {
             category = .unavailableMedia
-        } else if containsAny(detail, [
-            "network", "connection", "offline", "timed out", "temporary failure in name resolution",
+        } else if isSourceFailureContext,
+                  containsAny(detail, [
+            "network is unreachable", "network unreachable", "internet connection appears to be offline",
+            "connection reset", "connection refused", "connection aborted", "timed out", "temporary failure in name resolution",
             "dns lookup failed", "name or service not known", "could not resolve host", "getaddrinfo failed",
             "certificate_verify_failed", "certificate verify failed"
         ]) {
             category = .networkUnavailable
-        } else if containsAny(detail, ["http error 403", "403 forbidden", "403: forbidden", "client validation", "player client"]) {
+        } else if isSourceFailureContext,
+                  containsAny(detail, ["http error 403", "403 forbidden", "403: forbidden", "client validation", "player client validation"]) {
             category = .clientValidationFailed
-        } else if containsAny(detail, ["requested format is not available", "requested format not available", "selected format is no longer available", "format selection failed"]) {
+        } else if isSourceFailureContext,
+                  containsAny(detail, ["requested format is not available", "requested format not available", "selected format is no longer available", "format selection failed"]) {
             category = .formatReselectionRequired
         } else if containsAny(detail, ["bad cpu type", "not executable", "incompatible helper", "helper is unavailable", "is not installed"]) {
             category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable

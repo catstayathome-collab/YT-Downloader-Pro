@@ -132,9 +132,33 @@ final class LocalizationTests: XCTestCase {
             ("socket.gaierror: Name or service not known", .download, .networkUnavailable),
             ("Temporary failure in name resolution", .download, .networkUnavailable),
             ("Network is unreachable", .download, .networkUnavailable),
+            ("Connection reset by peer", .download, .networkUnavailable),
+            ("Connection refused by server", .download, .networkUnavailable),
+            ("Software caused connection aborted", .download, .networkUnavailable),
             ("Could not resolve host: www.youtube.com", .download, .networkUnavailable),
             ("getaddrinfo failed", .download, .networkUnavailable),
             ("Access is denied while writing output", .download, .outputPermissionDenied)
+        ]
+
+        for (stderr, context, expected) in cases {
+            XCTAssertEqual(DownloadFailure.classify(stderr: stderr, context: context).category, expected, stderr)
+        }
+    }
+
+    func testClassifierDoesNotTreatOrdinaryTitlesOrOutputPathsAsFailurePhrases() {
+        let cases: [(String, DownloadFailure.Context, DownloadFailure.Category)] = [
+            ("Postprocessing failed while writing /Exports/Regional Highlights.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Network Connections.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Offline Collection.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Sign In.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Player Client.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Unsupported URL.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Private Video.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Login Required.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Requested Format Not Available.mp4", .postProcessing, .postProcessingFailed),
+            ("Metadata parser failed for Regional Highlights", .analysis, .metadataUnavailable),
+            ("Metadata parser failed for Network Connections", .analysis, .metadataUnavailable),
+            ("Metadata parser failed for Offline Collection", .analysis, .metadataUnavailable)
         ]
 
         for (stderr, context, expected) in cases {
