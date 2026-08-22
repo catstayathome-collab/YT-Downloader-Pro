@@ -127,6 +127,8 @@ final class LocalizationTests: XCTestCase {
         let cases: [(String, DownloadFailure.Context, DownloadFailure.Category)] = [
             ("ERROR: 403: Forbidden", .download, .clientValidationFailed),
             ("ERROR: Video is unavailable", .analysis, .unavailableMedia),
+            ("ERROR: Video is region restricted", .analysis, .unavailableMedia),
+            ("ERROR: This video is restricted in your region", .analysis, .unavailableMedia),
             ("ERROR: Requested format not available", .download, .formatReselectionRequired),
             ("urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed", .download, .networkUnavailable),
             ("socket.gaierror: Name or service not known", .download, .networkUnavailable),
@@ -137,6 +139,7 @@ final class LocalizationTests: XCTestCase {
             ("Software caused connection aborted", .download, .networkUnavailable),
             ("Could not resolve host: www.youtube.com", .download, .networkUnavailable),
             ("getaddrinfo failed", .download, .networkUnavailable),
+            ("Access denied while writing output", .download, .outputPermissionDenied),
             ("Access is denied while writing output", .download, .outputPermissionDenied)
         ]
 
@@ -156,6 +159,10 @@ final class LocalizationTests: XCTestCase {
             ("Postprocessing failed while writing /Exports/Private Video.mp4", .postProcessing, .postProcessingFailed),
             ("Postprocessing failed while writing /Exports/Login Required.mp4", .postProcessing, .postProcessingFailed),
             ("Postprocessing failed while writing /Exports/Requested Format Not Available.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Region Restricted.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Restricted in Your Region.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Access Denied.mp4", .postProcessing, .postProcessingFailed),
+            ("Postprocessing failed while writing /Exports/Access Is Denied.mp4", .postProcessing, .postProcessingFailed),
             ("Metadata parser failed for Regional Highlights", .analysis, .metadataUnavailable),
             ("Metadata parser failed for Network Connections", .analysis, .metadataUnavailable),
             ("Metadata parser failed for Offline Collection", .analysis, .metadataUnavailable)

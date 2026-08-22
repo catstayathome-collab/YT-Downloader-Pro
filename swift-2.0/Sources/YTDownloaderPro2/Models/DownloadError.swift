@@ -129,7 +129,8 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             category = containsAny(detail, ["ffmpeg", "ffprobe", "converter"]) ? .bundledConverterUnavailable : .bundledDownloaderUnavailable
         } else if containsAny(detail, ["no space left on device", "disk full", "insufficient disk space"]) {
             category = .diskFull
-        } else if containsAny(detail, ["operation not permitted", "permission denied", "access is denied", "read-only file system"]) {
+        } else if containsAny(detail, ["operation not permitted", "permission denied", "read-only file system"])
+                    || containsAccessDeniedDiagnostic(detail) {
             category = .outputPermissionDenied
         } else if isSourceFailureContext,
                   containsAny(detail, ["unsupported url", "invalid url", "not a valid url"]) {
@@ -138,7 +139,7 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
                   containsAny(detail, ["sign in to confirm", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
             category = .authenticationRequired
         } else if isSourceFailureContext,
-                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "geo-restricted", "removed by the uploader"]) {
+                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "region restricted", "restricted in your region", "geo-restricted", "removed by the uploader"]) {
             category = .unavailableMedia
         } else if isSourceFailureContext,
                   containsAny(detail, [
@@ -330,5 +331,17 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
 
     private static func containsAny(_ value: String, _ candidates: [String]) -> Bool {
         candidates.contains(where: value.contains)
+    }
+
+    private static func containsAccessDeniedDiagnostic(_ detail: String) -> Bool {
+        detail.split(whereSeparator: \Character.isNewline).contains { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let message = line.hasPrefix("error:")
+                ? line.dropFirst("error:".count).trimmingCharacters(in: .whitespaces)
+                : line
+            return ["access denied", "access is denied"].contains { phrase in
+                message == phrase || message.hasPrefix("\(phrase) while ")
+            }
+        }
     }
 }
