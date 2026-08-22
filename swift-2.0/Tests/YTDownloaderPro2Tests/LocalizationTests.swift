@@ -4,6 +4,13 @@ import XCTest
 
 final class LocalizationTests: XCTestCase {
     private let localeIdentifiers = ["en", "ja", "zh-Hant"]
+    private let maintainedRegionalMessages = [
+        "Video is region restricted",
+        "This video is restricted in your region",
+        "The uploader has not made this video available in your country",
+        "This video is not available in your country",
+        "This video is geo-restricted"
+    ]
 
     func testVisibleKeyInventoryIsExplicitAndComplete() {
         let expected: Set<String> = [
@@ -102,7 +109,7 @@ final class LocalizationTests: XCTestCase {
         let cases: [(String, DownloadFailure.Context, DownloadFailure.Category)] = [
             ("ERROR: Unsupported URL", .analysis, .invalidURL),
             ("This video is private", .analysis, .unavailableMedia),
-            ("The uploader has not made this video available in your country", .analysis, .unavailableMedia),
+            ("ERROR: The uploader has not made this video available in your country", .analysis, .unavailableMedia),
             ("Sign in to confirm your age", .analysis, .authenticationRequired),
             ("Unable to download webpage: The Internet connection appears to be offline", .download, .networkUnavailable),
             ("HTTP Error 403: Forbidden client validation failed", .download, .clientValidationFailed),
@@ -177,6 +184,190 @@ final class LocalizationTests: XCTestCase {
             ("ERROR: Download failed while writing /Exports/Restricted in Your Region.mp4", .download, .downloadFailed),
             ("[download] Destination: /Exports/Restricted in Your Region.mp4\nERROR: download exited with status 1", .download, .downloadFailed),
             ("Video Is Region Restricted", .download, .downloadFailed)
+        ]
+
+        for (stderr, context, expected) in cases {
+            XCTAssertEqual(DownloadFailure.classify(stderr: stderr, context: context).category, expected, stderr)
+        }
+    }
+
+    func testEveryMaintainedRegionalPhraseRequiresAnErrorDiagnosticInAnalysisAndDownload() {
+        for message in maintainedRegionalMessages {
+            XCTAssertEqual(
+                DownloadFailure.classify(stderr: "  ERROR: \(message)?!  ", context: .analysis).category,
+                .unavailableMedia,
+                "analysis diagnostic: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(stderr: "\tERROR: \(message).", context: .download).category,
+                .unavailableMedia,
+                "download diagnostic: \(message)"
+            )
+
+            XCTAssertEqual(
+                DownloadFailure.classify(stderr: message, context: .analysis).category,
+                .metadataUnavailable,
+                "bare analysis text: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(stderr: message, context: .download).category,
+                .downloadFailed,
+                "bare download text: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "ERROR: Metadata parser failed for \(message)",
+                    context: .analysis
+                ).category,
+                .metadataUnavailable,
+                "analysis title: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "ERROR: Download failed while writing /Exports/\(message).mp4",
+                    context: .download
+                ).category,
+                .downloadFailed,
+                "download path: \(message)"
+            )
+        }
+    }
+
+    func testEveryMaintainedRegionalPhraseSupportsBothMaintainedExtractorPrefixes() {
+        for message in maintainedRegionalMessages {
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "ERROR: [youtube] AbC_123-XY: \(message)",
+                    context: .analysis
+                ).category,
+                .unavailableMedia,
+                "youtube prefix: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "ERROR: [youtube:tab] PL_abc-123: \(message)!",
+                    context: .download
+                ).category,
+                .unavailableMedia,
+                "youtube:tab prefix: \(message)"
+            )
+        }
+    }
+
+    func testEveryMaintainedRegionalPhraseRejectsEmptyAndMalformedExtractorPrefixes() {
+        for message in maintainedRegionalMessages {
+            let analysisLookalikes = [
+                "ERROR: [youtube] : \(message)",
+                "ERROR: [youtube] abc/123: \(message)",
+                "ERROR: [youtube] abc 123: \(message)",
+                "ERROR: [youtube] abc123 \(message)",
+                "ERROR: [youtube abc123: \(message)"
+            ]
+            let downloadLookalikes = [
+                "ERROR: [youtube:tab] : \(message)",
+                "ERROR: [youtube:tab] PL/123: \(message)",
+                "ERROR: [youtube:tab] PL 123: \(message)",
+                "ERROR: [youtube:tab]PL123: \(message)",
+                "ERROR: [youtube:playlist] PL123: \(message)"
+            ]
+
+            for stderr in analysisLookalikes {
+                XCTAssertEqual(
+                    DownloadFailure.classify(stderr: stderr, context: .analysis).category,
+                    .metadataUnavailable,
+                    stderr
+                )
+            }
+            for stderr in downloadLookalikes {
+                XCTAssertEqual(
+                    DownloadFailure.classify(stderr: stderr, context: .download).category,
+                    .downloadFailed,
+                    stderr
+                )
+            }
+        }
+    }
+
+    func testEveryMaintainedRegionalPhraseRejectsLeadingPunctuationAndEmbeddedErrorMarkers() {
+        for message in maintainedRegionalMessages {
+            let analysisLookalikes = [
+                "ERROR: .\(message)",
+                "ERROR: !!!\(message)",
+                "WARNING: ERROR: \(message)"
+            ]
+            let downloadLookalikes = [
+                "ERROR: ?\(message)",
+                "ERROR: ...\(message)",
+                "trace ERROR: \(message)"
+            ]
+
+            for stderr in analysisLookalikes {
+                XCTAssertEqual(
+                    DownloadFailure.classify(stderr: stderr, context: .analysis).category,
+                    .metadataUnavailable,
+                    stderr
+                )
+            }
+            for stderr in downloadLookalikes {
+                XCTAssertEqual(
+                    DownloadFailure.classify(stderr: stderr, context: .download).category,
+                    .downloadFailed,
+                    stderr
+                )
+            }
+        }
+    }
+
+    func testRegionalDiagnosticsHandleMixedCaseLFAndCRLFWithoutMatchingMultilineLookalikes() {
+        for message in maintainedRegionalMessages {
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "WARNING: retrying\r\n  ErRoR: [YoUtUbE] AbC_123-X: \(message.uppercased())?!\r\ntrace: done",
+                    context: .analysis
+                ).category,
+                .unavailableMedia,
+                "CRLF diagnostic: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "WARNING: retrying\nERROR: [YOUTUBE:TAB] PL_ABC-123: \(message.uppercased()).\ntrace: done",
+                    context: .download
+                ).category,
+                .unavailableMedia,
+                "LF diagnostic: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "WARNING: retrying\r\nMetadata parser failed for \(message.uppercased())\r\nERROR: metadata response malformed",
+                    context: .analysis
+                ).category,
+                .metadataUnavailable,
+                "CRLF title: \(message)"
+            )
+            XCTAssertEqual(
+                DownloadFailure.classify(
+                    stderr: "[download] Destination: /Exports/\(message.uppercased()).mp4\r\nERROR: download exited with status 1",
+                    context: .download
+                ).category,
+                .downloadFailed,
+                "CRLF path: \(message)"
+            )
+        }
+    }
+
+    func testRegionalDiagnosticPreservesClassifierPrecedenceAndContextGates() {
+        let cases: [(String, DownloadFailure.Context, DownloadFailure.Category)] = [
+            ("ERROR: Video is region restricted\nNo space left on device", .download, .diskFull),
+            ("ERROR: This video is geo-restricted\nAccess denied while writing output", .download, .outputPermissionDenied),
+            ("ERROR: Unsupported URL\nERROR: This video is not available in your country", .analysis, .invalidURL),
+            ("Sign in to confirm\nERROR: Video is region restricted", .analysis, .authenticationRequired),
+            ("ERROR: Video is region restricted\nNetwork is unreachable", .download, .unavailableMedia),
+            ("ERROR: Video is region restricted\nERROR: 403: Forbidden", .download, .unavailableMedia),
+            ("ERROR: Video is region restricted\nRequested format not available", .download, .unavailableMedia),
+            ("ERROR: Video is region restricted", .postProcessing, .postProcessingFailed),
+            ("ERROR: Video is region restricted", .persistence, .persistenceRecovery),
+            ("ERROR: Video is region restricted", .toolchain, .bundledDownloaderUnavailable),
+            ("ERROR: Video is region restricted\nffmpeg is unavailable", .toolchain, .bundledConverterUnavailable)
         ]
 
         for (stderr, context, expected) in cases {

@@ -139,7 +139,7 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
                   containsAny(detail, ["sign in to confirm", "login required", "age-restricted", "confirm your age", "members-only", "membership required"]) {
             category = .authenticationRequired
         } else if isSourceFailureContext,
-                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "not made this video available in your country", "not available in your country", "geo-restricted", "removed by the uploader"])
+                  containsAny(detail, ["private video", "video is private", "video unavailable", "video is unavailable", "removed by the uploader"])
                     || containsRegionRestrictionDiagnostic(detail) {
             category = .unavailableMedia
         } else if isSourceFailureContext,
@@ -349,7 +349,10 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
     private static func containsRegionRestrictionDiagnostic(_ detail: String) -> Bool {
         let exactMessages: Set<String> = [
             "video is region restricted",
-            "this video is restricted in your region"
+            "this video is restricted in your region",
+            "the uploader has not made this video available in your country",
+            "this video is not available in your country",
+            "this video is geo-restricted"
         ]
 
         return detail.split(whereSeparator: \Character.isNewline).contains { rawLine in
@@ -357,18 +360,44 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             guard message.hasPrefix("error:") else { return false }
             message = message.dropFirst("error:".count).trimmingCharacters(in: .whitespaces)
 
-            // Region failures require ERROR: plus an exact maintained message. The optional
-            // extractor prefix is stripped without treating title or path text as diagnostics.
-            for prefix in ["[youtube] ", "[youtube:tab] "] where message.hasPrefix(prefix) {
-                let remainder = message.dropFirst(prefix.count)
-                guard let separator = remainder.firstIndex(of: ":") else { break }
-                message = remainder[remainder.index(after: separator)...]
-                    .trimmingCharacters(in: .whitespaces)
-                break
+            if message.hasPrefix("[") {
+                guard let extractorMessage = messageAfterMaintainedExtractorPrefix(message) else {
+                    return false
+                }
+                message = extractorMessage
             }
 
-            let terminalPunctuation = CharacterSet(charactersIn: ".!?")
-            return exactMessages.contains(message.trimmingCharacters(in: terminalPunctuation))
+            while let last = message.last, ".!?".contains(last) {
+                message.removeLast()
+            }
+            return exactMessages.contains(message)
+        }
+    }
+
+    private static func messageAfterMaintainedExtractorPrefix(_ message: String) -> String? {
+        let prefixes = ["[youtube]", "[youtube:tab]"]
+        guard let prefix = prefixes.first(where: message.hasPrefix) else { return nil }
+
+        var remainder = message.dropFirst(prefix.count)
+        guard remainder.first?.isWhitespace == true else { return nil }
+        remainder = remainder.drop(while: \Character.isWhitespace)
+
+        guard let separator = remainder.firstIndex(of: ":") else { return nil }
+        let identifier = remainder[..<separator]
+        guard isValidExtractorIdentifier(identifier) else { return nil }
+
+        return remainder[remainder.index(after: separator)...]
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func isValidExtractorIdentifier(_ identifier: Substring) -> Bool {
+        !identifier.isEmpty && identifier.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 45, 48...57, 65...90, 95, 97...122:
+                true
+            default:
+                false
+            }
         }
     }
 }
