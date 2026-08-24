@@ -21,6 +21,11 @@ actor DownloadCoordinator {
         let task: Task<Bool, Never>
     }
 
+    private struct PendingPausedCancellation {
+        let generation: UUID
+        let task: Task<Void, Never>
+    }
+
     private struct ActiveJob {
         let token: UUID
         var requestedStop: RequestedStop
@@ -36,6 +41,7 @@ actor DownloadCoordinator {
     private var jobs: [UUID: DownloadJob] = [:]
     private var queuedIDs: [UUID] = []
     private var active: [UUID: ActiveJob] = [:]
+    private var pendingPausedCancellations: [UUID: PendingPausedCancellation] = [:]
     private var limit: Int
     private var isShuttingDown = false
     private var didFinishEvents = false
@@ -55,6 +61,9 @@ actor DownloadCoordinator {
             worker.pendingPause?.task.cancel()
             worker.controlTask?.cancel()
             worker.task.cancel()
+        }
+        for cancellation in pendingPausedCancellations.values {
+            cancellation.task.cancel()
         }
         if !didFinishEvents {
             continuation.finish()
@@ -130,7 +139,9 @@ actor DownloadCoordinator {
     }
 
     func resume(_ jobID: UUID) {
-        guard !isShuttingDown, var job = jobs[jobID], job.status == .paused, !queuedIDs.contains(jobID), active[jobID] == nil else {
+        guard !isShuttingDown, pendingPausedCancellations[jobID] == nil,
+              var job = jobs[jobID], job.status == .paused,
+              !queuedIDs.contains(jobID), active[jobID] == nil else {
             return
         }
         job.status = .queued
@@ -143,6 +154,11 @@ actor DownloadCoordinator {
     func cancel(_ jobID: UUID) async {
         guard !isShuttingDown else { return }
 
+        if let pending = pendingPausedCancellations[jobID] {
+            await pending.task.value
+            return
+        }
+
         if removeQueued(jobID) {
             setStatus(.cancelled, for: jobID)
             continuation.yield(.stopped(jobID, .cancelled))
@@ -150,9 +166,17 @@ actor DownloadCoordinator {
         }
 
         if let job = jobs[jobID], job.status == .paused {
-            await runner.cleanupCancelledJob(job)
-            setStatus(.cancelled, for: jobID)
-            continuation.yield(.stopped(jobID, .cancelled))
+            let generation = UUID()
+            let runner = self.runner
+            let task = Task { [weak self, runner, job] in
+                await runner.cleanupCancelledJob(job)
+                await self?.finishPausedCancellation(jobID: job.id, generation: generation)
+            }
+            pendingPausedCancellations[jobID] = PendingPausedCancellation(
+                generation: generation,
+                task: task
+            )
+            await task.value
             return
         }
 
@@ -163,6 +187,14 @@ actor DownloadCoordinator {
         active[jobID]?.controlTask = controlTask
         await controlTask.value
         await worker.task.value
+    }
+
+    func cancelRestoredPaused(_ job: DownloadJob) async {
+        guard !isShuttingDown, job.status == .paused else { return }
+        if jobs[job.id] == nil, active[job.id] == nil, !queuedIDs.contains(job.id) {
+            jobs[job.id] = job
+        }
+        await cancel(job.id)
     }
 
     func shutdown() async {
@@ -178,6 +210,7 @@ actor DownloadCoordinator {
         isShuttingDown = true
 
         let workers = active.map { (jobID: $0.key, token: $0.value.token, task: $0.value.task) }
+        let pausedCancellationTasks = pendingPausedCancellations.values.map(\.task)
         await withTaskGroup(of: Void.self) { group in
             for worker in workers {
                 group.addTask {
@@ -188,6 +221,9 @@ actor DownloadCoordinator {
         }
         for worker in workers {
             await worker.task.value
+        }
+        for task in pausedCancellationTasks {
+            await task.value
         }
 
         finishEvents()
@@ -321,6 +357,13 @@ actor DownloadCoordinator {
         }
         active[jobID] = worker
         return accepted
+    }
+
+    private func finishPausedCancellation(jobID: UUID, generation: UUID) {
+        guard pendingPausedCancellations[jobID]?.generation == generation else { return }
+        pendingPausedCancellations[jobID] = nil
+        setStatus(.cancelled, for: jobID)
+        continuation.yield(.stopped(jobID, .cancelled))
     }
 
     private func removeQueued(_ jobID: UUID) -> Bool {

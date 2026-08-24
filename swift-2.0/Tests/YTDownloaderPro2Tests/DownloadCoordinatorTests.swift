@@ -240,6 +240,67 @@ final class DownloadCoordinatorTests: XCTestCase {
         await coordinator.shutdown()
     }
 
+    func testResumeIsRejectedWhilePausedCancellationCleanupIsSuspended() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let jobs = DownloadJob.fixtures(count: 2)
+
+        await coordinator.enqueue(jobs)
+        try await runner.waitForStarted(count: 1)
+        let pauseAccepted = await coordinator.pause(jobs[1].id)
+        XCTAssertTrue(pauseAccepted)
+        await runner.blockCleanup(jobID: jobs[1].id)
+
+        let cancellation = Task { await coordinator.cancel(jobs[1].id) }
+        try await runner.waitForCleanupRequests(jobID: jobs[1].id, count: 1)
+        await coordinator.resume(jobs[1].id)
+        await runner.complete(jobs[0].id)
+        try await Task.sleep(for: .milliseconds(20))
+
+        let startedDuringCleanup = await runner.startedIDs
+        XCTAssertEqual(startedDuringCleanup, [jobs[0].id])
+
+        await runner.releaseCleanup(jobID: jobs[1].id)
+        await cancellation.value
+        await coordinator.shutdown()
+    }
+
+    func testDuplicatePausedCancellationJoinsOneSuspendedCleanup() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let jobs = DownloadJob.fixtures(count: 2)
+        let recorder = CoordinatorEventRecorder()
+        let observer = Task {
+            for await event in coordinator.events {
+                await recorder.record(event)
+            }
+        }
+
+        await coordinator.enqueue(jobs)
+        try await runner.waitForStarted(count: 1)
+        let pauseAccepted = await coordinator.pause(jobs[1].id)
+        XCTAssertTrue(pauseAccepted)
+        await runner.blockCleanup(jobID: jobs[1].id)
+
+        let first = Task { await coordinator.cancel(jobs[1].id) }
+        try await runner.waitForCleanupRequests(jobID: jobs[1].id, count: 1)
+        let second = Task { await coordinator.cancel(jobs[1].id) }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let cleanupRequests = await runner.cleanupRequests(for: jobs[1].id)
+        XCTAssertEqual(cleanupRequests, 1)
+
+        await runner.releaseCleanup(jobID: jobs[1].id)
+        await first.value
+        await second.value
+        try await recorder.waitForStopped(jobs[1].id)
+        let stoppedStatuses = await recorder.stoppedStatuses
+        XCTAssertEqual(stoppedStatuses[jobs[1].id], [.paused, .cancelled])
+
+        await coordinator.shutdown()
+        observer.cancel()
+    }
+
     func testActivePauseAndCancelDelegateOnceAndStartAtMostOneReplacement() async throws {
         let runner = GatedRunner()
         let coordinator = DownloadCoordinator(limit: 1, runner: runner)
@@ -517,8 +578,11 @@ private actor GatedRunner: JobRunning {
     private var pendingEvents: [UUID: [DownloadEvent]] = [:]
     private var blockedPauseIDs: Set<UUID> = []
     private var blockedCancelIDs: Set<UUID> = []
+    private var blockedCleanupIDs: Set<UUID> = []
     private var pauseWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
     private var cancelWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
+    private var cleanupWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
+    private var cleanupRequestCounts: [UUID: Int] = [:]
 
     nonisolated func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error> {
         var continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation?
@@ -558,6 +622,12 @@ private actor GatedRunner: JobRunning {
     }
 
     func cleanupCancelledJob(_ job: DownloadJob) async {
+        cleanupRequestCounts[job.id, default: 0] += 1
+        if blockedCleanupIDs.contains(job.id) {
+            await withCheckedContinuation { continuation in
+                cleanupWaiters[job.id, default: []].append(continuation)
+            }
+        }
         cancelRequests[job.id, default: 0] += 1
         cancelled[job.id, default: 0] += 1
     }
@@ -598,6 +668,10 @@ private actor GatedRunner: JobRunning {
         blockedCancelIDs.insert(jobID)
     }
 
+    func blockCleanup(jobID: UUID) {
+        blockedCleanupIDs.insert(jobID)
+    }
+
     func releasePause(jobID: UUID) {
         blockedPauseIDs.remove(jobID)
         let waiters = pauseWaiters.removeValue(forKey: jobID) ?? []
@@ -607,6 +681,12 @@ private actor GatedRunner: JobRunning {
     func releaseCancel(jobID: UUID) {
         blockedCancelIDs.remove(jobID)
         let waiters = cancelWaiters.removeValue(forKey: jobID) ?? []
+        waiters.forEach { $0.resume() }
+    }
+
+    func releaseCleanup(jobID: UUID) {
+        blockedCleanupIDs.remove(jobID)
+        let waiters = cleanupWaiters.removeValue(forKey: jobID) ?? []
         waiters.forEach { $0.resume() }
     }
 
@@ -624,6 +704,16 @@ private actor GatedRunner: JobRunning {
 
     func waitForCancelRequests(jobID: UUID, count: Int) async throws {
         try await waitUntil("cancel request \(count) for \(jobID)") { cancelRequests[jobID, default: 0] >= count }
+    }
+
+    func waitForCleanupRequests(jobID: UUID, count: Int) async throws {
+        try await waitUntil("cleanup request \(count) for \(jobID)") {
+            cleanupRequestCounts[jobID, default: 0] >= count
+        }
+    }
+
+    func cleanupRequests(for jobID: UUID) -> Int {
+        cleanupRequestCounts[jobID, default: 0]
     }
 
     func waitForControlRequests(jobID: UUID, count: Int) async throws {

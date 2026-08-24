@@ -357,6 +357,20 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(startedIDs, [])
     }
 
+    func testCancellingRestoredPausedJobDelegatesRunnerOwnedCleanup() async throws {
+        let restored = DownloadJob.fixture(status: .paused)
+        let fixture = try StoreFixture(jobs: [restored])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.cancel(restored.id)
+
+        try await waitUntil("restored paused cancellation") {
+            fixture.store.jobs.first?.status == .cancelled
+        }
+        let cleanedIDs = await fixture.runner.cancelledIDs()
+        XCTAssertEqual(cleanedIDs, [restored.id])
+    }
+
     func testRetryReanalyzesBeforeRequeueingWithOriginalOptions() async throws {
         let originalOptions = DownloadOptions.fixture(outputKind: .mp3)
         let failedJob = DownloadJob.fixture(status: .failed, outputKind: .mp3)

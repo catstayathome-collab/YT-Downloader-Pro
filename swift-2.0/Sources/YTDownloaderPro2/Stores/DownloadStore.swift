@@ -493,12 +493,20 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         switch jobs[index].status {
-        case .queued, .paused:
+        case .queued:
             if coordinatorManagedJobIDs.contains(jobID) {
                 await coordinator.cancel(jobID)
             } else {
                 transitionJob(at: index, to: .cancelled)
                 await persist(flush: true)
+            }
+        case .paused:
+            if coordinatorManagedJobIDs.contains(jobID) {
+                await coordinator.cancel(jobID)
+            } else {
+                let restoredJob = jobs[index]
+                coordinatorManagedJobIDs.insert(jobID)
+                await coordinator.cancelRestoredPaused(restoredJob)
             }
         case .analyzing, .downloading, .merging:
             await coordinator.cancel(jobID)
