@@ -12,6 +12,20 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertEqual(events.compactMap(reservedBasename).count, 1)
         XCTAssertEqual(events.last, .completed)
         XCTAssertTrue(events.contains(.output(fixture.finalURL)))
+        let finalProgress = events.compactMap { event -> JobProgress? in
+            guard case let .progress(progress) = event else { return nil }
+            return progress
+        }.last
+        XCTAssertEqual(
+            finalProgress,
+            JobProgress(
+                fraction: 1,
+                downloadedBytes: 7,
+                totalBytes: 7,
+                bytesPerSecond: nil,
+                etaSeconds: 0
+            )
+        )
         XCTAssertEqual(fixture.scope.startCount, 1)
         XCTAssertEqual(fixture.scope.stopCount, 1)
     }

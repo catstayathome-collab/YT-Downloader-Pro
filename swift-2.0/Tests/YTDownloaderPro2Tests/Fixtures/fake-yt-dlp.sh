@@ -63,7 +63,7 @@ case "$url" in
         printf 'ytdp:progress|50%%|50|100|10|5\n'
         : > "$base.mp4.part"
         printf 'ytdp:phase|merging\n'
-        : > "$base.mp4"
+        printf 'fixture' > "$base.mp4"
         rm -f "$base.mp4.part"
         printf 'ytdp:filepath|%s.mp4\n' "$base"
         ;;

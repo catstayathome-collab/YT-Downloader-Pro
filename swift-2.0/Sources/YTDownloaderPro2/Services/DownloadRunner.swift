@@ -316,6 +316,21 @@ actor DownloadRunner: JobRunning {
             return
         }
 
+        if let values = try? finalOutput.resourceValues(forKeys: [.fileSizeKey]),
+           let fileSize = values.fileSize {
+            let finalSize = Int64(fileSize)
+            activeDownload.continuation.yield(
+                .progress(
+                    JobProgress(
+                        fraction: 1,
+                        downloadedBytes: finalSize,
+                        totalBytes: finalSize,
+                        bytesPerSecond: nil,
+                        etaSeconds: 0
+                    )
+                )
+            )
+        }
         activeDownload.continuation.yield(.output(finalOutput))
         activeDownload.continuation.yield(.completed)
         active[jobID] = activeDownload
