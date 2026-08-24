@@ -91,18 +91,24 @@ private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, 
     private var task: URLSessionDataTask?
     private var session: URLSession?
     private var requestedURL: URL?
-    private lazy var body = StreamingUpdateResponseBody { [weak self] in
-        self?.cancel()
-    }
+    private let cancellationRelay: UpdateTransferCancellationRelay
+    private let body: StreamingUpdateResponseBody
 
     init(configuration: URLSessionConfiguration, maximumBytes: Int) {
+        let cancellationRelay = UpdateTransferCancellationRelay()
         self.configuration = configuration
         self.maximumBytes = maximumBytes
+        self.cancellationRelay = cancellationRelay
+        body = StreamingUpdateResponseBody {
+            cancellationRelay.cancelTransfer()
+        }
+        super.init()
+        cancellationRelay.connect(self)
     }
 
     func start(_ request: URLRequest) async throws -> UpdateSessionResponse {
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            return try await withCheckedThrowingContinuation { continuation in
                 let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
                 let task = session.dataTask(with: request)
                 let shouldStart = lock.withLock { () -> Bool in
@@ -121,11 +127,11 @@ private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, 
                 task.resume()
             }
         } onCancel: {
-            cancel()
+            body.cancel()
         }
     }
 
-    func cancel() {
+    fileprivate func cancelTransport() {
         let state = lock.withLock { () -> (URLSessionDataTask?, URLSession?, CheckedContinuation<UpdateSessionResponse, Error>?) in
             let continuation = responseResolved ? nil : responseContinuation
             responseContinuation = nil
@@ -135,7 +141,6 @@ private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, 
         state.2?.resume(throwing: CancellationError())
         state.0?.cancel()
         state.1?.invalidateAndCancel()
-        body.finish(throwing: CancellationError())
     }
 
     func urlSession(
@@ -180,8 +185,7 @@ private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, 
         }
         guard !exceedsLimit else {
             body.finish(throwing: UpdateTransportError.responseTooLarge)
-            dataTask.cancel()
-            session.invalidateAndCancel()
+            cancelTransport()
             return
         }
         body.yield(data)
@@ -218,91 +222,135 @@ private final class URLSessionUpdateTransfer: NSObject, URLSessionDataDelegate, 
     }
 }
 
-private final class StreamingUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+private final class UpdateTransferCancellationRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var transfer: URLSessionUpdateTransfer?
+
+    func connect(_ transfer: URLSessionUpdateTransfer) {
+        lock.withLock { self.transfer = transfer }
+    }
+
+    func cancelTransfer() {
+        lock.withLock { transfer }?.cancelTransport()
+    }
+}
+
+/// A single-consumer push body. Every transition is locked; cancellation overrides completion and drops queued bytes.
+final class StreamingUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
     private let lock = NSLock()
     private let cancellationHandler: @Sendable () -> Void
     private var chunks: [Data] = []
     private var continuation: CheckedContinuation<Data?, Error>?
-    private var completion: Result<Void, Error>?
+    private var completion = Completion.active
 
     init(cancellationHandler: @escaping @Sendable () -> Void) {
         self.cancellationHandler = cancellationHandler
     }
 
     func nextChunk() async throws -> Data? {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let action = lock.withLock { () -> BodyAction in
+        guard !Task.isCancelled else {
+            cancel()
+            throw CancellationError()
+        }
+        let chunk = try await withTaskCancellationHandler {
+            guard !Task.isCancelled else {
+                cancel()
+                throw CancellationError()
+            }
+            return try await withCheckedThrowingContinuation { continuation in
+                let shouldCancelTransport = lock.withLock { () -> Bool in
+                    if Task.isCancelled {
+                        self.continuation = continuation
+                        return cancelLocked()
+                    }
+                    if case .cancelled = completion {
+                        continuation.resume(throwing: CancellationError())
+                        return false
+                    }
                     if !chunks.isEmpty {
-                        return .chunk(chunks.removeFirst())
+                        continuation.resume(returning: chunks.removeFirst())
+                        return false
                     }
-                    if let completion {
-                        switch completion {
-                        case .success:
-                            return .finished
-                        case let .failure(error):
-                            return .failure(error)
+                    switch completion {
+                    case .active:
+                        guard self.continuation == nil else {
+                            continuation.resume(throwing: UpdateTransportError.invalidResponse)
+                            return false
                         }
+                        self.continuation = continuation
+                    case .success:
+                        continuation.resume(returning: nil)
+                    case let .failure(error):
+                        continuation.resume(throwing: error)
+                    case .cancelled:
+                        continuation.resume(throwing: CancellationError())
                     }
-                    self.continuation = continuation
-                    return .wait
+                    return false
                 }
-                action.resume(continuation)
+                if shouldCancelTransport {
+                    cancellationHandler()
+                }
             }
         } onCancel: {
             cancel()
         }
+        guard !Task.isCancelled else {
+            cancel()
+            throw CancellationError()
+        }
+        return chunk
     }
 
     func cancel() {
-        cancellationHandler()
+        let shouldCancelTransport = lock.withLock { cancelLocked() }
+        if shouldCancelTransport {
+            cancellationHandler()
+        }
     }
 
     func yield(_ data: Data) {
-        let waiter = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
-            guard completion == nil else { return nil }
+        lock.withLock {
+            guard case .active = completion else { return }
             guard let continuation else {
                 chunks.append(data)
-                return nil
+                return
             }
             self.continuation = nil
-            return continuation
+            continuation.resume(returning: data)
         }
-        waiter?.resume(returning: data)
     }
 
     func finish(throwing error: Error? = nil) {
-        let waiter = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
-            guard completion == nil else { return nil }
-            completion = error.map(Result.failure) ?? .success(())
-            defer { continuation = nil }
-            return continuation
-        }
-        if let error {
-            waiter?.resume(throwing: error)
-        } else {
-            waiter?.resume(returning: nil)
+        lock.withLock {
+            guard case .active = completion else { return }
+            completion = error.map(Completion.failure) ?? .success
+            guard let continuation else { return }
+            self.continuation = nil
+            if let error {
+                continuation.resume(throwing: error)
+            } else {
+                continuation.resume(returning: nil)
+            }
         }
     }
 
-    private enum BodyAction {
-        case wait
-        case chunk(Data)
-        case finished
-        case failure(Error)
-
-        func resume(_ continuation: CheckedContinuation<Data?, Error>) {
-            switch self {
-            case .wait:
-                break
-            case let .chunk(data):
-                continuation.resume(returning: data)
-            case .finished:
-                continuation.resume(returning: nil)
-            case let .failure(error):
-                continuation.resume(throwing: error)
-            }
+    private func cancelLocked() -> Bool {
+        guard case .cancelled = completion else {
+            completion = .cancelled
+            chunks.removeAll(keepingCapacity: false)
+            let waiter = continuation
+            continuation = nil
+            waiter?.resume(throwing: CancellationError())
+            return true
         }
+        return false
+    }
+
+    private enum Completion {
+        case active
+        case success
+        case failure(Error)
+        case cancelled
     }
 }
 
@@ -492,7 +540,10 @@ struct UpdateChecker: UpdateChecking, Sendable {
                 streamedResponse.body,
                 maximumBytes: Self.maximumResponseBytes
             )
-            return evaluate(try decodeManifest(from: data))
+            try Task.checkCancellation()
+            let manifest = try decodeManifest(from: data)
+            try Task.checkCancellation()
+            return evaluate(manifest)
         } catch UpdateTransportError.invalidResponse, UpdateTransportError.responseTooLarge {
             return .failed(.invalidResponse)
         } catch let failure as UpdateCheckFailure {
@@ -508,15 +559,21 @@ struct UpdateChecker: UpdateChecking, Sendable {
     }
 
     private static func collect(_ body: any UpdateResponseBody, maximumBytes: Int) async throws -> Data {
-        try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        return try await withTaskCancellationHandler {
             var data = Data()
-            while let chunk = try await body.nextChunk() {
+            while true {
+                try Task.checkCancellation()
+                guard let chunk = try await body.nextChunk() else { break }
+                try Task.checkCancellation()
                 guard chunk.count <= maximumBytes - data.count else {
                     body.cancel()
                     throw UpdateTransportError.responseTooLarge
                 }
+                try Task.checkCancellation()
                 data.append(chunk)
             }
+            try Task.checkCancellation()
             return data
         } onCancel: {
             body.cancel()

@@ -198,3 +198,61 @@
   compiled for macOS 13 arm64, but no live GitHub response was exercised by
   design. Signed bundles, public checksums, released tags, and packaged Windows
   acceptance remain release-gate work.
+
+## Fix Round 3
+
+### Resolved Finding
+
+- Live body cancellation is now an explicit terminal state that overrides prior
+  success or failure, clears queued bytes, and resumes at most one waiting
+  consumer once with `CancellationError`. Repeated cancellation is idempotent.
+- `URLSessionUpdateTransfer` eagerly creates exactly one body. A lock-protected
+  weak relay connects that body to transport invalidation after initialization,
+  removing concurrent lazy initialization while avoiding a retain cycle.
+- `nextChunk()` checks task cancellation before registering, before selecting a
+  queued chunk, and after awaiting delivery. Collection checks before reads,
+  before append, and before return/decode, so a non-cooperative injected body
+  cannot continue accumulating cancelled work.
+
+### TDD Evidence
+
+- RED used the real `URLSessionUpdateSession` with a networkless custom URL
+  protocol. After the response had pushed and successfully completed 1,024 queued
+  bytes, cancellation still returned those bytes; the focused run failed exactly
+  `Expected CancellationError` with the other 24 checker tests passing.
+- GREEN covers explicit and task-driven cancellation of completed queued bytes,
+  one waiter resumed once, repeated cancellation, URL protocol `stopLoading` and
+  deinitialization, and a non-cooperative body stopped before append or a second
+  read. A deadline-bounded live first-response race ran 128 iterations per test.
+- The 27-test strict checker suite, including all race iterations, passed three
+  consecutive runs. Existing Store single-flight/manual-generation tests remained
+  in the broader focused suite.
+
+### Changed Files
+
+- Transport and terminal body state: `swift-2.0/Sources/YTDownloaderPro2/Services/UpdateChecker.swift`.
+- Live, push-equivalent, cancellation, lifecycle, and race tests:
+  `swift-2.0/Tests/YTDownloaderPro2Tests/UpdateCheckerTests.swift`.
+
+### Verification
+
+- Repeated strict `UpdateCheckerTests`: 27 tests passed three consecutive times.
+- Focused strict service/UI/Store/localization suite: 99 tests passed.
+- Full strict Swift suite: 279 tests passed with zero failures.
+- macOS 13 arm64 strict build passed with warnings treated as errors.
+- Pinned Python 3.13.2 / PyYAML 6.0.3 sanity: 46 focused and 193 full tests passed.
+- Both manifests and `Localizable.xcstrings` passed `python3 -m json.tool`;
+  unchanged Python update sources/tests/generator passed `python3 -m py_compile`.
+- Regenerating the checked-in macOS placeholder with its exact fields was
+  byte-identical. `git diff --check` passed on the report-inclusive tree.
+- No package was installed and no external network request was made.
+
+### Compatibility And Residual Risk
+
+- The 192 KiB transfer bound, final URL policy, update result visibility,
+  MainActor Store generation/single-flight behavior, legacy Python sources, TLS,
+  and Windows x64 isolation are unchanged.
+- The live transport was exercised through Foundation's URL loading stack with a
+  custom URL protocol rather than a real GitHub socket/redirect exchange. Signed
+  bundles, public checksums, released tags, and packaged Windows acceptance remain
+  release-gate work.

@@ -294,15 +294,132 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testCancellingCheckCancelsStreamingTransport() async throws {
-        let body = BlockingUpdateResponseBody()
+        let body = TestUpdateResponseBody(chunks: [], finishesAfterChunks: false)
         let checker = try makeChecker(body: body)
         let task = Task { await checker.check(manual: true) }
-        await body.waitUntilRequested()
+        try await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            body.requestCount == 1
+        }
 
         task.cancel()
         _ = await task.value
 
         XCTAssertTrue(body.isCancelled)
+    }
+
+    func testLiveBodyCancellationDiscardsAlreadyCompletedQueuedBytes() async throws {
+        let scenario = StreamingURLProtocolScenario(
+            chunks: [Data(repeating: 0x61, count: 1_024)],
+            finishesAfterChunks: true
+        )
+        let response = try await liveStreamingResponse(scenario: scenario)
+
+        response.body.cancel()
+
+        await XCTAssertThrowsCancellationError {
+            try await response.body.nextChunk()
+        }
+    }
+
+    func testPreCancelledTaskCannotReadAlreadyCompletedQueuedLiveBytes() async throws {
+        let scenario = StreamingURLProtocolScenario(
+            chunks: [Data(repeating: 0x62, count: 1_024)],
+            finishesAfterChunks: true
+        )
+        let response = try await liveStreamingResponse(scenario: scenario)
+        let consumer = Task { () throws -> Data? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await response.body.nextChunk()
+        }
+
+        await XCTAssertThrowsCancellationError {
+            try await awaitTaskValue(of: consumer, timeoutNanoseconds: 2_000_000_000)
+        }
+    }
+
+    func testCollectRejectsChunkReturnedAfterNonCooperativeCancellation() async throws {
+        let gate = AsyncGate()
+        let body = NonCooperativeUpdateResponseBody(
+            chunk: Data(repeating: 0x20, count: 32),
+            gate: gate
+        )
+        let checker = try makeChecker(body: body)
+        let task = Task { await checker.check(manual: true) }
+        try await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            body.requestCount == 1
+        }
+
+        task.cancel()
+        await gate.open()
+        let result = await task.value
+
+        XCTAssertEqual(result, .failed(.invalidManifest))
+        XCTAssertTrue(body.isCancelled)
+        XCTAssertEqual(body.requestCount, 1)
+    }
+
+    func testLiveBodyCancellationResumesWaitingConsumerOnceAndInvalidatesSession() async throws {
+        let scenario = StreamingURLProtocolScenario(chunks: [], finishesAfterChunks: false)
+        let response = try await liveStreamingResponse(scenario: scenario)
+        let completionCount = LockedCounter()
+        let waiter = Task { () throws -> Data? in
+            defer { completionCount.increment() }
+            return try await response.body.nextChunk()
+        }
+        await Task.yield()
+
+        response.body.cancel()
+        response.body.cancel()
+
+        await XCTAssertThrowsCancellationError {
+            try await awaitTaskValue(of: waiter, timeoutNanoseconds: 2_000_000_000)
+        }
+        try await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            scenario.stopCount == 1 && scenario.deinitializationCount == 1
+        }
+        XCTAssertEqual(completionCount.value, 1)
+    }
+
+    func testLiveCancellationRacingFirstResponseIsTerminalFor128Iterations() async throws {
+        try await withDeadline(timeoutNanoseconds: 10_000_000_000) {
+            for iteration in 0..<128 {
+                let scenario = StreamingURLProtocolScenario(
+                    chunks: [Data([UInt8(iteration % 255)])],
+                    finishesAfterChunks: true,
+                    sendsAutomatically: false
+                )
+                let gate = AsyncGate()
+                let requestURL = StreamingURLProtocol.registry.makeURL()
+                let transport = Self.liveStreamingTransport(scenario: scenario, url: requestURL)
+                let consumer = Task { () throws -> Data? in
+                    let response = try await transport.response(
+                        for: URLRequest(url: requestURL),
+                        maximumBytes: UpdateChecker.maximumResponseBytes
+                    )
+                    await gate.wait()
+                    return try await response.body.nextChunk()
+                }
+                try await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+                    scenario.hasStarted
+                }
+
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { consumer.cancel() }
+                    group.addTask { scenario.sendResponseAndChunks() }
+                }
+                await gate.open()
+
+                do {
+                    let chunk = try await awaitTaskValue(
+                        of: consumer,
+                        timeoutNanoseconds: 2_000_000_000
+                    )
+                    XCTFail("Cancelled iteration \(iteration) returned \(chunk?.count ?? 0) bytes")
+                } catch is CancellationError {
+                    continue
+                }
+            }
+        }
     }
 
     func testStreamingTransportBoundaryIsSendable() {
@@ -330,6 +447,29 @@ final class UpdateCheckerTests: XCTestCase {
             statusCode: statusCode,
             responseURL: responseURL
         )
+    }
+
+    private func liveStreamingResponse(
+        scenario: StreamingURLProtocolScenario
+    ) async throws -> UpdateSessionResponse {
+        let url = StreamingURLProtocol.registry.makeURL()
+        let transport = Self.liveStreamingTransport(scenario: scenario, url: url)
+        return try await withDeadline(timeoutNanoseconds: 2_000_000_000) {
+            try await transport.response(
+                for: URLRequest(url: url),
+                maximumBytes: UpdateChecker.maximumResponseBytes
+            )
+        }
+    }
+
+    private static func liveStreamingTransport(
+        scenario: StreamingURLProtocolScenario,
+        url: URL
+    ) -> URLSessionUpdateSession {
+        StreamingURLProtocol.registry.register(scenario, for: url)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StreamingURLProtocol.self]
+        return URLSessionUpdateSession(configuration: configuration)
     }
 
     private func makeChecker(
@@ -480,12 +620,20 @@ private actor StubUpdateSession: UpdateSession {
 
 private final class TestUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
     private let lock = NSLock()
-    private var chunks: [Data]
+    private let cancellationProbe: CancellationProbe
+    private let body: StreamingUpdateResponseBody
     private var requested = 0
-    private var cancelled = false
 
-    init(chunks: [Data]) {
-        self.chunks = chunks
+    init(chunks: [Data], finishesAfterChunks: Bool = true) {
+        let cancellationProbe = CancellationProbe()
+        self.cancellationProbe = cancellationProbe
+        body = StreamingUpdateResponseBody {
+            cancellationProbe.recordCancellation()
+        }
+        chunks.forEach { body.yield($0) }
+        if finishesAfterChunks {
+            body.finish()
+        }
     }
 
     var requestCount: Int {
@@ -493,77 +641,255 @@ private final class TestUpdateResponseBody: UpdateResponseBody, @unchecked Senda
     }
 
     var isCancelled: Bool {
-        lock.withLock { cancelled }
+        cancellationProbe.count > 0
     }
 
     func nextChunk() async throws -> Data? {
-        nextChunkSynchronously()
+        lock.withLock { requested += 1 }
+        return try await body.nextChunk()
     }
 
     func cancel() {
-        lock.withLock {
-            cancelled = true
-        }
-    }
-
-    private func nextChunkSynchronously() -> Data? {
-        lock.withLock {
-            guard !cancelled else { return nil }
-            requested += 1
-            guard !chunks.isEmpty else { return nil }
-            return chunks.removeFirst()
-        }
+        body.cancel()
     }
 }
 
-private final class BlockingUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+private final class CancellationProbe: @unchecked Sendable {
     private let lock = NSLock()
-    private var nextContinuation: CheckedContinuation<Data?, Error>?
-    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
-    private var requested = false
+    private var cancellations = 0
+
+    var count: Int { lock.withLock { cancellations } }
+    func recordCancellation() { lock.withLock { cancellations += 1 } }
+}
+
+private final class NonCooperativeUpdateResponseBody: UpdateResponseBody, @unchecked Sendable {
+    private let lock = NSLock()
+    private let chunk: Data
+    private let gate: AsyncGate
+    private var requests = 0
+    private var delivered = false
     private var cancelled = false
 
-    var isCancelled: Bool {
-        lock.withLock { cancelled }
+    init(chunk: Data, gate: AsyncGate) {
+        self.chunk = chunk
+        self.gate = gate
     }
 
+    var requestCount: Int { lock.withLock { requests } }
+    var isCancelled: Bool { lock.withLock { cancelled } }
+
     func nextChunk() async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
-            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-                requested = true
-                if cancelled {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    nextContinuation = continuation
-                }
-                let currentWaiters = requestWaiters
-                requestWaiters.removeAll()
-                return currentWaiters
-            }
-            waiters.forEach { $0.resume() }
+        lock.withLock { requests += 1 }
+        await gate.wait()
+        return lock.withLock {
+            guard !delivered else { return nil }
+            delivered = true
+            return chunk
         }
     }
 
     func cancel() {
-        let continuation = lock.withLock { () -> CheckedContinuation<Data?, Error>? in
-            cancelled = true
-            defer { nextContinuation = nil }
-            return nextContinuation
-        }
-        continuation?.resume(throwing: CancellationError())
-    }
-
-    func waitUntilRequested() async {
-        if lock.withLock({ requested }) { return }
-        await withCheckedContinuation { continuation in
-            let shouldResume = lock.withLock { () -> Bool in
-                if requested { return true }
-                requestWaiters.append(continuation)
-                return false
-            }
-            if shouldResume { continuation.resume() }
-        }
+        lock.withLock { cancelled = true }
     }
 }
 
 private func requireSendable<T: Sendable>(_: T.Type) {}
+
+private final class StreamingURLProtocol: URLProtocol, @unchecked Sendable {
+    static let registry = StreamingURLProtocolRegistry()
+    private var scenario: StreamingURLProtocolScenario?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        registry.contains(request.url)
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let scenario = Self.registry.scenario(for: request.url) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        self.scenario = scenario
+        scenario.didStart(self)
+    }
+
+    override func stopLoading() {
+        scenario?.didStop()
+    }
+
+    deinit {
+        scenario?.didDeinitialize()
+    }
+}
+
+private final class StreamingURLProtocolRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scenarios: [URL: StreamingURLProtocolScenario] = [:]
+    private var nextIdentifier = 0
+
+    func makeURL() -> URL {
+        lock.withLock {
+            defer { nextIdentifier += 1 }
+            return URL(
+                string: "https://api.github.com/repos/example/YT-Downloader-Pro/contents/updates/macos.json?fixture=\(nextIdentifier)"
+            )!
+        }
+    }
+
+    func register(_ scenario: StreamingURLProtocolScenario, for url: URL) {
+        lock.withLock { scenarios[url] = scenario }
+    }
+
+    func contains(_ url: URL?) -> Bool {
+        lock.withLock { url.flatMap { scenarios[$0] } != nil }
+    }
+
+    func scenario(for url: URL?) -> StreamingURLProtocolScenario? {
+        lock.withLock { url.flatMap { scenarios[$0] } }
+    }
+}
+
+private final class StreamingURLProtocolScenario: @unchecked Sendable {
+    private let lock = NSLock()
+    private let chunks: [Data]
+    private let finishesAfterChunks: Bool
+    private let sendsAutomatically: Bool
+    private weak var urlProtocol: StreamingURLProtocol?
+    private var started = false
+    private var stopped = 0
+    private var deinitialized = 0
+
+    init(
+        chunks: [Data],
+        finishesAfterChunks: Bool,
+        sendsAutomatically: Bool = true
+    ) {
+        self.chunks = chunks
+        self.finishesAfterChunks = finishesAfterChunks
+        self.sendsAutomatically = sendsAutomatically
+    }
+
+    var hasStarted: Bool { lock.withLock { started } }
+    var stopCount: Int { lock.withLock { stopped } }
+    var deinitializationCount: Int { lock.withLock { deinitialized } }
+
+    func didStart(_ urlProtocol: StreamingURLProtocol) {
+        lock.withLock {
+            self.urlProtocol = urlProtocol
+            started = true
+        }
+        if sendsAutomatically {
+            sendResponseAndChunks()
+        }
+    }
+
+    func didStop() {
+        lock.withLock { stopped += 1 }
+    }
+
+    func didDeinitialize() {
+        lock.withLock { deinitialized += 1 }
+    }
+
+    func sendResponseAndChunks() {
+        guard let urlProtocol = lock.withLock({ self.urlProtocol }) else { return }
+        let response = HTTPURLResponse(
+            url: urlProtocol.request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        urlProtocol.client?.urlProtocol(
+            urlProtocol,
+            didReceive: response,
+            cacheStoragePolicy: .notAllowed
+        )
+        for chunk in chunks {
+            urlProtocol.client?.urlProtocol(urlProtocol, didLoad: chunk)
+        }
+        if finishesAfterChunks {
+            urlProtocol.client?.urlProtocolDidFinishLoading(urlProtocol)
+        }
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        let continuations = waiters
+        waiters.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+}
+
+private struct TestDeadlineExceeded: Error {}
+
+private func awaitTaskValue<T: Sendable>(
+    of task: Task<T, Error>,
+    timeoutNanoseconds: UInt64
+) async throws -> T {
+    try await withDeadline(timeoutNanoseconds: timeoutNanoseconds) {
+        try await task.value
+    }
+}
+
+private func withDeadline<T: Sendable>(
+    timeoutNanoseconds: UInt64,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            throw TestDeadlineExceeded()
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+private func waitUntil(
+    timeoutNanoseconds: UInt64,
+    condition: @escaping @Sendable () -> Bool
+) async throws {
+    try await withDeadline(timeoutNanoseconds: timeoutNanoseconds) {
+        while !condition() {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+}
+
+private func XCTAssertThrowsCancellationError(
+    _ operation: () async throws -> some Sendable,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        _ = try await operation()
+        XCTFail("Expected CancellationError", file: file, line: line)
+    } catch is CancellationError {
+        return
+    } catch {
+        XCTFail("Expected CancellationError, got \(error)", file: file, line: line)
+    }
+}
