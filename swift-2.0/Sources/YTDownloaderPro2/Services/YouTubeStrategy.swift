@@ -26,6 +26,8 @@ struct YouTubeStrategy: Sendable {
             "--no-warnings",
             "--continue",
             "--no-overwrites",
+            "--progress",
+            "--newline",
             "--ffmpeg-location",
             toolchain.ffmpeg.deletingLastPathComponent().path,
             "--format",
