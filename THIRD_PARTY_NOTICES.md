@@ -6,6 +6,7 @@ This project bundles command-line tools used by YT Downloader Pro.
 
 - Source: https://github.com/yt-dlp/yt-dlp
 - Bundled helper: `tools/yt-dlp_macos`
+- Bundled macOS helper version reported by `--version`: `2026.07.04`
 - Bundled Python package: `yt-dlp==2026.6.9`
 - License details are provided by the upstream project.
 
@@ -69,3 +70,22 @@ This project bundles command-line tools used by YT Downloader Pro.
 - License: GNU Lesser General Public License, version 2
 - Purpose: statically linked into FFmpeg to provide the `libmp3lame` MP3 encoder.
 - License text: `tools/licenses/LAME-LGPL-2.0.txt`
+
+## Swift 2.0 macOS Bundle
+
+The Swift 2.0 packaging script copies exactly one of each macOS helper to:
+
+- `YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos`
+- `YT Downloader Pro 2.app/Contents/Helpers/ffmpeg`
+- `YT Downloader Pro 2.app/Contents/Helpers/ffprobe`
+- `YT Downloader Pro 2.app/Contents/Helpers/qjs`
+
+It also copies this notice and the FFmpeg, LAME, and QuickJS license texts under
+`Contents/Resources/`. Repository helper files are not modified during assembly;
+only copied bundle files are re-signed.
+
+The current provenance-aligned FFmpeg 9.0, FFprobe 9.0, and QuickJS 2026-06-04
+binaries are arm64-only. `yt-dlp_macos` is universal, but that does not make the
+four-helper toolchain universal. Swift 2.0 internal packaging therefore supports
+arm64 only and fails closed for Intel/universal requests until matching reviewed
+slices are supplied for all four helpers.

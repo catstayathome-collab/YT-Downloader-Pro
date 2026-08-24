@@ -166,7 +166,9 @@ enum L10n {
     }
 
     private static let catalog: [String: [String: String]] = {
-        guard let url = Bundle.module.url(forResource: "Localizable", withExtension: "xcstrings"),
+        let url = Bundle.main.url(forResource: "Localizable", withExtension: "xcstrings")
+            ?? Bundle.module.url(forResource: "Localizable", withExtension: "xcstrings")
+        guard let url,
               let data = try? Data(contentsOf: url),
               let catalog = try? JSONDecoder().decode(StringCatalog.self, from: data) else {
             return [:]
