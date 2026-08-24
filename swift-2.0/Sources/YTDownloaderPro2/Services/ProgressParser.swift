@@ -28,6 +28,11 @@ struct ProgressParser: Sendable {
     func parseDiagnostic(line: String) -> [DownloadEvent] {
         guard !line.isEmpty else { return [] }
 
+        let structuredEvents = parse(line: line)
+        if !structuredEvents.isEmpty {
+            return structuredEvents
+        }
+
         var events: [DownloadEvent] = []
         if line.hasPrefix("[Merger] Merging formats into ") {
             events.append(.phase(.merging))

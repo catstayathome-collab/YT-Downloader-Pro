@@ -5,6 +5,7 @@ protocol JobRunning: Sendable {
     /// Returns true only when a user pause was atomically accepted in a resumable phase.
     @discardableResult func pause(jobID: UUID) async -> Bool
     func cancel(jobID: UUID) async
+    func cleanupCancelledJob(_ job: DownloadJob) async
     func interruptForQuit(jobID: UUID) async
 }
 
@@ -51,6 +52,7 @@ actor DownloadRunner: JobRunning {
     private let metadataProbe: MetadataProbe
     private let processLauncher: any ProcessLaunching
     private let bookmarks: OutputDirectoryBookmarkService
+    private let toolchainValidator: (any ToolchainHealthValidating)?
     private let interruptGraceNanoseconds: UInt64
     private let parser = ProgressParser()
 
@@ -64,6 +66,7 @@ actor DownloadRunner: JobRunning {
         metadataProbe: MetadataProbe,
         processLauncher: any ProcessLaunching = SystemProcessLauncher(),
         bookmarks: OutputDirectoryBookmarkService = .live,
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
         interruptGraceNanoseconds: UInt64 = 2_000_000_000
     ) {
         self.toolchain = toolchain
@@ -71,6 +74,7 @@ actor DownloadRunner: JobRunning {
         self.metadataProbe = metadataProbe
         self.processLauncher = processLauncher
         self.bookmarks = bookmarks
+        self.toolchainValidator = toolchainValidator
         self.interruptGraceNanoseconds = interruptGraceNanoseconds
     }
 
@@ -109,6 +113,38 @@ actor DownloadRunner: JobRunning {
             await process.terminate()
         }
         await waitForCleanup(jobID: jobID)
+    }
+
+    func cleanupCancelledJob(_ job: DownloadJob) async {
+        if active[job.id] != nil {
+            await cancel(jobID: job.id)
+            return
+        }
+
+        let scope: OutputDirectorySecurityScopedAccess
+        do {
+            scope = try outputDirectoryAccess(for: job)
+        } catch {
+            return
+        }
+        defer { scope.stopAccessing() }
+
+        do {
+            let reservation = try await allocator.reserve(
+                title: job.title,
+                extension: job.options.outputKind.rawValue,
+                directory: scope.url,
+                jobID: job.id
+            )
+            _ = await allocator.removeOwnedArtifacts(
+                incompleteArtifactURLs(for: job, reservation: reservation),
+                reservation: reservation,
+                jobID: job.id
+            )
+            await allocator.release(jobID: job.id, removeMarker: true)
+        } catch {
+            await allocator.release(jobID: job.id, removeMarker: false)
+        }
     }
 
     func interruptForQuit(jobID: UUID) async {
@@ -156,6 +192,16 @@ actor DownloadRunner: JobRunning {
 
     private func prepareAndRun(jobID: UUID, attempt: Int) async {
         guard var activeDownload = active[jobID] else { return }
+
+        if attempt == 0, let toolchainValidator {
+            do {
+                _ = try await toolchainValidator.validate(force: false)
+            } catch {
+                let failure = error as? DownloadFailure ?? Toolchain.failure(for: "yt-dlp_macos")
+                await finish(jobID: jobID, error: failure, removeMarker: true)
+                return
+            }
+        }
 
         do {
             if activeDownload.scope == nil {
@@ -213,7 +259,8 @@ actor DownloadRunner: JobRunning {
                 )
             )
         } catch {
-            await finish(jobID: jobID, error: Toolchain.failure(for: "yt-dlp_macos"), removeMarker: true)
+            let failure = await executionFailure(fallbackHelper: "yt-dlp_macos")
+            await finish(jobID: jobID, error: failure, removeMarker: true)
             return
         }
 
@@ -235,7 +282,8 @@ actor DownloadRunner: JobRunning {
         do {
             result = try await process.result()
         } catch {
-            await finish(jobID: jobID, error: Toolchain.failure(for: "yt-dlp_macos"), removeMarker: true)
+            let failure = await executionFailure(fallbackHelper: "yt-dlp_macos")
+            await finish(jobID: jobID, error: failure, removeMarker: true)
             return
         }
         await processFinished(jobID: jobID, result: result, attempt: attempt)
@@ -281,6 +329,10 @@ actor DownloadRunner: JobRunning {
         }
 
         guard result.exitCode == 0 else {
+            if let failure = await unavailableToolchainAfterRevalidation() {
+                await finish(jobID: jobID, error: failure, removeMarker: false)
+                return
+            }
             guard retryableClientFailure(result), attempt + 1 < YouTubeStrategy(toolchain: toolchain).maximumAttempts(for: activeDownload.job.options) else {
                 await finish(jobID: jobID, error: failure(for: result, phase: activeDownload.phase), removeMarker: false)
                 return
@@ -362,9 +414,10 @@ actor DownloadRunner: JobRunning {
         do {
             process = try await processLauncher.start(executable: request.executable, arguments: request.arguments)
         } catch {
+            let failure = await executionFailure(fallbackHelper: "yt-dlp_macos")
             await finish(
                 jobID: jobID,
-                error: Toolchain.failure(for: "yt-dlp_macos"),
+                error: failure,
                 removeMarker: false
             )
             return nil
@@ -394,9 +447,10 @@ actor DownloadRunner: JobRunning {
         do {
             result = try await process.result()
         } catch {
+            let failure = await executionFailure(fallbackHelper: "yt-dlp_macos")
             await finish(
                 jobID: jobID,
-                error: Toolchain.failure(for: "yt-dlp_macos"),
+                error: failure,
                 removeMarker: false
             )
             return nil
@@ -410,6 +464,10 @@ actor DownloadRunner: JobRunning {
             return nil
         }
         guard result.exitCode == 0 else {
+            if let failure = await unavailableToolchainAfterRevalidation() {
+                await finish(jobID: jobID, error: failure, removeMarker: false)
+                return nil
+            }
             let failure = await metadataProbe.analysisFailure(for: result)
             await finish(jobID: jobID, error: failure, removeMarker: false)
             return nil
@@ -489,6 +547,9 @@ actor DownloadRunner: JobRunning {
         guard let activeDownload = active[jobID] else { return }
         switch activeDownload.control {
         case .cancel:
+            if activeDownload.phase == .merging || activeDownload.phase == .postprocessing {
+                await removeMergedDestination(for: activeDownload)
+            }
             await removeIncompleteArtifacts(for: activeDownload)
             await finish(jobID: jobID, error: nil, removeMarker: true)
         case .quit where activeDownload.phase == .merging || activeDownload.phase == .postprocessing:
@@ -676,6 +737,22 @@ actor DownloadRunner: JobRunning {
             stderr: "A bundled download component could not be launched.",
             context: .toolchain
         )
+    }
+
+    private func executionFailure(fallbackHelper: String) async -> DownloadFailure {
+        await unavailableToolchainAfterRevalidation() ?? Toolchain.failure(for: fallbackHelper)
+    }
+
+    private func unavailableToolchainAfterRevalidation() async -> DownloadFailure? {
+        guard let toolchainValidator else { return nil }
+        do {
+            _ = try await toolchainValidator.validate(force: true)
+            return nil
+        } catch let failure as DownloadFailure {
+            return failure
+        } catch {
+            return Toolchain.failure(for: "yt-dlp_macos")
+        }
     }
 }
 

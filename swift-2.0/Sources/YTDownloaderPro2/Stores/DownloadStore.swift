@@ -18,6 +18,15 @@ struct FailedJobEditSession: Equatable, Sendable, Identifiable {
     var id: String { "\(jobID.uuidString)-\(generation)" }
 }
 
+struct QueuedJobEditSession: Equatable, Sendable, Identifiable {
+    let jobID: UUID
+    let generation: UInt64
+    let analysis: VideoAnalysis
+    let options: DownloadOptions
+
+    var id: String { "\(jobID.uuidString)-\(generation)" }
+}
+
 enum OutputDirectorySelectionError: Error, Equatable, LocalizedError {
     case bookmarkCreationFailed
 
@@ -74,6 +83,7 @@ final class DownloadStore: ObservableObject {
     private let outputDirectoryBookmarks: OutputDirectoryBookmarkService
     private let metadataAnalyzer: any MetadataAnalyzing
     private let updateChecker: any UpdateChecking
+    private let toolchainValidator: (any ToolchainHealthValidating)?
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
@@ -84,6 +94,7 @@ final class DownloadStore: ObservableObject {
     private var analysisGeneration: UInt64 = 0
     private var analysisTask: Task<AnalysisResult, Error>?
     private var currentRetryGeneration: [UUID: UInt64] = [:]
+    private var currentQueuedEditGeneration: [UUID: UInt64] = [:]
     private var retryOperations: [UUID: [UInt64: RetryOperation]] = [:]
     private var currentThumbnailGeneration: [UUID: UInt64] = [:]
     private var thumbnailOperations: [UUID: [UInt64: ThumbnailOperation]] = [:]
@@ -103,7 +114,8 @@ final class DownloadStore: ObservableObject {
         settingsStore: AppSettingsStore = AppSettingsStore(),
         outputDirectoryBookmarks: OutputDirectoryBookmarkService = .live,
         metadataAnalyzer: any MetadataAnalyzing,
-        updateChecker: any UpdateChecking = UpdateChecker.live()
+        updateChecker: any UpdateChecking = UpdateChecker.live(),
+        toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) {
         self.jobs = Self.recoveredJobs(from: jobs)
         self.selection = selection
@@ -118,6 +130,7 @@ final class DownloadStore: ObservableObject {
         self.outputDirectoryBookmarks = outputDirectoryBookmarks
         self.metadataAnalyzer = metadataAnalyzer
         self.updateChecker = updateChecker
+        self.toolchainValidator = toolchainValidator
         consumeCoordinatorEvents()
     }
 
@@ -224,7 +237,12 @@ final class DownloadStore: ObservableObject {
         let root = applicationSupportRoot ?? Self.defaultApplicationSupportRoot()
         let toolchain = (try? Toolchain.resolve(bundle: bundle.bundleURL)) ?? Self.unavailableToolchain()
         let probe = MetadataProbe(toolchain: toolchain)
-        let runner = DownloadRunner(toolchain: toolchain, metadataProbe: probe)
+        let toolchainValidator = ToolchainValidationGate(toolchain: toolchain)
+        let runner = DownloadRunner(
+            toolchain: toolchain,
+            metadataProbe: probe,
+            toolchainValidator: toolchainValidator
+        )
         let coordinator = DownloadCoordinator(limit: settingsStore.load().maximumConcurrentDownloads, runner: runner)
         let store = DownloadStore(
             settings: settingsStore.load(),
@@ -233,8 +251,10 @@ final class DownloadStore: ObservableObject {
             thumbnailCache: ThumbnailCache(root: root),
             diagnostics: DiagnosticsLogger(root: root),
             settingsStore: settingsStore,
-            metadataAnalyzer: probe
+            metadataAnalyzer: probe,
+            toolchainValidator: toolchainValidator
         )
+        Task { _ = try? await toolchainValidator.validate(force: false) }
         store.restorePersistedJobsInBackground()
         return store
     }
@@ -255,7 +275,15 @@ final class DownloadStore: ObservableObject {
 
         let options = settings.defaultOptions
         let analyzer = metadataAnalyzer
-        let task = Task { try await analyzer.analyze(url: url, options: options) }
+        let toolchainValidator = self.toolchainValidator
+        let task = Task {
+            try await Self.analyze(
+                url: url,
+                options: options,
+                using: analyzer,
+                toolchainValidator: toolchainValidator
+            )
+        }
         analysisTask = task
         let result = await task.result
         guard ownsAnalysis(generation) else { return }
@@ -322,6 +350,51 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].status == .queued else { return false }
+        jobs[index].options = options
+        jobs[index].updatedAt = .now
+        await persist(flush: true)
+        return true
+    }
+
+    func prepareQueuedJobEdit(_ jobID: UUID) async -> QueuedJobEditSession? {
+        guard !isPreparingToQuit,
+              let job = jobs.first(where: { $0.id == jobID }),
+              job.status == .queued else { return nil }
+        let generation = makeGeneration()
+        currentQueuedEditGeneration[jobID] = generation
+
+        do {
+            let result = try await Self.analyze(
+                url: job.sourceURL,
+                options: job.options,
+                using: metadataAnalyzer,
+                toolchainValidator: toolchainValidator
+            )
+            guard currentQueuedEditGeneration[jobID] == generation,
+                  jobs.contains(where: { $0.id == jobID && $0.status == .queued }),
+                  case let .video(video) = result else { return nil }
+            return QueuedJobEditSession(
+                jobID: jobID,
+                generation: generation,
+                analysis: video,
+                options: job.options.replacingStaleSelections(with: video)
+            )
+        } catch {
+            guard currentQueuedEditGeneration[jobID] == generation,
+                  jobs.contains(where: { $0.id == jobID && $0.status == .queued }) else { return nil }
+            let failure = failure(from: error)
+            analysisState = .failed(failure)
+            await recordDiagnostic(jobID: jobID, stage: "queued-edit-analysis", detail: failure.technicalDetail)
+            return nil
+        }
+    }
+
+    func applyQueuedJobEdit(_ session: QueuedJobEditSession, options: DownloadOptions) async -> Bool {
+        guard !isPreparingToQuit,
+              currentQueuedEditGeneration[session.jobID] == session.generation,
+              let index = jobs.firstIndex(where: { $0.id == session.jobID }),
+              jobs[index].status == .queued else { return false }
+        currentQueuedEditGeneration[session.jobID] = nil
         jobs[index].options = options
         jobs[index].updatedAt = .now
         await persist(flush: true)
@@ -452,7 +525,15 @@ final class DownloadStore: ObservableObject {
         currentRetryGeneration[jobID] = generation
         retryOperations[jobID]?.values.forEach { $0.task.cancel() }
         let analyzer = metadataAnalyzer
-        let task = Task { try await analyzer.analyze(url: job.sourceURL, options: job.options) }
+        let toolchainValidator = self.toolchainValidator
+        let task = Task {
+            try await Self.analyze(
+                url: job.sourceURL,
+                options: job.options,
+                using: analyzer,
+                toolchainValidator: toolchainValidator
+            )
+        }
         retryOperations[jobID, default: [:]][generation] = RetryOperation(generation: generation, task: task)
         let result = await task.result
         retryOperations[jobID]?[generation] = nil
@@ -522,7 +603,15 @@ final class DownloadStore: ObservableObject {
         currentRetryGeneration[jobID] = generation
         retryOperations[jobID]?.values.forEach { $0.task.cancel() }
         let analyzer = metadataAnalyzer
-        let task = Task { try await analyzer.analyze(url: job.sourceURL, options: options) }
+        let toolchainValidator = self.toolchainValidator
+        let task = Task {
+            try await Self.analyze(
+                url: job.sourceURL,
+                options: options,
+                using: analyzer,
+                toolchainValidator: toolchainValidator
+            )
+        }
         retryOperations[jobID, default: [:]][generation] = RetryOperation(generation: generation, task: task)
         let result = await task.result
         retryOperations[jobID]?[generation] = nil
@@ -766,6 +855,7 @@ final class DownloadStore: ObservableObject {
         analysis?.cancel()
 
         currentRetryGeneration.removeAll()
+        currentQueuedEditGeneration.removeAll()
         let retries = retryOperations.values.flatMap(\.values).map(\.task)
         retries.forEach { $0.cancel() }
 
@@ -800,6 +890,9 @@ final class DownloadStore: ObservableObject {
     private func transitionJob(at index: Int, to status: DownloadStatus) {
         do {
             try jobs[index].transition(to: status)
+            if status != .queued {
+                currentQueuedEditGeneration[jobs[index].id] = nil
+            }
         } catch {
             Task { [diagnostics, jobID = jobs[index].id] in
                 try? await diagnostics.record(DiagnosticEvent(
@@ -890,6 +983,33 @@ final class DownloadStore: ObservableObject {
             stderr: String(describing: error),
             context: .analysis
         )
+    }
+
+    private static func analyze(
+        url: String,
+        options: DownloadOptions,
+        using analyzer: any MetadataAnalyzing,
+        toolchainValidator: (any ToolchainHealthValidating)?
+    ) async throws -> AnalysisResult {
+        if let toolchainValidator {
+            _ = try await toolchainValidator.validate(force: false)
+        }
+        do {
+            return try await analyzer.analyze(url: url, options: options)
+        } catch {
+            let failure = error as? DownloadFailure
+            let shouldRevalidate = failure?.category == .bundledDownloaderUnavailable
+                || failure?.category == .bundledConverterUnavailable
+            guard let toolchainValidator, shouldRevalidate else {
+                throw error
+            }
+            do {
+                _ = try await toolchainValidator.validate(force: true)
+            } catch {
+                throw error
+            }
+            throw error
+        }
     }
 
     private func makeGeneration() -> UInt64 {

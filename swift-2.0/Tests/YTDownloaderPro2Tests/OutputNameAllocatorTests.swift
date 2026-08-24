@@ -19,6 +19,36 @@ final class OutputNameAllocatorTests: XCTestCase {
         XCTAssertEqual(reservation.baseURL.lastPathComponent, "Title (1)")
     }
 
+    func testCaseVariantExistingFileCollidesOnCaseInsensitiveVolume() async throws {
+        let root = try temporaryDirectory()
+        try Data().write(to: root.appendingPathComponent("title.mp4"))
+        let allocator = OutputNameAllocator(volumeSupportsCaseSensitiveNames: { _ in false })
+
+        let reservation = try await allocator.reserve(
+            title: "Title",
+            extension: "mp4",
+            directory: root,
+            jobID: UUID()
+        )
+
+        XCTAssertEqual(reservation.baseURL.lastPathComponent, "Title (1)")
+    }
+
+    func testCanonicallyEquivalentUnicodeExistingFileAlwaysCollides() async throws {
+        let root = try temporaryDirectory()
+        try Data().write(to: root.appendingPathComponent("Cafe\u{301}.mp4"))
+        let allocator = OutputNameAllocator(volumeSupportsCaseSensitiveNames: { _ in true })
+
+        let reservation = try await allocator.reserve(
+            title: "Caf\u{00E9}",
+            extension: "mp4",
+            directory: root,
+            jobID: UUID()
+        )
+
+        XCTAssertEqual(reservation.baseURL.lastPathComponent, "Caf\u{00E9} (1)")
+    }
+
     func testExistingNumberedFilesAdvanceToFirstFreeBasename() async throws {
         // Starting numbering at the wrong slot would fail this hand-derived sequence.
         let root = try temporaryDirectory()

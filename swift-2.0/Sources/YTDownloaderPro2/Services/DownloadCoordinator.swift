@@ -68,7 +68,11 @@ actor DownloadCoordinator {
     func enqueue(_ newJobs: [DownloadJob]) {
         guard !isShuttingDown else { return }
 
-        for job in newJobs where job.status == .queued && jobs[job.id] == nil {
+        for job in newJobs where job.status == .queued {
+            let existingStatus = jobs[job.id]?.status
+            guard (existingStatus == nil || existingStatus?.isTerminal == true),
+                  active[job.id] == nil,
+                  !queuedIDs.contains(job.id) else { continue }
             jobs[job.id] = job
             queuedIDs.append(job.id)
         }
@@ -139,7 +143,14 @@ actor DownloadCoordinator {
     func cancel(_ jobID: UUID) async {
         guard !isShuttingDown else { return }
 
-        if removeQueued(jobID) || jobs[jobID]?.status == .paused {
+        if removeQueued(jobID) {
+            setStatus(.cancelled, for: jobID)
+            continuation.yield(.stopped(jobID, .cancelled))
+            return
+        }
+
+        if let job = jobs[jobID], job.status == .paused {
+            await runner.cleanupCancelledJob(job)
             setStatus(.cancelled, for: jobID)
             continuation.yield(.stopped(jobID, .cancelled))
             return

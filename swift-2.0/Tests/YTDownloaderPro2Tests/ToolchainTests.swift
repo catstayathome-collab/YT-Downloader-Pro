@@ -64,6 +64,23 @@ final class ToolchainTests: XCTestCase {
         XCTAssertEqual(commands.map(\.arguments), [["--version"], ["-version"], ["-version"], ["--help"]])
     }
 
+    func testValidationGateCachesHealthAndForcedValidationRunsCommandsAgain() async throws {
+        let runner = RecordingProcessRunner()
+        let gate = ToolchainValidationGate(
+            toolchain: .fixture(),
+            validator: ToolchainValidator(processRunner: runner)
+        )
+
+        _ = try await gate.validate(force: false)
+        _ = try await gate.validate(force: false)
+        let cachedCommandCount = await runner.commands().count
+        XCTAssertEqual(cachedCommandCount, 4)
+
+        _ = try await gate.validate(force: true)
+        let forcedCommandCount = await runner.commands().count
+        XCTAssertEqual(forcedCommandCount, 8)
+    }
+
     func testValidatorAcceptsQuickJSHelpVersionOutputWithExitCodeOne() async throws {
         let runner = RecordingProcessRunner()
 

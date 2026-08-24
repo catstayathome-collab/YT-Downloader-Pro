@@ -68,7 +68,57 @@ struct ToolchainHealth: Equatable, Sendable {
     let quickJSVersion: String
 }
 
-struct ToolchainValidator {
+protocol ToolchainHealthValidating: Sendable {
+    func validate(force: Bool) async throws -> ToolchainHealth
+}
+
+actor ToolchainValidationGate: ToolchainHealthValidating {
+    private struct ValidationOperation {
+        let id: UUID
+        let task: Task<Result<ToolchainHealth, DownloadFailure>, Never>
+    }
+
+    private let toolchain: Toolchain
+    private let validator: ToolchainValidator
+    private var cachedResult: Result<ToolchainHealth, DownloadFailure>?
+    private var operation: ValidationOperation?
+
+    init(toolchain: Toolchain, validator: ToolchainValidator = ToolchainValidator()) {
+        self.toolchain = toolchain
+        self.validator = validator
+    }
+
+    func validate(force: Bool) async throws -> ToolchainHealth {
+        if !force, let cachedResult {
+            return try cachedResult.get()
+        }
+        if !force, let operation {
+            return try await operation.task.value.get()
+        }
+
+        let id = UUID()
+        let toolchain = self.toolchain
+        let validator = self.validator
+        let task = Task<Result<ToolchainHealth, DownloadFailure>, Never> {
+            do {
+                return .success(try await validator.validate(toolchain))
+            } catch let failure as DownloadFailure {
+                return .failure(failure)
+            } catch {
+                return .failure(Toolchain.failure(for: "yt-dlp_macos"))
+            }
+        }
+        operation = ValidationOperation(id: id, task: task)
+        let result = await task.value
+        if operation?.id == id {
+            operation = nil
+            cachedResult = result
+        }
+        return try result.get()
+    }
+}
+
+struct ToolchainValidator: Sendable {
     private let processRunner: any ProcessRunning
 
     init(processRunner: any ProcessRunning = SystemProcessLauncher()) {

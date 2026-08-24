@@ -206,6 +206,52 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(original, .defaults)
     }
 
+    func testAnalysisStopsAtToolchainGateAndPublishesLocalizedConverterFailure() async throws {
+        let analyzer = AnalysisRecorder(result: .video(.fixture()))
+        let gate = StoreToolchainGate(results: [
+            .failure(DownloadFailure(category: .bundledConverterUnavailable))
+        ])
+        let fixture = try StoreFixture(
+            analysis: { url, options in try await analyzer.analyze(url: url, options: options) },
+            toolchainValidator: gate
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/video")
+
+        let requestedURLs = await analyzer.recordedURLs()
+        XCTAssertEqual(requestedURLs, [])
+        guard case let .failed(failure) = fixture.store.analysisState else {
+            return XCTFail("Expected a toolchain failure")
+        }
+        XCTAssertEqual(failure.category, .bundledConverterUnavailable)
+        let gateArguments = await gate.forcedArguments()
+        XCTAssertEqual(gateArguments, [false])
+    }
+
+    func testAnalysisExecutionFailureForcesToolchainRecheckAndPrefersItsTypedFailure() async throws {
+        let gate = StoreToolchainGate(results: [
+            .success(.fixture),
+            .failure(DownloadFailure(category: .bundledConverterUnavailable))
+        ])
+        let fixture = try StoreFixture(
+            analysis: { _, _ in
+                throw DownloadFailure(category: .bundledDownloaderUnavailable)
+            },
+            toolchainValidator: gate
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/video")
+
+        guard case let .failed(failure) = fixture.store.analysisState else {
+            return XCTFail("Expected a toolchain failure")
+        }
+        XCTAssertEqual(failure.category, .bundledConverterUnavailable)
+        let gateArguments = await gate.forcedArguments()
+        XCTAssertEqual(gateArguments, [false, true])
+    }
+
     func testPlaylistBatchCreatesOneQueuedJobPerSelectedEntry() async throws {
         let fixture = try StoreFixture(analysis: .playlist(.fixture(entryCount: 3)))
         defer { fixture.cleanUp() }
@@ -237,6 +283,52 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertFalse(pausedWasEdited)
         XCTAssertEqual(fixture.store.jobs[0].options.outputKind, .mp3)
         XCTAssertEqual(fixture.store.jobs[1].options.outputKind, .mp4)
+    }
+
+    func testQueuedJobEditorReanalyzesAllFormatsAndAppliesOnlyThatBatchItem() async throws {
+        let first = DownloadJob.fixture(title: "First", status: .queued)
+        let second = DownloadJob.fixture(title: "Second", status: .queued)
+        let fresh = VideoAnalysis.fixture(
+            sourceURL: first.sourceURL,
+            videoFormats: [.fixture(id: "video-high"), .fixture(id: "video-low")],
+            audioFormats: [.fixture(id: "audio-high"), .fixture(id: "audio-low")]
+        )
+        let fixture = try StoreFixture(jobs: [first, second], analysis: .video(fresh))
+        defer { fixture.cleanUp() }
+
+        let preparedSession = await fixture.store.prepareQueuedJobEdit(first.id)
+        let session = try XCTUnwrap(preparedSession)
+        XCTAssertEqual(session.analysis.videoFormats.map(\.id), ["video-high", "video-low"])
+        XCTAssertEqual(session.analysis.audioFormats.map(\.id), ["audio-high", "audio-low"])
+
+        var presentation = MediaOptionsPresentation(analysis: session.analysis, defaults: session.options)
+        presentation.selectVideo("video-low")
+        presentation.selectAudio("audio-low")
+        let applied = await fixture.store.applyQueuedJobEdit(session, options: presentation.options)
+
+        XCTAssertTrue(applied)
+        XCTAssertEqual(fixture.store.jobs[0].options.videoQuality, .format(id: "video-low", label: "video-low"))
+        XCTAssertEqual(fixture.store.jobs[0].options.audioQuality, .format(id: "audio-low", label: "audio-low"))
+        XCTAssertEqual(fixture.store.jobs[1].options, second.options)
+    }
+
+    func testQueuedJobEditAnalysisCannotApplyAfterJobStarts() async throws {
+        let job = DownloadJob.fixture(status: .queued)
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(jobs: [job], analysis: { url, options in
+            try await analysis.analyze(url: url, options: options)
+        })
+        defer { fixture.cleanUp() }
+
+        let preparation = Task { await fixture.store.prepareQueuedJobEdit(job.id) }
+        try await analysis.waitForRequestCount(1)
+        await fixture.store.start(job.id)
+        try await fixture.runner.waitForStart(of: job.id)
+        await analysis.succeed(request: 0, with: .video(.fixture(sourceURL: job.sourceURL)))
+
+        let preparedEdit = await preparation.value
+        XCTAssertNil(preparedEdit)
+        await fixture.store.cancel(job.id)
     }
 
     func testRemoveCompletedRecordKeepsMediaFile() async throws {
@@ -281,6 +373,29 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.jobs[0].status, .queued)
         XCTAssertEqual(fixture.store.jobs[0].retryCount, 1)
         XCTAssertEqual(fixture.store.jobs[0].options, originalOptions)
+    }
+
+    func testFailedJobCanRetryAndStartAgainInSameCoordinatorSession() async throws {
+        let job = DownloadJob.fixture()
+        let fixture = try StoreFixture(jobs: [job], analysis: .video(.fixture(sourceURL: job.sourceURL)))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStartCount(1, of: job.id)
+        await fixture.runner.fail(
+            DownloadFailure(category: .downloadFailed, technicalDetail: "first attempt failed"),
+            for: job.id
+        )
+        try await waitUntil("job failure") {
+            fixture.store.jobs.first?.status == .failed
+        }
+
+        await fixture.store.retry(job.id)
+        XCTAssertEqual(fixture.store.jobs.first?.status, .queued)
+        await fixture.store.start(job.id)
+
+        try await fixture.runner.waitForStartCount(2, of: job.id)
+        await fixture.store.cancel(job.id)
     }
 
     func testRetryRemovalAndReorderingCannotMutateSurvivingRecord() async throws {
@@ -1004,7 +1119,8 @@ private final class StoreFixture {
         coordinatorLimit: Int = 1,
         bookmarks: OutputDirectoryBookmarkService = .live,
         settings: AppSettings = .defaults,
-        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate)
+        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
+        toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) throws {
         try self.init(
             root: temporaryDirectory(),
@@ -1014,15 +1130,22 @@ private final class StoreFixture {
             coordinatorLimit: coordinatorLimit,
             bookmarks: bookmarks,
             settings: settings,
-            updateChecker: updateChecker
+            updateChecker: updateChecker,
+            toolchainValidator: toolchainValidator
         )
     }
 
     convenience init(
         jobs: [DownloadJob] = [],
-        analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult
+        analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
+        toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) throws {
-        try self.init(root: temporaryDirectory(), jobs: jobs, analysis: analysis)
+        try self.init(
+            root: temporaryDirectory(),
+            jobs: jobs,
+            analysis: analysis,
+            toolchainValidator: toolchainValidator
+        )
     }
 
     convenience init(root: URL, jobs: [DownloadJob] = []) throws {
@@ -1037,7 +1160,8 @@ private final class StoreFixture {
         coordinatorLimit: Int = 1,
         bookmarks: OutputDirectoryBookmarkService = .live,
         settings: AppSettings = .defaults,
-        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate)
+        updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
+        toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) throws {
         self.root = root
         runner = StoreRunner()
@@ -1053,7 +1177,8 @@ private final class StoreFixture {
             diagnostics: DiagnosticsLogger(root: root),
             outputDirectoryBookmarks: bookmarks,
             metadataAnalyzer: ClosureMetadataAnalyzer(analysis),
-            updateChecker: updateChecker
+            updateChecker: updateChecker,
+            toolchainValidator: toolchainValidator
         )
     }
 
@@ -1182,6 +1307,9 @@ private actor StoreRunner: JobRunning {
     func cancel(jobID: UUID) async {
         cancellations.append(jobID)
         finish(jobID)
+    }
+    func cleanupCancelledJob(_ job: DownloadJob) async {
+        cancellations.append(job.id)
     }
     func interruptForQuit(jobID: UUID) async {
         quitInterruptions.append(jobID)
@@ -1314,6 +1442,23 @@ private actor AnalysisRecorder {
 
     func recordedURLs() -> [String] { requestedURLs }
     func recordedOptions() -> [DownloadOptions] { requestedOptions }
+}
+
+private actor StoreToolchainGate: ToolchainHealthValidating {
+    private var results: [Result<ToolchainHealth, DownloadFailure>]
+    private var arguments: [Bool] = []
+
+    init(results: [Result<ToolchainHealth, DownloadFailure>]) {
+        self.results = results
+    }
+
+    func validate(force: Bool) async throws -> ToolchainHealth {
+        arguments.append(force)
+        guard !results.isEmpty else { return .fixture }
+        return try results.removeFirst().get()
+    }
+
+    func forcedArguments() -> [Bool] { arguments }
 }
 
 private struct ClosureMetadataAnalyzer: MetadataAnalyzing {

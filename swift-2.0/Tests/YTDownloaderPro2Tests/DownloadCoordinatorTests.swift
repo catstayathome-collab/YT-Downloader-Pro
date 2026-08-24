@@ -222,6 +222,24 @@ final class DownloadCoordinatorTests: XCTestCase {
         await coordinator.shutdown()
     }
 
+    func testCancellingPausedJobDelegatesOwnedCleanupWithoutRestartingIt() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let jobs = DownloadJob.fixtures(count: 2)
+
+        await coordinator.enqueue(jobs)
+        try await runner.waitForStarted(count: 1)
+        let pauseAccepted = await coordinator.pause(jobs[1].id)
+        XCTAssertTrue(pauseAccepted)
+        await coordinator.cancel(jobs[1].id)
+
+        let cleanupCalls = await runner.cancelCalls(for: jobs[1].id)
+        let startedIDs = await runner.startedIDs
+        XCTAssertEqual(cleanupCalls, 1)
+        XCTAssertEqual(startedIDs, [jobs[0].id])
+        await coordinator.shutdown()
+    }
+
     func testActivePauseAndCancelDelegateOnceAndStartAtMostOneReplacement() async throws {
         let runner = GatedRunner()
         let coordinator = DownloadCoordinator(limit: 1, runner: runner)
@@ -537,6 +555,11 @@ private actor GatedRunner: JobRunning {
         guard continuations[jobID] != nil, cancelled[jobID] == nil else { return }
         cancelled[jobID] = 1
         finish(jobID, error: nil)
+    }
+
+    func cleanupCancelledJob(_ job: DownloadJob) async {
+        cancelRequests[job.id, default: 0] += 1
+        cancelled[job.id, default: 0] += 1
     }
 
     func interruptForQuit(jobID: UUID) async {

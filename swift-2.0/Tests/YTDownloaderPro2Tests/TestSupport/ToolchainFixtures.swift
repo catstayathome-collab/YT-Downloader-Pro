@@ -1,6 +1,15 @@
 import Foundation
 @testable import YTDownloaderPro2
 
+extension ToolchainHealth {
+    static let fixture = ToolchainHealth(
+        ytDLPVersion: "2026.07.04",
+        ffmpegVersion: "9.0",
+        ffprobeVersion: "9.0",
+        quickJSVersion: "2026-06-04"
+    )
+}
+
 extension Toolchain {
     static func fixture(
         ytDLP: URL = URL(fileURLWithPath: "/tmp/yt-dlp_macos"),

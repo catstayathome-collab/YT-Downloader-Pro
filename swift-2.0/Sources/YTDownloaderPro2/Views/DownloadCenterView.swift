@@ -171,13 +171,13 @@ private enum AnalysisSheet: Identifiable {
 }
 
 private enum DownloadOptionsSheet: Identifiable {
-    case queued(DownloadJob)
+    case queued(QueuedJobEditSession)
     case failedPreflight(DownloadJob)
     case failedFresh(FailedJobEditSession)
 
     var id: String {
         switch self {
-        case let .queued(job): "queued-\(job.id.uuidString)"
+        case let .queued(session): "queued-\(session.id)"
         case let .failedPreflight(job): "failed-preflight-\(job.id.uuidString)"
         case let .failedFresh(session): "failed-fresh-\(session.id)"
         }
@@ -222,10 +222,15 @@ struct DownloadCenterView: View {
         }
         .sheet(item: $optionsSheet) { sheet in
             switch sheet {
-            case let .queued(job):
-                MediaOptionsSheet(titleKey: .mediaEditDownload, options: job.options) { options in
+            case let .queued(session):
+                MediaOptionsSheet(
+                    analysis: session.analysis,
+                    defaults: session.options,
+                    titleKey: .mediaEditDownload,
+                    actionKey: .commonSave
+                ) { options in
                     optionsSheet = nil
-                    Task { _ = await store.editQueuedJob(job.id, options: options) }
+                    Task { _ = await store.applyQueuedJobEdit(session, options: options) }
                 }
             case let .failedPreflight(job):
                 MediaOptionsSheet(
@@ -381,7 +386,15 @@ struct DownloadCenterView: View {
                     LazyVStack(spacing: 10) {
                         ForEach(store.filteredJobs) { job in
                             DownloadCardView(job: job, isSelected: store.selection.contains(job.id)) { job in
-                                optionsSheet = job.status == .failed ? .failedPreflight(job) : .queued(job)
+                                if job.status == .failed {
+                                    optionsSheet = .failedPreflight(job)
+                                } else {
+                                    Task {
+                                        if let session = await store.prepareQueuedJobEdit(job.id) {
+                                            optionsSheet = .queued(session)
+                                        }
+                                    }
+                                }
                             }
                                 .contentShape(Rectangle())
                                 .onTapGesture {

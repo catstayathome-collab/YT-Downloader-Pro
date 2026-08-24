@@ -20,9 +20,17 @@ actor OutputNameAllocator {
 
     private var reservations: [UUID: OutputReservation] = [:]
     private let lockAcquiredHook: (@Sendable (URL) async -> Void)?
+    private let volumeSupportsCaseSensitiveNames: @Sendable (URL) -> Bool
 
-    init(lockAcquiredHook: (@Sendable (URL) async -> Void)? = nil) {
+    init(
+        lockAcquiredHook: (@Sendable (URL) async -> Void)? = nil,
+        volumeSupportsCaseSensitiveNames: @escaping @Sendable (URL) -> Bool = { directory in
+            (try? directory.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?
+                .volumeSupportsCaseSensitiveNames ?? true
+        }
+    ) {
         self.lockAcquiredHook = lockAcquiredHook
+        self.volumeSupportsCaseSensitiveNames = volumeSupportsCaseSensitiveNames
     }
 
     func reserve(
@@ -175,7 +183,13 @@ actor OutputNameAllocator {
     }
 
     private func isAvailable(_ reservation: OutputReservation) throws -> Bool {
-        guard !reservations.values.contains(where: { $0.baseURL == reservation.baseURL }) else {
+        let directory = reservation.baseURL.deletingLastPathComponent()
+        let caseSensitive = volumeSupportsCaseSensitiveNames(directory)
+        let basename = reservation.baseURL.lastPathComponent
+        guard !reservations.values.contains(where: {
+            $0.baseURL.deletingLastPathComponent() == directory
+                && Self.namesAreEquivalent($0.baseURL.lastPathComponent, basename, caseSensitive: caseSensitive)
+        }) else {
             return false
         }
         guard !FileManager.default.fileExists(atPath: reservation.markerURL.path) else {
@@ -191,11 +205,27 @@ actor OutputNameAllocator {
         } catch {
             throw filesystemFailure()
         }
-        let basename = reservation.baseURL.lastPathComponent
         return !directoryContents.contains { url in
             let name = url.lastPathComponent
-            return name == basename || name.hasPrefix("\(basename).")
+            return Self.namesAreEquivalent(name, basename, caseSensitive: caseSensitive)
+                || Self.nameHasEquivalentBasenamePrefix(name, basename: basename, caseSensitive: caseSensitive)
         }
+    }
+
+    private static func namesAreEquivalent(_ lhs: String, _ rhs: String, caseSensitive: Bool) -> Bool {
+        let lhs = lhs.precomposedStringWithCanonicalMapping
+        let rhs = rhs.precomposedStringWithCanonicalMapping
+        let options: String.CompareOptions = caseSensitive ? [.literal] : [.literal, .caseInsensitive]
+        return lhs.compare(rhs, options: options, locale: Locale(identifier: "en_US_POSIX")) == .orderedSame
+    }
+
+    private static func nameHasEquivalentBasenamePrefix(_ name: String, basename: String, caseSensitive: Bool) -> Bool {
+        let name = name.precomposedStringWithCanonicalMapping
+        let prefix = "\(basename.precomposedStringWithCanonicalMapping)."
+        let options: String.CompareOptions = caseSensitive
+            ? [.anchored, .literal]
+            : [.anchored, .literal, .caseInsensitive]
+        return name.range(of: prefix, options: options, locale: Locale(identifier: "en_US_POSIX")) != nil
     }
 
     private func markerURL(for basename: String, directory: URL) -> URL {

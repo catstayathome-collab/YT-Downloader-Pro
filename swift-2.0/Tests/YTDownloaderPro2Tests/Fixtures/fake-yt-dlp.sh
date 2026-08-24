@@ -62,7 +62,7 @@ case "$url" in
         printf 'ytdp:phase|downloading\n'
         printf 'ytdp:progress|50%%|50|100|10|5\n'
         : > "$base.mp4.part"
-        printf 'ytdp:phase|merging\n'
+        printf 'ytdp:phase|merging\n' >&2
         printf 'fixture' > "$base.mp4"
         rm -f "$base.mp4.part"
         printf 'ytdp:filepath|%s.mp4\n' "$base"
@@ -79,7 +79,7 @@ case "$url" in
     *merge-ignore-int*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.f137.mp4.part"
-        printf 'ytdp:phase|merging\n'
+        printf 'ytdp:phase|merging\n' >&2
         : > "$base.mp4"
         trap '' INT
         trap 'exit 0' TERM
@@ -95,20 +95,20 @@ case "$url" in
     *merge*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.f137.mp4.part"
-        printf 'ytdp:phase|merging\n'
+        printf 'ytdp:phase|merging\n' >&2
         : > "$base.mp4"
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
     *postprocess-error*)
-        printf 'ytdp:phase|postprocessing\n'
+        printf 'ytdp:phase|postprocessing\n' >&2
         printf 'conversion failed\n' >&2
         exit 1
         ;;
     *postprocess*)
         printf 'ytdp:phase|downloading\n'
         : > "$base.mp4.part"
-        printf 'ytdp:phase|postprocessing\n'
+        printf 'ytdp:phase|postprocessing\n' >&2
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;

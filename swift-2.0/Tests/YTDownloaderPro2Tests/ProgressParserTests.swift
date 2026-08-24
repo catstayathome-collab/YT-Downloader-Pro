@@ -100,6 +100,19 @@ final class ProgressParserTests: XCTestCase {
         XCTAssertEqual(parser.parseDiagnostic(line: "[download] 67.5% of 100MiB").count, 1)
     }
 
+    func testStructuredPostprocessingPhaseIsParsedFromStderr() {
+        let parser = ProgressParser()
+
+        XCTAssertEqual(
+            parser.parseDiagnostic(line: "ytdp:phase|merging"),
+            [.phase(.merging)]
+        )
+        XCTAssertEqual(
+            parser.parseDiagnostic(line: "ytdp:phase|postprocessing"),
+            [.phase(.postprocessing)]
+        )
+    }
+
     func testLineBufferPreservesSplitUTF8AndFinalUnterminatedLine() {
         var buffer = ProcessLineBuffer()
 

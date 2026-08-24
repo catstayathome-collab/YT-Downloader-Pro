@@ -94,6 +94,25 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertTrue(fixture.commandLog().contains("--continue"))
     }
 
+    func testCancelPausedJobReacquiresOwnedReservationAndRemovesPartialAndMarker() async throws {
+        let fixture = try RunnerFixture(mode: "pause")
+        let job = fixture.job()
+        let task = Task { try await collect(fixture.runner.events(for: job)) }
+        try await fixture.waitForFile(fixture.partURL)
+
+        let pauseAccepted = await fixture.runner.pause(jobID: job.id)
+        XCTAssertTrue(pauseAccepted)
+        let events = try await task.value
+        let basename = try XCTUnwrap(events.compactMap(reservedBasename).first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
+
+        await fixture.runner.cleanupCancelledJob(fixture.job(id: job.id, reservedBasename: basename))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
+    }
+
     func testPauseDuringMergeIsRejectedAndLeavesProcessRunning() async throws {
         // Interrupting a merger through an ordinary pause would destroy a non-resumable output.
         let fixture = try RunnerFixture(mode: "merge")
@@ -161,6 +180,29 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.foreignPartURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.foreignFragmentURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.invalidFragmentURL.path))
+    }
+
+    func testCancelDuringMergeRemovesOwnedIncompleteDestinationAndMarker() async throws {
+        let fixture = try RunnerFixture(mode: "merge")
+        let job = fixture.job(videoFormatID: "137")
+        let events = EventRecorder()
+        let task = Task { () throws -> [DownloadEvent] in
+            var collected: [DownloadEvent] = []
+            for try await event in fixture.runner.events(for: job) {
+                collected.append(event)
+                await events.record(event)
+            }
+            return collected
+        }
+        await events.wait(for: .phase(.merging))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.finalURL.path))
+
+        await fixture.runner.cancel(jobID: job.id)
+        _ = try await task.value
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.markerURL(basename: "Example video").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.formatPartURL.path))
     }
 
     func testCancelWaitsForTerminationAndSkipsCleanupWhenReservationOwnershipIsReplaced() async throws {
@@ -385,6 +427,23 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: fixture.directory.path).allSatisfy { !$0.hasSuffix(".ytdp-reservation") })
     }
 
+    func testLaunchFailureForcesToolchainRecheckAndUsesConverterFailureWhenValidationFindsIt() async throws {
+        let gate = RunnerToolchainGate(results: [
+            .success(.fixture),
+            .failure(DownloadFailure(category: .bundledConverterUnavailable))
+        ])
+        let fixture = try RunnerFixture(mode: "success", launchable: false, toolchainValidator: gate)
+
+        do {
+            _ = try await collect(fixture.runner.events(for: fixture.job()))
+            XCTFail("Expected launch failure")
+        } catch let failure as DownloadFailure {
+            XCTAssertEqual(failure.category, .bundledConverterUnavailable)
+        }
+        let gateArguments = await gate.forcedArguments()
+        XCTAssertEqual(gateArguments, [false, true])
+    }
+
     private func phase(_ event: DownloadEvent) -> DownloadPhase? {
         guard case let .phase(value) = event else { return nil }
         return value
@@ -402,7 +461,12 @@ private final class RunnerFixture: @unchecked Sendable {
     let scope = SecurityScopeRecorder()
     let runner: DownloadRunner
 
-    init(mode: String, launchable: Bool = true, displayDirectory: String? = nil) throws {
+    init(
+        mode: String,
+        launchable: Bool = true,
+        displayDirectory: String? = nil,
+        toolchainValidator: (any ToolchainHealthValidating)? = nil
+    ) throws {
         directory = try temporaryDirectory()
         let fixtureExecutable = try Self.copyFixtureScript(to: directory)
         if !launchable {
@@ -425,6 +489,7 @@ private final class RunnerFixture: @unchecked Sendable {
             allocator: OutputNameAllocator(),
             metadataProbe: MetadataProbe(toolchain: toolchain, processRunner: SystemProcessLauncher()),
             bookmarks: bookmarks,
+            toolchainValidator: toolchainValidator,
             interruptGraceNanoseconds: 100_000_000
         )
         try "mode=\(mode)".write(to: directory.appendingPathComponent("fixture-mode"), atomically: true, encoding: .utf8)
@@ -519,6 +584,23 @@ private final class RunnerFixture: @unchecked Sendable {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
     }
+}
+
+private actor RunnerToolchainGate: ToolchainHealthValidating {
+    private var results: [Result<ToolchainHealth, DownloadFailure>]
+    private var arguments: [Bool] = []
+
+    init(results: [Result<ToolchainHealth, DownloadFailure>]) {
+        self.results = results
+    }
+
+    func validate(force: Bool) async throws -> ToolchainHealth {
+        arguments.append(force)
+        guard !results.isEmpty else { return .fixture }
+        return try results.removeFirst().get()
+    }
+
+    func forcedArguments() -> [Bool] { arguments }
 }
 
 private final class SecurityScopeRecorder: @unchecked Sendable {
