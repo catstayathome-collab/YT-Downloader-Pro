@@ -74,14 +74,31 @@ python3 scripts/check_swift_bundle.py \
 
 ## 問題回報
 
-請在 GitHub Issues 提供下列資料，避免上傳帳號、Cookie 或其他私人資訊：
+請在 GitHub Issues 提供下列非敏感資料；公開 Issue 不是私密客服管道：
 
 - App 完整版本，例如 `1.8.8`。
 - Mac 型號與處理器，例如 MacBook Air M5。
 - macOS 版本。
-- 發生問題的 YouTube 網址。
-- 完整錯誤文字或截圖。
+- App 顯示的錯誤分類與已經過濾的錯誤摘要。
 - 問題發生在解析、MP4、MP3、暫停、取消或合併的哪個階段。
+
+請勿在公開 Issue 張貼影片網址、下載紀錄、本機路徑、電子郵件、付款資料、
+Cookie、授權標頭、Token、完整診斷檔或含有個人資料的截圖。只有在重現問題
+確實需要網址時，才應透過日後提供的第一方私密支援表單另行同意送出。
+
+## 商業化第一階段文件
+
+付費版目前是「可行性驗證可繼續、公開收費不可開始」的狀態。未取得綠界
+針對此產品的書面同意、台灣律師意見、會計與第三方授權確認前，不會啟用
+正式結帳或訂閱權限。
+
+- [`COMMERCIAL_FEASIBILITY.md`](COMMERCIAL_FEASIBILITY.md)：商業決策、收入模型、風險與啟動門檻。
+- [`PAYMENT_PROVIDER_QUESTIONS.md`](PAYMENT_PROVIDER_QUESTIONS.md)：送交綠界前的產品揭露與問題草稿，尚未送出。
+- [`LEGAL_REVIEW_BRIEF.md`](LEGAL_REVIEW_BRIEF.md)：提供台灣律師審查的事實與問題。
+- [`PRIVACY_DATA_MAP.md`](PRIVACY_DATA_MAP.md)：本機與未來後端的資料邊界。
+- [`ENTITLEMENT_ARCHITECTURE.md`](ENTITLEMENT_ARCHITECTURE.md)：Google 登入、訂閱狀態與功能權限架構。
+- [`RECOVERY_LADDER.md`](RECOVERY_LADDER.md)：yt-dlp 失敗時有上限且不靜默降畫質的恢復流程。
+- [`REPOSITORY_AND_SUPPORT_STRATEGY.md`](REPOSITORY_AND_SUPPORT_STRATEGY.md)：私有開發庫、公開發佈面與回饋功能方案。
 
 ## 版本與原始碼
 
