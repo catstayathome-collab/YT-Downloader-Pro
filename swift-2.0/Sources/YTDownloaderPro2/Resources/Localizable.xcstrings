@@ -300,71 +300,71 @@
         }
       }
     },
-    "confirmation.clearCompleted.button": {
+    "confirmation.clearHistory.button": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Completed"
+            "value": "Clear History"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了項目を消去"
+            "value": "履歴を消去"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除已完成項目"
+            "value": "清除下載紀錄"
           }
         }
       }
     },
-    "confirmation.clearCompleted.message": {
+    "confirmation.clearHistory.message": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Downloaded media files will remain. Only completed history records and cached thumbnails will be removed."
+            "value": "Downloaded media files will remain. Completed, failed, and cancelled history records and their cached thumbnails will be removed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダウンロード済みのメディアは残ります。完了履歴とキャッシュ済みサムネイルだけが削除されます。"
+            "value": "ダウンロード済みのメディアは残ります。完了、失敗、キャンセル済みの履歴とキャッシュ済みサムネイルが削除されます。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已下載的媒體檔案會保留，只會移除已完成的歷史記錄與快取縮圖。"
+            "value": "已下載的媒體檔案會保留；完成、失敗與已取消的歷史記錄及其快取縮圖將被移除。"
           }
         }
       }
     },
-    "confirmation.clearCompleted.title": {
+    "confirmation.clearHistory.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear completed records?"
+            "value": "Clear download history?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了した履歴を消去しますか？"
+            "value": "ダウンロード履歴を消去しますか？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要清除已完成的記錄嗎？"
+            "value": "要清除下載紀錄嗎？"
           }
         }
       }
@@ -1289,25 +1289,25 @@
         }
       }
     },
-    "downloadCenter.bulk.clearCompleted": {
+    "downloadCenter.bulk.clearHistory": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Completed"
+            "value": "Clear History"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了項目を消去"
+            "value": "履歴を消去"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除已完成項目"
+            "value": "清除下載紀錄"
           }
         }
       }

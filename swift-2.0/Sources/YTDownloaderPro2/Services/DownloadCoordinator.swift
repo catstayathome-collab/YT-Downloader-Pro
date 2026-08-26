@@ -197,6 +197,20 @@ actor DownloadCoordinator {
         await cancel(job.id)
     }
 
+    /// Releases resumable artifacts before a terminal record leaves persistent history.
+    func cleanupDiscardedRecord(_ job: DownloadJob) async -> Bool {
+        guard !isShuttingDown, job.status.isTerminal,
+              active[job.id] == nil,
+              pendingPausedCancellations[job.id] == nil,
+              !queuedIDs.contains(job.id) else { return false }
+
+        if job.status != .completed, !(await runner.cleanupCancelledJob(job)) {
+            return false
+        }
+        jobs[job.id] = nil
+        return true
+    }
+
     func shutdown() async {
         if didFinishEvents {
             return

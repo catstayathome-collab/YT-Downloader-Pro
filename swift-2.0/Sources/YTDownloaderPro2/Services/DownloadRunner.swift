@@ -5,7 +5,7 @@ protocol JobRunning: Sendable {
     /// Returns true only when a user pause was atomically accepted in a resumable phase.
     @discardableResult func pause(jobID: UUID) async -> Bool
     func cancel(jobID: UUID) async
-    func cleanupCancelledJob(_ job: DownloadJob) async
+    @discardableResult func cleanupCancelledJob(_ job: DownloadJob) async -> Bool
     func interruptForQuit(jobID: UUID) async
 }
 
@@ -115,17 +115,20 @@ actor DownloadRunner: JobRunning {
         await waitForCleanup(jobID: jobID)
     }
 
-    func cleanupCancelledJob(_ job: DownloadJob) async {
+    @discardableResult
+    func cleanupCancelledJob(_ job: DownloadJob) async -> Bool {
         if active[job.id] != nil {
             await cancel(jobID: job.id)
-            return
+            return active[job.id] == nil
         }
+
+        guard job.reservedOutputBasename != nil else { return true }
 
         let scope: OutputDirectorySecurityScopedAccess
         do {
             scope = try outputDirectoryAccess(for: job)
         } catch {
-            return
+            return false
         }
         defer { scope.stopAccessing() }
 
@@ -136,14 +139,20 @@ actor DownloadRunner: JobRunning {
                 directory: scope.url,
                 jobID: job.id
             )
-            _ = await allocator.removeOwnedArtifacts(
+            let removedArtifacts = await allocator.removeOwnedArtifacts(
                 incompleteArtifactURLs(for: job, reservation: reservation),
                 reservation: reservation,
                 jobID: job.id
             )
-            await allocator.release(jobID: job.id, removeMarker: true)
+            guard removedArtifacts else {
+                await allocator.release(jobID: job.id, removeMarker: false)
+                return false
+            }
+            let releasedMarker = await allocator.release(jobID: job.id, removeMarker: true)
+            return releasedMarker
         } catch {
             await allocator.release(jobID: job.id, removeMarker: false)
+            return false
         }
     }
 

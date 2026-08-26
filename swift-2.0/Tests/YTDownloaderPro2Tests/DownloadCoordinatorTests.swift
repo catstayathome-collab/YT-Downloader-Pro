@@ -621,7 +621,7 @@ private actor GatedRunner: JobRunning {
         finish(jobID, error: nil)
     }
 
-    func cleanupCancelledJob(_ job: DownloadJob) async {
+    func cleanupCancelledJob(_ job: DownloadJob) async -> Bool {
         cleanupRequestCounts[job.id, default: 0] += 1
         if blockedCleanupIDs.contains(job.id) {
             await withCheckedContinuation { continuation in
@@ -630,6 +630,7 @@ private actor GatedRunner: JobRunning {
         }
         cancelRequests[job.id, default: 0] += 1
         cancelled[job.id, default: 0] += 1
+        return true
     }
 
     func interruptForQuit(jobID: UUID) async {

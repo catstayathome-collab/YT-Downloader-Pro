@@ -4,6 +4,97 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class OutputNameAllocatorTests: XCTestCase {
+    func testReservationLockLivesOutsideTheDownloadDirectory() async throws {
+        let root = try temporaryDirectory()
+        let lockRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: lockRoot)
+        }
+        let allocator = OutputNameAllocator(lockDirectory: lockRoot)
+
+        let reservation = try await allocator.reserve(
+            title: "Title",
+            extension: "mp4",
+            directory: root,
+            jobID: UUID()
+        )
+
+        let outputNames = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        let lockNames = try FileManager.default.contentsOfDirectory(atPath: lockRoot.path)
+        XCTAssertFalse(outputNames.contains(where: { $0.hasSuffix(".ytdp-reservation.lock") }))
+        XCTAssertTrue(lockNames.contains(where: { $0.hasSuffix(".lock") }))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reservation.markerURL.path))
+    }
+
+    func testReserveRemovesOrphanedLegacyOutputLocks() async throws {
+        let root = try temporaryDirectory()
+        let lockRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: lockRoot)
+        }
+        let legacyLock = root.appendingPathComponent(".Old Title.ytdp-reservation.lock")
+        try Data().write(to: legacyLock)
+        let allocator = OutputNameAllocator(lockDirectory: lockRoot)
+
+        _ = try await allocator.reserve(
+            title: "New Title",
+            extension: "mp4",
+            directory: root,
+            jobID: UUID()
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyLock.path))
+    }
+
+    func testReserveKeepsLegacyOutputLockWhileAnotherOwnerHoldsIt() async throws {
+        let root = try temporaryDirectory()
+        let lockRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: lockRoot)
+        }
+        let legacyLock = root.appendingPathComponent(".Old Title.ytdp-reservation.lock")
+        let descriptor = Darwin.open(legacyLock.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        XCTAssertGreaterThanOrEqual(descriptor, 0)
+        defer { Darwin.close(descriptor) }
+        XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
+        let allocator = OutputNameAllocator(lockDirectory: lockRoot)
+
+        _ = try await allocator.reserve(
+            title: "New Title",
+            extension: "mp4",
+            directory: root,
+            jobID: UUID()
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyLock.path))
+    }
+
+    func testCaseVariantsUseTheSamePrivateAdvisoryLock() async throws {
+        let root = try temporaryDirectory()
+        let lockRoot = try temporaryDirectory()
+        let recorder = LockURLRecorder()
+        let first = OutputNameAllocator(
+            lockDirectory: lockRoot,
+            lockAcquiredHook: { await recorder.record($0) },
+            volumeSupportsCaseSensitiveNames: { _ in false }
+        )
+        let second = OutputNameAllocator(
+            lockDirectory: lockRoot,
+            lockAcquiredHook: { await recorder.record($0) },
+            volumeSupportsCaseSensitiveNames: { _ in false }
+        )
+
+        _ = try await first.reserve(title: "Title", extension: "mp4", directory: root, jobID: UUID())
+        _ = try await second.reserve(title: "title", extension: "mp4", directory: root, jobID: UUID())
+
+        let lockURLs = await recorder.values()
+        XCTAssertGreaterThanOrEqual(lockURLs.count, 3)
+        XCTAssertEqual(lockURLs[0], lockURLs[2])
+    }
+
     func testExistingFinalFileSelectsFirstNumberedBasename() async throws {
         // Removing the selected-file collision check would return "Title".
         let root = try temporaryDirectory()
@@ -212,6 +303,31 @@ final class OutputNameAllocatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: resumed.markerURL.path))
     }
 
+    func testOwnedArtifactRemovalReportsFailureAndKeepsMarkerWhenAFileCannotBeDeleted() async throws {
+        let root = try temporaryDirectory()
+        let protectedDirectory = root.appendingPathComponent("protected", isDirectory: true)
+        try FileManager.default.createDirectory(at: protectedDirectory, withIntermediateDirectories: true)
+        let artifact = protectedDirectory.appendingPathComponent("Title.mp4.part")
+        try Data("partial".utf8).write(to: artifact)
+        let allocator = OutputNameAllocator()
+        let jobID = UUID()
+        let reservation = try await allocator.reserve(title: "Title", extension: "mp4", directory: root, jobID: jobID)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: protectedDirectory.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: protectedDirectory.path)
+        }
+
+        let removed = await allocator.removeOwnedArtifacts(
+            [artifact],
+            reservation: reservation,
+            jobID: jobID
+        )
+
+        XCTAssertFalse(removed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reservation.markerURL.path))
+    }
+
     func testTerminalReleaseDoesNotRemoveMarkerReplacedByAnotherJob() async throws {
         // Removing a marker without verifying its UUID would delete another job's ownership.
         let root = try temporaryDirectory()
@@ -229,13 +345,16 @@ final class OutputNameAllocatorTests: XCTestCase {
     func testReleaseRechecksForeignMarkerWhileHoldingCooperativeLock() async throws {
         // Separating the ownership read from deletion would remove this replacement marker.
         let root = try temporaryDirectory()
+        let lockRoot = try temporaryDirectory()
         let gate = LockTestGate()
-        let allocator = OutputNameAllocator(lockAcquiredHook: { _ in
+        let allocator = OutputNameAllocator(lockDirectory: lockRoot, lockAcquiredHook: { _ in
             await gate.pauseWhenEnabled()
         })
         let jobID = UUID()
         let reservation = try await allocator.reserve(title: "Title", extension: "mp4", directory: root, jobID: jobID)
-        let lockURL = URL(fileURLWithPath: reservation.markerURL.path + ".lock")
+        let lockURL = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: lockRoot, includingPropertiesForKeys: nil).first
+        )
         await gate.enable()
 
         Task {
@@ -287,7 +406,8 @@ final class OutputNameAllocatorTests: XCTestCase {
         let root = try temporaryDirectory()
         let title = String(repeating: "👩🏽‍🔬", count: 100)
         let fileExtension = String(repeating: "x", count: 64)
-        let allocator = OutputNameAllocator()
+        let lockRoot = try temporaryDirectory()
+        let allocator = OutputNameAllocator(lockDirectory: lockRoot)
         let firstJobID = UUID()
         let first = try await allocator.reserve(title: title, extension: fileExtension, directory: root, jobID: firstJobID)
         await allocator.release(jobID: firstJobID, removeMarker: true)
@@ -296,12 +416,15 @@ final class OutputNameAllocatorTests: XCTestCase {
         let second = try await allocator.reserve(title: title, extension: fileExtension, directory: root, jobID: UUID())
         let filenames = [
             "\(second.baseURL.lastPathComponent).\(fileExtension)",
-            second.markerURL.lastPathComponent,
-            "\(second.markerURL.lastPathComponent).lock"
+            second.markerURL.lastPathComponent
         ]
 
         XCTAssertTrue(second.baseURL.lastPathComponent.hasSuffix(" (1)"))
         XCTAssertTrue(filenames.allSatisfy { $0.lengthOfBytes(using: .utf8) <= 255 })
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(atPath: lockRoot.path)
+                .allSatisfy { $0.lengthOfBytes(using: .utf8) <= 255 }
+        )
     }
 
     func testInvalidOrOversizedExtensionProducesStableSanitizedFailure() async throws {
@@ -419,6 +542,18 @@ private actor LockTestGate {
         await withCheckedContinuation { continuation in
             releaseWaiters.append(continuation)
         }
+    }
+}
+
+private actor LockURLRecorder {
+    private var urls: [URL] = []
+
+    func record(_ url: URL) {
+        urls.append(url)
+    }
+
+    func values() -> [URL] {
+        urls
     }
 }
 

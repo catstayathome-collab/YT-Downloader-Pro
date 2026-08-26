@@ -449,6 +449,84 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertFalse(completed.fixture.store.jobs.contains(where: { $0.id == completed.job.id }))
     }
 
+    func testRemoveFailedRecordReleasesOwnedArtifactsBeforeRemovingHistory() async throws {
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.reservedOutputBasename = "Reserved title"
+        let fixture = try StoreFixture(jobs: [failed])
+        defer { fixture.cleanUp() }
+
+        await fixture.store.removeRecord(failed.id)
+
+        let cleanedJobIDs = await fixture.runner.cleanedJobIDs()
+        XCTAssertEqual(cleanedJobIDs, [failed.id])
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+    }
+
+    func testClearHistoryRemovesEveryTerminalRecordButKeepsDownloadWork() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mediaURL = root.appendingPathComponent("finished.mp4")
+        try Data("media".utf8).write(to: mediaURL)
+        let completed = DownloadJob.fixture(status: .completed, outputURL: mediaURL)
+        let failed = DownloadJob.fixture(status: .failed)
+        let cancelled = DownloadJob.fixture(status: .cancelled)
+        let queued = DownloadJob.fixture(status: .queued)
+        let paused = DownloadJob.fixture(status: .paused)
+        let fixture = try StoreFixture(jobs: [completed, failed, cancelled, queued, paused])
+        defer { fixture.cleanUp() }
+        let thumbnail = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        _ = try await fixture.thumbnailCache.store(data: thumbnail, for: completed.id)
+        _ = try await fixture.thumbnailCache.store(data: thumbnail, for: failed.id)
+        _ = try await fixture.thumbnailCache.store(data: thumbnail, for: queued.id)
+
+        await fixture.store.clearHistory()
+
+        let cleanedJobIDs = await fixture.runner.cleanedJobIDs()
+        let completedThumbnail = await fixture.thumbnailCache.url(for: completed.id)
+        let failedThumbnail = await fixture.thumbnailCache.url(for: failed.id)
+        let queuedThumbnail = await fixture.thumbnailCache.url(for: queued.id)
+        XCTAssertEqual(Set(fixture.store.jobs.map(\.id)), Set([queued.id, paused.id]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mediaURL.path))
+        XCTAssertEqual(Set(cleanedJobIDs), Set([failed.id, cancelled.id]))
+        XCTAssertNil(completedThumbnail)
+        XCTAssertNil(failedThumbnail)
+        XCTAssertNotNil(queuedThumbnail)
+    }
+
+    func testClearHistoryKeepsFailedRecordWhenOwnedArtifactsCannotBeReleased() async throws {
+        let failed = DownloadJob.fixture(status: .failed)
+        let completed = DownloadJob.fixture(status: .completed)
+        let fixture = try StoreFixture(jobs: [failed, completed])
+        defer { fixture.cleanUp() }
+        await fixture.runner.failCleanup(for: failed.id)
+
+        await fixture.store.clearHistory()
+
+        XCTAssertEqual(fixture.store.jobs.map(\.id), [failed.id])
+    }
+
+    func testClearHistoryBlocksRetryWhileTerminalCleanupIsInFlight() async throws {
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.reservedOutputBasename = "Reserved title"
+        let analyzer = AnalysisRecorder(result: .video(.fixture()))
+        let fixture = try StoreFixture(
+            jobs: [failed],
+            analysis: { url, options in try await analyzer.analyze(url: url, options: options) }
+        )
+        defer { fixture.cleanUp() }
+        await fixture.runner.blockCleanup(for: failed.id)
+
+        let clearing = Task { await fixture.store.clearHistory() }
+        try await fixture.runner.waitForCleanup(of: failed.id)
+        await fixture.store.retry(failed.id)
+
+        let analyzedURLs = await analyzer.recordedURLs()
+        XCTAssertEqual(analyzedURLs, [])
+        await fixture.runner.releaseCleanup(for: failed.id)
+        await clearing.value
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+    }
+
     func testRestoreConvertsInterruptedJobsToPausedWithoutStartingThem() async throws {
         let jobs: [DownloadJob] = [
             .fixture(status: .analyzing),
@@ -1419,6 +1497,10 @@ private actor StoreRunner: JobRunning {
     private var quitAfterEventsIsBlocked = false
     private var didEmitQuitEvents = false
     private var quitAfterEventsWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cleanedJobs: [UUID] = []
+    private var cleanupFailures: Set<UUID> = []
+    private var blockedCleanupIDs: Set<UUID> = []
+    private var cleanupWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
 
     nonisolated func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -1437,8 +1519,15 @@ private actor StoreRunner: JobRunning {
         cancellations.append(jobID)
         finish(jobID)
     }
-    func cleanupCancelledJob(_ job: DownloadJob) async {
+    func cleanupCancelledJob(_ job: DownloadJob) async -> Bool {
         cancellations.append(job.id)
+        cleanedJobs.append(job.id)
+        if blockedCleanupIDs.contains(job.id) {
+            await withCheckedContinuation { continuation in
+                cleanupWaiters[job.id, default: []].append(continuation)
+            }
+        }
+        return !cleanupFailures.contains(job.id)
     }
     func interruptForQuit(jobID: UUID) async {
         quitInterruptions.append(jobID)
@@ -1487,6 +1576,24 @@ private actor StoreRunner: JobRunning {
     }
 
     func cancelledIDs() -> [UUID] { cancellations }
+    func cleanedJobIDs() -> [UUID] { cleanedJobs }
+    func failCleanup(for jobID: UUID) { cleanupFailures.insert(jobID) }
+    func blockCleanup(for jobID: UUID) { blockedCleanupIDs.insert(jobID) }
+    func releaseCleanup(for jobID: UUID) {
+        blockedCleanupIDs.remove(jobID)
+        let waiters = cleanupWaiters.removeValue(forKey: jobID) ?? []
+        waiters.forEach { $0.resume() }
+    }
+    func waitForCleanup(of jobID: UUID) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !cleanedJobs.contains(jobID) {
+            guard clock.now < deadline else {
+                throw StoreTestWaitError.timedOut("cleanup request for \(jobID)")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
     func quitInterruptedIDs() -> [UUID] { quitInterruptions }
 
     func fail(_ failure: DownloadFailure, for jobID: UUID) {

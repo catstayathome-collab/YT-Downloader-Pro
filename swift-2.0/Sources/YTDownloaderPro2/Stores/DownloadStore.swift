@@ -96,6 +96,7 @@ final class DownloadStore: ObservableObject {
     private var analysisGeneration: UInt64 = 0
     private var analysisTask: Task<AnalysisResult, Error>?
     private var currentRetryGeneration: [UUID: UInt64] = [:]
+    private var discardingRecordIDs: Set<UUID> = []
     private var currentQueuedEditGeneration: [UUID: UInt64] = [:]
     private var retryOperations: [UUID: [UInt64: RetryOperation]] = [:]
     private var currentThumbnailGeneration: [UUID: UInt64] = [:]
@@ -246,6 +247,9 @@ final class DownloadStore: ObservableObject {
         let toolchainValidator = ToolchainValidationGate(toolchain: toolchain)
         let runner = DownloadRunner(
             toolchain: toolchain,
+            allocator: OutputNameAllocator(
+                lockDirectory: root.appendingPathComponent("Reservation Locks", isDirectory: true)
+            ),
             metadataProbe: probe,
             toolchainValidator: toolchainValidator
         )
@@ -543,7 +547,7 @@ final class DownloadStore: ObservableObject {
 
     /// Re-analyzes by stable ID; generation checks prevent stale retries from mutating retained history.
     func retry(_ jobID: UUID) async {
-        guard !isPreparingToQuit,
+        guard !isPreparingToQuit, !discardingRecordIDs.contains(jobID),
               let job = jobs.first(where: { $0.id == jobID }),
               job.status == .failed else { return }
         let generation = makeGeneration()
@@ -620,7 +624,7 @@ final class DownloadStore: ObservableObject {
 
     /// Reanalyzes a failed record with edited credentials/folder settings without mutating it.
     func prepareFailedJobEdit(_ jobID: UUID, options: DownloadOptions) async -> FailedJobEditSession? {
-        guard !isPreparingToQuit,
+        guard !isPreparingToQuit, !discardingRecordIDs.contains(jobID),
               let job = jobs.first(where: { $0.id == jobID }),
               job.status == .failed,
               job.failure?.category.supportsOptionsRecovery == true else { return nil }
@@ -672,7 +676,8 @@ final class DownloadStore: ObservableObject {
 
     /// Applies only options selected from this session's fresh metadata snapshot.
     func applyFailedJobEdit(_ session: FailedJobEditSession, options: DownloadOptions) async -> Bool {
-        guard ownsRetry(jobID: session.jobID, generation: session.generation),
+        guard !discardingRecordIDs.contains(session.jobID),
+              ownsRetry(jobID: session.jobID, generation: session.generation),
               let index = jobs.firstIndex(where: { $0.id == session.jobID }),
               jobs[index].status == .failed else { return false }
         let analysis = AnalysisResult.video(session.analysis)
@@ -711,12 +716,20 @@ final class DownloadStore: ObservableObject {
 
     /// Removes retained state and owned cache metadata, never a completed media output.
     func removeRecord(_ jobID: UUID) async {
-        guard !isPreparingToQuit,
+        guard !isPreparingToQuit, !discardingRecordIDs.contains(jobID),
               let job = jobs.first(where: { $0.id == jobID }),
               job.status.isTerminal else { return }
+        discardingRecordIDs.insert(jobID)
         invalidateRetry(for: jobID)
+        defer { discardingRecordIDs.remove(jobID) }
+        guard await coordinator.cleanupDiscardedRecord(job) else {
+            await recordDiagnostic(jobID: jobID, stage: "history-cleanup", detail: "Owned download artifacts could not be released.")
+            return
+        }
+        guard jobs.contains(where: { $0.id == jobID && $0.status.isTerminal }) else { return }
         jobs.removeAll { $0.id == jobID }
         selection.remove(jobID)
+        coordinatorManagedJobIDs.remove(jobID)
         await persist(flush: true)
         await cancelThumbnailOperations(for: jobID)
         do {
@@ -726,15 +739,31 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    func clearCompleted() async {
+    /// Clears retained terminal history and thumbnail cache without touching downloaded media.
+    func clearHistory() async {
         guard !isPreparingToQuit else { return }
-        let completedIDs = jobs.filter { $0.status == .completed }.map(\.id)
-        guard !completedIDs.isEmpty else { return }
-        completedIDs.forEach(invalidateRetry)
-        jobs.removeAll { $0.status == .completed }
-        selection.subtract(completedIDs)
+        let terminalJobs = jobs.filter { $0.status.isTerminal && !discardingRecordIDs.contains($0.id) }
+        guard !terminalJobs.isEmpty else { return }
+        let terminalIDs = Set(terminalJobs.map(\.id))
+        discardingRecordIDs.formUnion(terminalIDs)
+        terminalIDs.forEach(invalidateRetry)
+        defer { discardingRecordIDs.subtract(terminalIDs) }
+        var removableIDs: [UUID] = []
+        for job in terminalJobs {
+            if await coordinator.cleanupDiscardedRecord(job),
+               jobs.contains(where: { $0.id == job.id && $0.status.isTerminal }) {
+                removableIDs.append(job.id)
+            } else {
+                await recordDiagnostic(jobID: job.id, stage: "history-cleanup", detail: "Owned download artifacts could not be released.")
+            }
+        }
+        guard !removableIDs.isEmpty else { return }
+        let removableIDSet = Set(removableIDs)
+        jobs.removeAll { removableIDSet.contains($0.id) }
+        selection.subtract(removableIDSet)
+        coordinatorManagedJobIDs.subtract(removableIDSet)
         await persist(flush: true)
-        for jobID in completedIDs {
+        for jobID in removableIDs {
             await cancelThumbnailOperations(for: jobID)
             do {
                 try await thumbnailCache.remove(jobID: jobID)
@@ -745,7 +774,7 @@ final class DownloadStore: ObservableObject {
     }
 
     func reAdd(_ jobID: UUID) async {
-        guard !isPreparingToQuit,
+        guard !isPreparingToQuit, !discardingRecordIDs.contains(jobID),
               let job = jobs.first(where: { $0.id == jobID }),
               job.status == .cancelled else { return }
         let replacement = DownloadJob(
