@@ -4,6 +4,37 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testFilteredJobsShowNewestRecordsFirstWithoutReorderingQueueStorage() throws {
+        let oldest = DownloadJob(
+            sourceURL: "https://example.com/oldest",
+            title: "Oldest",
+            status: .completed,
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+        let newest = DownloadJob(
+            sourceURL: "https://example.com/newest",
+            title: "Newest",
+            status: .completed,
+            createdAt: Date(timeIntervalSince1970: 300)
+        )
+        let middle = DownloadJob(
+            sourceURL: "https://example.com/middle",
+            title: "Middle",
+            status: .queued,
+            createdAt: Date(timeIntervalSince1970: 200)
+        )
+        let fixture = try StoreFixture(jobs: [oldest, newest, middle])
+        defer { fixture.cleanUp() }
+
+        XCTAssertEqual(fixture.store.filteredJobs.map(\.id), [newest.id, middle.id, oldest.id])
+        XCTAssertEqual(fixture.store.jobs.map(\.id), [oldest.id, newest.id, middle.id])
+
+        fixture.store.sidebarSection = .completed
+
+        XCTAssertEqual(fixture.store.filteredJobs.map(\.id), [newest.id, oldest.id])
+        XCTAssertEqual(fixture.store.jobs.map(\.id), [oldest.id, newest.id, middle.id])
+    }
+
     func testAutomaticTransientUpdateFailureRemainsUnpublished() async throws {
         let updater = StoreUpdateChecker(result: .failed(.silentTransient))
         let fixture = try StoreFixture(updateChecker: updater)
@@ -185,6 +216,36 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(selected.outputDirectoryDisplayPath, directory.path)
     }
 
+    func testSelectingOutputDirectoryPersistsItAsTheNextDownloadDefault() throws {
+        let directory = URL(fileURLWithPath: "/chosen/remembered-downloads", isDirectory: true)
+        let bookmark = Data("remembered-bookmark".utf8)
+        let suiteName = "DownloadStoreTests-remember-folder-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settingsStore = AppSettingsStore(defaults: defaults)
+        let fixture = try StoreFixture(
+            bookmarks: OutputDirectoryBookmarkService(
+                makeBookmark: { _ in bookmark },
+                resolveBookmark: { _ in .init(url: directory, isStale: false) }
+            ),
+            settingsStore: settingsStore
+        )
+        defer { fixture.cleanUp() }
+        var currentDownloadOptions = DownloadOptions.defaults
+        currentDownloadOptions.outputKind = .mp3
+
+        let selected = try fixture.store.optionsBySelectingOutputDirectory(
+            directory,
+            in: currentDownloadOptions
+        )
+
+        XCTAssertEqual(selected.outputKind, .mp3)
+        XCTAssertEqual(fixture.store.settings.defaultOptions.outputKind, .mp4)
+        XCTAssertEqual(fixture.store.settings.defaultOptions.outputDirectoryBookmark, bookmark)
+        XCTAssertEqual(fixture.store.settings.defaultOptions.outputDirectoryDisplayPath, directory.path)
+        XCTAssertEqual(settingsStore.load(), fixture.store.settings)
+    }
+
     func testSelectingOutputDirectoryReportsActionableFailureWithoutMutatingOptions() throws {
         let fixture = try StoreFixture(
             bookmarks: OutputDirectoryBookmarkService(
@@ -264,6 +325,54 @@ final class DownloadStoreTests: XCTestCase {
             "https://youtube.test/watch?v=1",
             "https://youtube.test/watch?v=3"
         ])
+    }
+
+    func testAddingVideoAutomaticallyStartsOnlyTheNewJob() async throws {
+        let retainedQueuedJob = DownloadJob.fixture(title: "Retained queued job")
+        let fixture = try StoreFixture(
+            jobs: [retainedQueuedJob],
+            analysis: .video(.fixture(title: "New video"))
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/new-video")
+        await fixture.store.addVideo(options: .defaults)
+        let addedJob = try XCTUnwrap(fixture.store.jobs.last)
+        try await fixture.runner.waitForStart(of: addedJob.id)
+
+        let startedIDs = await fixture.runner.startedIDs()
+        XCTAssertEqual(startedIDs, [addedJob.id])
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == retainedQueuedJob.id })?.status, .queued)
+        await fixture.store.cancel(addedJob.id)
+    }
+
+    func testAddingPlaylistAutomaticallyStartsOnlyTheNewBatchInSelectionOrder() async throws {
+        let retainedQueuedJob = DownloadJob.fixture(title: "Retained queued job")
+        let fixture = try StoreFixture(
+            jobs: [retainedQueuedJob],
+            analysis: .playlist(.fixture(entryCount: 3)),
+            coordinatorLimit: 1
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/playlist")
+        await fixture.store.addPlaylistEntries(selectedIDs: ["1", "3"], options: .defaults)
+        let addedJobs = Array(fixture.store.jobs.dropFirst())
+        XCTAssertEqual(addedJobs.map(\.sourceURL), [
+            "https://youtube.test/watch?v=1",
+            "https://youtube.test/watch?v=3"
+        ])
+
+        try await fixture.runner.waitForStart(of: addedJobs[0].id)
+        let firstStartedIDs = await fixture.runner.startedIDs()
+        XCTAssertEqual(firstStartedIDs, [addedJobs[0].id])
+        await fixture.store.cancel(addedJobs[0].id)
+        try await fixture.runner.waitForStart(of: addedJobs[1].id)
+
+        let allStartedIDs = await fixture.runner.startedIDs()
+        XCTAssertEqual(allStartedIDs, addedJobs.map(\.id))
+        XCTAssertFalse(allStartedIDs.contains(retainedQueuedJob.id))
+        await fixture.store.cancel(addedJobs[1].id)
     }
 
     func testOnlyQueuedJobCanBeEdited() async throws {
@@ -1008,6 +1117,9 @@ final class DownloadStoreTests: XCTestCase {
         let jobID = try XCTUnwrap(fixture.store.jobs.first?.id)
         try await loader.waitForRequest()
         await fixture.store.cancel(jobID)
+        try await waitUntil("auto-started job cancellation") {
+            fixture.store.jobs.first(where: { $0.id == jobID })?.status == .cancelled
+        }
         let removalCompletion = CompletionProbe()
         let removal = Task {
             await fixture.store.removeRecord(jobID)
@@ -1133,6 +1245,7 @@ private final class StoreFixture {
         coordinatorLimit: Int = 1,
         bookmarks: OutputDirectoryBookmarkService = .live,
         settings: AppSettings = .defaults,
+        settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
         toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) throws {
@@ -1144,6 +1257,7 @@ private final class StoreFixture {
             coordinatorLimit: coordinatorLimit,
             bookmarks: bookmarks,
             settings: settings,
+            settingsStore: settingsStore,
             updateChecker: updateChecker,
             toolchainValidator: toolchainValidator
         )
@@ -1174,6 +1288,7 @@ private final class StoreFixture {
         coordinatorLimit: Int = 1,
         bookmarks: OutputDirectoryBookmarkService = .live,
         settings: AppSettings = .defaults,
+        settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
         toolchainValidator: (any ToolchainHealthValidating)? = nil
     ) throws {
@@ -1189,6 +1304,7 @@ private final class StoreFixture {
             persistence: persistence,
             thumbnailCache: thumbnailCache,
             diagnostics: DiagnosticsLogger(root: root),
+            settingsStore: settingsStore,
             outputDirectoryBookmarks: bookmarks,
             metadataAnalyzer: ClosureMetadataAnalyzer(analysis),
             updateChecker: updateChecker,

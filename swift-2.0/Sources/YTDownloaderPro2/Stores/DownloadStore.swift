@@ -56,8 +56,10 @@ final class DownloadStore: ObservableObject {
     }
 
     var filteredJobs: [DownloadJob] {
-        guard sidebarSection != .all else { return jobs }
-        return jobs.filter { $0.status.sidebarSection == sidebarSection }
+        let visibleJobs = sidebarSection == .all
+            ? jobs
+            : jobs.filter { $0.status.sidebarSection == sidebarSection }
+        return visibleJobs.sorted { $0.createdAt > $1.createdAt }
     }
 
     private struct RetryOperation {
@@ -143,6 +145,10 @@ final class DownloadStore: ObservableObject {
             var selected = options
             selected.outputDirectoryBookmark = bookmark
             selected.outputDirectoryDisplayPath = directory.path
+            var updatedSettings = settings
+            updatedSettings.defaultOptions.outputDirectoryBookmark = bookmark
+            updatedSettings.defaultOptions.outputDirectoryDisplayPath = directory.path
+            settings = updatedSettings
             return selected
         } catch {
             throw OutputDirectorySelectionError.bookmarkCreationFailed
@@ -318,6 +324,7 @@ final class DownloadStore: ObservableObject {
         analysisState = .idle
         await persist(flush: true)
         cacheThumbnail(from: video.thumbnailURL, for: job.id)
+        await automaticallyStartNewJobs([job])
     }
 
     func addPlaylistEntries(selectedIDs: Set<String>, options: DownloadOptions) async {
@@ -344,6 +351,7 @@ final class DownloadStore: ObservableObject {
         for (job, thumbnailURL) in newJobs {
             cacheThumbnail(from: thumbnailURL, for: job.id)
         }
+        await automaticallyStartNewJobs(newJobs.map(\.0))
     }
 
     func editQueuedJob(_ jobID: UUID, options: DownloadOptions) async -> Bool {
@@ -401,12 +409,21 @@ final class DownloadStore: ObservableObject {
         return true
     }
 
-    /// Submits retained queued records; restoration and record creation never auto-start work.
+    /// Submits retained queued records that were restored or deliberately left waiting.
     func startAll() async {
         guard !isPreparingToQuit else { return }
         let queuedJobs = jobs.filter { $0.status == .queued }
         coordinatorManagedJobIDs.formUnion(queuedJobs.map(\.id))
         await coordinator.enqueue(queuedJobs)
+    }
+
+    private func automaticallyStartNewJobs(_ newJobs: [DownloadJob]) async {
+        guard !isPreparingToQuit else { return }
+        let newJobIDs = Set(newJobs.map(\.id))
+        let queuedNewJobs = jobs.filter { newJobIDs.contains($0.id) && $0.status == .queued }
+        guard !queuedNewJobs.isEmpty else { return }
+        coordinatorManagedJobIDs.formUnion(queuedNewJobs.map(\.id))
+        await coordinator.enqueue(queuedNewJobs)
     }
 
     func start(_ jobID: UUID) async {
