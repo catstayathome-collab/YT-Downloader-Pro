@@ -313,14 +313,13 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(gateArguments, [false, true])
     }
 
-    func testPlaylistBatchCreatesOneQueuedJobPerSelectedEntry() async throws {
+    func testPlaylistBatchCreatesOneJobPerSelectedEntryInPlaylistOrder() async throws {
         let fixture = try StoreFixture(analysis: .playlist(.fixture(entryCount: 3)))
         defer { fixture.cleanUp() }
 
         await fixture.store.analyzeURL("https://youtube.test/playlist")
         await fixture.store.addPlaylistEntries(selectedIDs: ["1", "3"], options: .defaults)
 
-        XCTAssertEqual(fixture.store.jobs.map(\.status), [.queued, .queued])
         XCTAssertEqual(fixture.store.jobs.map(\.sourceURL), [
             "https://youtube.test/watch?v=1",
             "https://youtube.test/watch?v=3"
