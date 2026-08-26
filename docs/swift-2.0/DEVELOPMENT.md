@@ -156,6 +156,48 @@ bundle additionally contains compiled `Localizable.strings` in all three
 Tests that mutate files use a temporary root. Automated tests must not contact
 YouTube or rely on Homebrew/PATH helpers.
 
+## Download Center Commands And Reservations
+
+The compact toolbar below the URL field is a bulk task controller. Its commands
+start queued jobs, pause active jobs, resume paused jobs, and cancel queued or
+active jobs. A command must remain visibly disabled when no matching job exists;
+automatic start does not make these commands redundant because restored or
+manually paused queues still need recovery controls.
+
+The trailing trash command clears terminal history (`completed`, `failed`, and
+`cancelled`) plus owned thumbnail cache entries. It never stops active work and
+never removes downloaded media. Failed and cancelled records must first release
+their owned partial artifacts and reservation marker through
+`DownloadCoordinator.cleanupDiscardedRecord`; if cleanup fails, retain that
+record and log `history-cleanup` instead of creating a permanently orphaned
+reservation. `DownloadStore` marks these IDs as being discarded before its
+first cleanup suspension, invalidates existing retry generations, and rejects
+new retry/edit/re-add requests until cleanup finishes. Recheck terminal status
+after every suspension before deleting persistent state. Destructive
+confirmations and automatic update notices share one
+`DownloadCenterPresentedAlert` route. Do not attach competing `.alert`
+modifiers to `DownloadCenterView`, because older SwiftUI releases may let the
+later modifier shadow the confirmation alert.
+
+Settings use the native `Settings` scene. macOS 14 and later open it through
+`SettingsLink`; macOS 13 activates the standard Command-, application-menu item
+before trying the legacy AppKit settings and preferences selectors. Keep the
+menu shortcut working as the authoritative compatibility entry point.
+
+`OutputNameAllocator` uses two distinct artifacts:
+
+- `.<basename>.ytdp-reservation` is an ownership marker beside partial media. It
+  is retained only while a job may resume and is removed after successful
+  completion or cancellation.
+- Advisory `.lock` files serialize competing allocators. Production stores them
+  under `~/Library/Application Support/YT Downloader Pro/Reservation Locks/`,
+  never beside downloaded media. The allocator opportunistically removes an
+  orphaned legacy `.ytdp-reservation.lock` only when its matching ownership
+  marker is absent and the legacy lock can be acquired without blocking.
+
+Do not remove reservation markers from paused jobs: doing so can assign the same
+basename to another concurrent job and break continuation of the partial file.
+
 ## Adding A Format Or Output Option
 
 1. Extend the Codable model in `Models/DownloadOptions.swift`. Supply a decode

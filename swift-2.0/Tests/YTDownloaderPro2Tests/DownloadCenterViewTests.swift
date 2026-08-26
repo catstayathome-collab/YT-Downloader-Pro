@@ -2,6 +2,74 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
+    func testBulkToolbarExplainsDisabledCompletedOnlyStateAndKeepsClearHistoryAvailable() {
+        let presentation = DownloadCenterBulkPresentation(jobs: [.fixture(status: .completed)])
+
+        XCTAssertFalse(presentation.isEnabled(.startAll))
+        XCTAssertFalse(presentation.isEnabled(.pauseAll))
+        XCTAssertFalse(presentation.isEnabled(.resumeAll))
+        XCTAssertFalse(presentation.isEnabled(.cancelActiveAndWaiting))
+        XCTAssertTrue(presentation.isEnabled(.clearHistory))
+        XCTAssertNotEqual(presentation.symbol(for: .startAll), presentation.symbol(for: .resumeAll))
+    }
+
+    func testConfirmationAndAutomaticUpdateUseOneAlertChannelWithConfirmationPriority() {
+        let notice = UpdateNotice(id: 7, result: .upToDate, origin: .automatic)
+
+        let presented = DownloadCenterPresentedAlert.resolve(
+            confirmation: .clearHistory,
+            automaticUpdate: notice
+        )
+
+        XCTAssertEqual(presented, .confirmation(.clearHistory))
+        XCTAssertEqual(
+            DownloadCenterPresentedAlert.resolve(confirmation: nil, automaticUpdate: notice),
+            .automaticUpdate(notice)
+        )
+    }
+
+    func testLegacySettingsLauncherFallsBackToPreferencesSelector() {
+        var attempted: [String] = []
+
+        let opened = SettingsWindowLauncher.openLegacy { selector in
+            attempted.append(NSStringFromSelector(selector))
+            return selector == Selector(("showPreferencesWindow:"))
+        }
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(attempted, ["showSettingsWindow:", "showPreferencesWindow:"])
+    }
+
+    func testLegacySettingsLauncherUsesStandardCommandMenuItemBeforePrivateSelectors() {
+        var selectorAttempts = 0
+
+        let opened = SettingsWindowLauncher.openLegacy(
+            openMenuItem: { true },
+            sendAction: { _ in
+                selectorAttempts += 1
+                return false
+            }
+        )
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(selectorAttempts, 0)
+    }
+
+    func testLegacySettingsLauncherReportsFailureAfterEveryFallbackIsTried() {
+        var attempted: [String] = []
+
+        let opened = SettingsWindowLauncher.openLegacy(
+            openMenuItem: { false },
+            sendAction: { selector in
+                attempted.append(NSStringFromSelector(selector))
+                return false
+            }
+        )
+
+        XCTAssertFalse(opened)
+        XCTAssertEqual(attempted, ["showSettingsWindow:", "showPreferencesWindow:"])
+    }
+
     func testMergingCardDoesNotExposePause() {
         let presentation = DownloadCardPresentation(job: .fixture(status: .merging))
 
@@ -105,10 +173,10 @@ final class DownloadCenterViewTests: XCTestCase {
         )
     }
 
-    func testClearCompletedConfirmationSaysMediaRemainsAndHistoryCacheAreRemoved() {
-        let confirmation = DownloadCenterAction.clearCompleted.confirmation
+    func testClearHistoryConfirmationSaysMediaRemainsAndHistoryCacheAreRemoved() {
+        let confirmation = DownloadCenterAction.clearHistory.confirmation
 
-        XCTAssertEqual(confirmation, .clearCompleted)
+        XCTAssertEqual(confirmation, .clearHistory)
         XCTAssertEqual(DownloadCenterAction.cancelActiveAndWaiting.confirmation, .cancelActiveAndWaiting)
         XCTAssertTrue(confirmation?.message.contains("media files will remain") == true)
         XCTAssertTrue(confirmation?.message.contains("history records") == true)

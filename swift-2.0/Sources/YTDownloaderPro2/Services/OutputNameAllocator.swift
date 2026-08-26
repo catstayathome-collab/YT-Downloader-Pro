@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 
 struct OutputReservation: Equatable, Sendable {
@@ -19,16 +20,19 @@ actor OutputNameAllocator {
     ]
 
     private var reservations: [UUID: OutputReservation] = [:]
+    private let lockDirectory: URL
     private let lockAcquiredHook: (@Sendable (URL) async -> Void)?
     private let volumeSupportsCaseSensitiveNames: @Sendable (URL) -> Bool
 
     init(
+        lockDirectory: URL = OutputNameAllocator.defaultLockDirectory(),
         lockAcquiredHook: (@Sendable (URL) async -> Void)? = nil,
         volumeSupportsCaseSensitiveNames: @escaping @Sendable (URL) -> Bool = { directory in
             (try? directory.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?
                 .volumeSupportsCaseSensitiveNames ?? true
         }
     ) {
+        self.lockDirectory = lockDirectory
         self.lockAcquiredHook = lockAcquiredHook
         self.volumeSupportsCaseSensitiveNames = volumeSupportsCaseSensitiveNames
     }
@@ -41,6 +45,7 @@ actor OutputNameAllocator {
     ) async throws -> OutputReservation {
         let destination = directory.standardizedFileURL.resolvingSymlinksInPath()
         try validateDestination(destination)
+        cleanupOrphanedLegacyLocks(in: destination)
 
         if let reservation = reservations[jobID] {
             if try await withCandidateLock(for: reservation, operation: {
@@ -104,17 +109,27 @@ actor OutputNameAllocator {
         }
     }
 
-    func release(jobID: UUID, removeMarker: Bool) async {
-        guard let reservation = reservations.removeValue(forKey: jobID), removeMarker else {
-            return
+    @discardableResult
+    func release(jobID: UUID, removeMarker: Bool) async -> Bool {
+        guard let reservation = reservations.removeValue(forKey: jobID) else {
+            return !removeMarker
         }
+        guard removeMarker else { return true }
 
-        try? await withCandidateLock(for: reservation, operation: {
-            guard markerBelongsToJob(at: reservation.markerURL, jobID: jobID) else {
-                return
-            }
-            try? FileManager.default.removeItem(at: reservation.markerURL)
-        })
+        do {
+            return try await withCandidateLock(for: reservation, operation: {
+                guard FileManager.default.fileExists(atPath: reservation.markerURL.path) else {
+                    return true
+                }
+                guard markerBelongsToJob(at: reservation.markerURL, jobID: jobID) else {
+                    return false
+                }
+                try FileManager.default.removeItem(at: reservation.markerURL)
+                return !FileManager.default.fileExists(atPath: reservation.markerURL.path)
+            })
+        } catch {
+            return false
+        }
     }
 
     func owns(_ reservation: OutputReservation, jobID: UUID) async -> Bool {
@@ -134,7 +149,15 @@ actor OutputNameAllocator {
                     return false
                 }
                 for url in urls {
-                    try? FileManager.default.removeItem(at: url)
+                    guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                    } catch {
+                        return false
+                    }
+                    guard !FileManager.default.fileExists(atPath: url.path) else {
+                        return false
+                    }
                 }
                 return true
             })
@@ -233,13 +256,22 @@ actor OutputNameAllocator {
     }
 
     private func lockURL(for reservation: OutputReservation) -> URL {
-        reservation.markerURL.appendingPathExtension("lock")
+        let identity = reservation.markerURL.standardizedFileURL.path
+            .precomposedStringWithCanonicalMapping
+            .lowercased(with: Locale(identifier: "en_US_POSIX"))
+        let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        return lockDirectory.appendingPathComponent("\(digest).lock")
     }
 
     private func withCandidateLock<T>(
         for reservation: OutputReservation,
         operation: () throws -> T
     ) async throws -> T {
+        do {
+            try FileManager.default.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        } catch {
+            throw filesystemFailure()
+        }
         let lockURL = lockURL(for: reservation)
         let descriptor = lockURL.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
@@ -261,6 +293,40 @@ actor OutputNameAllocator {
             await lockAcquiredHook(lockURL)
         }
         return try operation()
+    }
+
+    /// Removes advisory lock files leaked beside media by earlier Swift 2.0 builds.
+    private func cleanupOrphanedLegacyLocks(in directory: URL) {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants]
+        ) else {
+            return
+        }
+
+        for lockURL in contents where lockURL.lastPathComponent.hasPrefix(".")
+            && lockURL.lastPathComponent.hasSuffix(Self.lockSuffix) {
+            let markerPath = String(lockURL.path.dropLast(".lock".count))
+            guard !FileManager.default.fileExists(atPath: markerPath) else { continue }
+
+            let descriptor = lockURL.withUnsafeFileSystemRepresentation { path -> Int32 in
+                guard let path else { return -1 }
+                return open(path, O_RDWR)
+            }
+            guard descriptor >= 0 else { continue }
+            defer { close(descriptor) }
+            guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { continue }
+            defer { _ = flock(descriptor, LOCK_UN) }
+            guard !FileManager.default.fileExists(atPath: markerPath) else { continue }
+            try? FileManager.default.removeItem(at: lockURL)
+        }
+    }
+
+    private static func defaultLockDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("YTDownloaderPro2", isDirectory: true)
+            .appendingPathComponent("Reservation Locks", isDirectory: true)
     }
 
     private func markerBelongsToJob(at markerURL: URL, jobID: UUID) -> Bool {
@@ -296,7 +362,7 @@ actor OutputNameAllocator {
 
     private static func candidateBasename(_ basename: String, suffix: String, fileExtension: String) -> String? {
         let extensionBytes = fileExtension.isEmpty ? 0 : fileExtension.lengthOfBytes(using: .utf8) + 1
-        let auxiliaryOverhead = lockSuffix.lengthOfBytes(using: .utf8) + 1
+        let auxiliaryOverhead = markerSuffix.lengthOfBytes(using: .utf8) + 1
         let maximumBaseBytes = min(
             maximumFilenameBytes - extensionBytes - suffix.lengthOfBytes(using: .utf8),
             maximumFilenameBytes - auxiliaryOverhead - suffix.lengthOfBytes(using: .utf8)

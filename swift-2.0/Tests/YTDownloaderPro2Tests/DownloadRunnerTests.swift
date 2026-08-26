@@ -113,6 +113,28 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.markerURL(basename: basename).path))
     }
 
+    func testDiscardCleanupKeepsReservationMarkerWhenOwnedPartialCannotBeDeleted() async throws {
+        let fixture = try RunnerFixture(mode: "success")
+        let job = fixture.job(reservedBasename: "Example video")
+        try job.id.uuidString.write(
+            to: fixture.markerURL(basename: "Example video"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createDirectory(at: fixture.partURL, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: fixture.partURL.appendingPathComponent("fragment"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: fixture.partURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.partURL.path)
+        }
+
+        let cleaned = await fixture.runner.cleanupCancelledJob(job)
+
+        XCTAssertFalse(cleaned)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.partURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL(basename: "Example video").path))
+    }
+
     func testPauseDuringMergeIsRejectedAndLeavesProcessRunning() async throws {
         // Interrupting a merger through an ordinary pause would destroy a non-resumable output.
         let fixture = try RunnerFixture(mode: "merge")

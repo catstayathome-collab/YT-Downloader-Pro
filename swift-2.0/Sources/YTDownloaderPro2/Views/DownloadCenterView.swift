@@ -52,17 +52,126 @@ enum DownloadCenterAction: Equatable {
     case pauseAll
     case resumeAll
     case cancelActiveAndWaiting
-    case clearCompleted
+    case clearHistory
 
     var confirmation: DownloadConfirmation? {
         switch self {
         case .cancelActiveAndWaiting:
             .cancelActiveAndWaiting
-        case .clearCompleted:
-            .clearCompleted
+        case .clearHistory:
+            .clearHistory
         case .startAll, .pauseAll, .resumeAll:
             nil
         }
+    }
+}
+
+struct DownloadCenterBulkPresentation {
+    let jobs: [DownloadJob]
+
+    func isEnabled(_ action: DownloadCenterAction) -> Bool {
+        switch action {
+        case .startAll:
+            jobs.contains { $0.status == .queued }
+        case .pauseAll:
+            jobs.contains { $0.status.canPause }
+        case .resumeAll:
+            jobs.contains { $0.status == .paused }
+        case .cancelActiveAndWaiting:
+            jobs.contains { $0.status == .queued || $0.status.isActive }
+        case .clearHistory:
+            jobs.contains { $0.status.isTerminal }
+        }
+    }
+
+    func symbol(for action: DownloadCenterAction) -> String {
+        switch action {
+        case .startAll: "play.fill"
+        case .pauseAll: "pause.fill"
+        case .resumeAll: "play.circle.fill"
+        case .cancelActiveAndWaiting: "xmark"
+        case .clearHistory: "trash"
+        }
+    }
+}
+
+enum DownloadCenterPresentedAlert: Equatable, Identifiable {
+    case confirmation(DownloadConfirmation)
+    case automaticUpdate(UpdateNotice)
+
+    var id: String {
+        switch self {
+        case let .confirmation(confirmation): "confirmation-\(confirmation.id)"
+        case let .automaticUpdate(notice): "automatic-update-\(notice.id)"
+        }
+    }
+
+    static func resolve(
+        confirmation: DownloadConfirmation?,
+        automaticUpdate: UpdateNotice?
+    ) -> DownloadCenterPresentedAlert? {
+        if let confirmation {
+            return .confirmation(confirmation)
+        }
+        if let automaticUpdate {
+            return .automaticUpdate(automaticUpdate)
+        }
+        return nil
+    }
+}
+
+enum SettingsWindowLauncher {
+    @discardableResult
+    @MainActor
+    static func openLegacy() -> Bool {
+        let opened = openLegacy(
+            openMenuItem: openStandardSettingsMenuItem,
+            sendAction: { selector in NSApp.sendAction(selector, to: nil, from: nil) }
+        )
+        if !opened {
+            NSSound.beep()
+        }
+        return opened
+    }
+
+    @discardableResult
+    static func openLegacy(
+        openMenuItem: () -> Bool = { false },
+        sendAction: (Selector) -> Bool
+    ) -> Bool {
+        if openMenuItem() {
+            return true
+        }
+        for selectorName in ["showSettingsWindow:", "showPreferencesWindow:"] {
+            if sendAction(NSSelectorFromString(selectorName)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @MainActor
+    private static func openStandardSettingsMenuItem() -> Bool {
+        guard let item = findSettingsMenuItem(in: NSApp.mainMenu),
+              let action = item.action else { return false }
+        return NSApp.sendAction(action, to: item.target, from: item)
+    }
+
+    @MainActor
+    private static func findSettingsMenuItem(in menu: NSMenu?) -> NSMenuItem? {
+        guard let menu else { return nil }
+        for item in menu.items {
+            if item.keyEquivalent == ",",
+               item.keyEquivalentModifierMask.contains(.command),
+               item.isEnabled,
+               item.action != nil {
+                return item
+            }
+            if let nested = findSettingsMenuItem(in: item.submenu) {
+                return nested
+            }
+        }
+        return nil
     }
 }
 
@@ -211,13 +320,21 @@ struct DownloadCenterView: View {
         .navigationSplitViewColumnWidth(min: 196, ideal: 196, max: 196)
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Button {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                } label: {
-                    Image(systemName: "gearshape")
+                if #available(macOS 14.0, *) {
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                    }
+                    .help(L10n.string(.appSettings, locale: locale))
+                    .accessibilityLabel(L10n.string(.appSettings, locale: locale))
+                } else {
+                    Button {
+                        SettingsWindowLauncher.openLegacy()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .help(L10n.string(.appSettings, locale: locale))
+                    .accessibilityLabel(L10n.string(.appSettings, locale: locale))
                 }
-                .help(L10n.string(.appSettings, locale: locale))
-                .accessibilityLabel(L10n.string(.appSettings, locale: locale))
             }
         }
         .sheet(item: $optionsSheet) { sheet in
@@ -280,18 +397,20 @@ struct DownloadCenterView: View {
                 ErrorDetailsView(failure: failure)
             }
         }
-        .alert(item: $pendingConfirmation) { confirmation in
-            Alert(
-                title: Text(confirmation.title(locale: locale)),
-                message: Text(confirmation.message(locale: locale)),
-                primaryButton: .destructive(Text(confirmation.destructiveButtonTitle(locale: locale))) {
-                    performConfirmed(confirmation)
-                },
-                secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
-            )
-        }
-        .alert(item: automaticUpdateNotice) { notice in
-            UpdateAlertFactory.make(notice: notice, locale: locale)
+        .alert(item: presentedAlert) { alert in
+            switch alert {
+            case let .confirmation(confirmation):
+                Alert(
+                    title: Text(confirmation.title(locale: locale)),
+                    message: Text(confirmation.message(locale: locale)),
+                    primaryButton: .destructive(Text(confirmation.destructiveButtonTitle(locale: locale))) {
+                        performConfirmed(confirmation)
+                    },
+                    secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
+                )
+            case let .automaticUpdate(notice):
+                UpdateAlertFactory.make(notice: notice, locale: locale)
+            }
         }
         .onChange(of: store.analysisState) { state in
             switch state {
@@ -318,12 +437,21 @@ struct DownloadCenterView: View {
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
     }
 
-    private var automaticUpdateNotice: Binding<UpdateNotice?> {
+    private var presentedAlert: Binding<DownloadCenterPresentedAlert?> {
         Binding(
-            get: { store.automaticUpdateNotice },
-            set: { notice in
-                guard notice == nil, let id = store.automaticUpdateNotice?.id else { return }
-                store.dismissAutomaticUpdateNotice(id: id)
+            get: {
+                DownloadCenterPresentedAlert.resolve(
+                    confirmation: pendingConfirmation,
+                    automaticUpdate: store.automaticUpdateNotice
+                )
+            },
+            set: { alert in
+                guard alert == nil else { return }
+                if pendingConfirmation != nil {
+                    pendingConfirmation = nil
+                } else if let id = store.automaticUpdateNotice?.id {
+                    store.dismissAutomaticUpdateNotice(id: id)
+                }
             }
         )
     }
@@ -450,36 +578,37 @@ struct DownloadCenterView: View {
     }
 
     private var bulkToolbar: some View {
-        HStack(spacing: 8) {
+        let presentation = DownloadCenterBulkPresentation(jobs: store.jobs)
+        return HStack(spacing: 8) {
             bulkActionButton(
                 title: L10n.string(.downloadCenterBulkStart, locale: locale),
-                systemImage: "play.fill",
-                isDisabled: !store.jobs.contains(where: { $0.status == .queued })
+                systemImage: presentation.symbol(for: .startAll),
+                isDisabled: !presentation.isEnabled(.startAll)
             ) {
                 route(.startAll)
             }
 
             bulkActionButton(
                 title: L10n.string(.downloadCenterBulkPause, locale: locale),
-                systemImage: "pause.fill",
-                isDisabled: !store.jobs.contains(where: { $0.status.canPause })
+                systemImage: presentation.symbol(for: .pauseAll),
+                isDisabled: !presentation.isEnabled(.pauseAll)
             ) {
                 route(.pauseAll)
             }
 
             bulkActionButton(
                 title: L10n.string(.downloadCenterBulkResume, locale: locale),
-                systemImage: "play.fill",
-                isDisabled: !store.jobs.contains(where: { $0.status == .paused })
+                systemImage: presentation.symbol(for: .resumeAll),
+                isDisabled: !presentation.isEnabled(.resumeAll)
             ) {
                 route(.resumeAll)
             }
 
             bulkActionButton(
                 title: L10n.string(.downloadCenterBulkCancel, locale: locale),
-                systemImage: "xmark",
+                systemImage: presentation.symbol(for: .cancelActiveAndWaiting),
                 role: .destructive,
-                isDisabled: !store.jobs.contains(where: { $0.status == .queued || $0.status.isActive })
+                isDisabled: !presentation.isEnabled(.cancelActiveAndWaiting)
             ) {
                 route(.cancelActiveAndWaiting)
             }
@@ -487,11 +616,11 @@ struct DownloadCenterView: View {
             Spacer(minLength: 0)
 
             bulkActionButton(
-                title: L10n.string(.downloadCenterBulkClearCompleted, locale: locale),
-                systemImage: "trash",
-                isDisabled: !store.jobs.contains(where: { $0.status == .completed })
+                title: L10n.string(.downloadCenterBulkClearHistory, locale: locale),
+                systemImage: presentation.symbol(for: .clearHistory),
+                isDisabled: !presentation.isEnabled(.clearHistory)
             ) {
-                route(.clearCompleted)
+                route(.clearHistory)
             }
         }
         .controlSize(.small)
@@ -510,7 +639,7 @@ struct DownloadCenterView: View {
             Task { await store.pauseAll() }
         case .resumeAll:
             Task { await store.resumeAll() }
-        case .cancelActiveAndWaiting, .clearCompleted:
+        case .cancelActiveAndWaiting, .clearHistory:
             return
         }
     }
@@ -519,8 +648,8 @@ struct DownloadCenterView: View {
         switch confirmation {
         case .cancelActiveAndWaiting:
             Task { await store.cancelActiveAndWaiting() }
-        case .clearCompleted:
-            Task { await store.clearCompleted() }
+        case .clearHistory:
+            Task { await store.clearHistory() }
         case .removeRecord:
             guard let jobID = pendingRecordRemovalJobID else { return }
             pendingRecordRemovalJobID = nil
@@ -574,6 +703,7 @@ struct DownloadCenterView: View {
         }
         .buttonStyle(.borderless)
         .disabled(isDisabled)
+        .opacity(isDisabled ? 0.3 : 1)
         .help(title)
         .accessibilityLabel(title)
     }

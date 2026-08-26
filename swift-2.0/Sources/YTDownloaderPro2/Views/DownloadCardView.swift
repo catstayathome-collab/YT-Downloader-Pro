@@ -56,7 +56,7 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
     case cancelMerging
     case cancelActiveAndWaiting
     case removeRecord
-    case clearCompleted
+    case clearHistory
 
     var id: String { rawValue }
 
@@ -67,7 +67,7 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
         case .cancelMerging: L10n.string(.confirmationCancelMergingTitle, locale: locale)
         case .cancelActiveAndWaiting: L10n.string(.confirmationCancelActiveTitle, locale: locale)
         case .removeRecord: L10n.string(.confirmationRemoveRecordTitle, locale: locale)
-        case .clearCompleted: L10n.string(.confirmationClearCompletedTitle, locale: locale)
+        case .clearHistory: L10n.string(.confirmationClearHistoryTitle, locale: locale)
         }
     }
 
@@ -78,7 +78,7 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
         case .cancelMerging: L10n.string(.confirmationCancelDownloadButton, locale: locale)
         case .cancelActiveAndWaiting: L10n.string(.confirmationCancelDownloadsButton, locale: locale)
         case .removeRecord: L10n.string(.confirmationRemoveRecordButton, locale: locale)
-        case .clearCompleted: L10n.string(.confirmationClearCompletedButton, locale: locale)
+        case .clearHistory: L10n.string(.confirmationClearHistoryButton, locale: locale)
         }
     }
 
@@ -89,7 +89,7 @@ enum DownloadConfirmation: String, Identifiable, Equatable {
         case .cancelMerging: L10n.string(.confirmationCancelMergingMessage, locale: locale)
         case .cancelActiveAndWaiting: L10n.string(.confirmationCancelActiveMessage, locale: locale)
         case .removeRecord: L10n.string(.confirmationRemoveRecordMessage, locale: locale)
-        case .clearCompleted: L10n.string(.confirmationClearCompletedMessage, locale: locale)
+        case .clearHistory: L10n.string(.confirmationClearHistoryMessage, locale: locale)
         }
     }
 }
@@ -451,7 +451,7 @@ struct DownloadCardView: View {
             Task { await store.cancel(job.id) }
         case .removeRecord:
             Task { await store.removeRecord(job.id) }
-        case .cancelActiveAndWaiting, .clearCompleted:
+        case .cancelActiveAndWaiting, .clearHistory:
             return
         }
     }
