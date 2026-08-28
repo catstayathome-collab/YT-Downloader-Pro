@@ -80,6 +80,17 @@ final class UpdateCheckerTests: XCTestCase {
         }
     }
 
+    func testManifestRejectsCredentialBearingReleaseAndDownloadURLs() async throws {
+        for field in ["release_url", "download_url"] {
+            var manifest = validManifest()
+            manifest[field] = "https://user:secret@example.invalid/file"
+            let checker = try makeChecker(manifest: manifest)
+
+            let result = await checker.check(manual: true)
+            XCTAssertEqual(result, .failed(.insecureURL), "field: \(field)")
+        }
+    }
+
     func testManifestRequiresLowercaseSHA256() async throws {
         for checksum in [
             String(repeating: "a", count: 63),
