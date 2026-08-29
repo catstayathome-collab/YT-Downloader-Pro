@@ -54,6 +54,38 @@ final class DiagnosticsLoggerTests: XCTestCase {
         XCTAssertTrue(text.contains("[REDACTED]"))
     }
 
+    func testOutputPathArgumentsAreRedactedBeforeDiskWrite() async throws {
+        let logger = DiagnosticsLogger(root: try temporaryDirectory())
+        let event = DiagnosticEvent(
+            jobID: UUID(),
+            stage: "download",
+            arguments: [
+                "--output", "/Users/example/Movies/private-template/%(title)s.%(ext)s",
+                "-o=/Users/example/Downloads/short-template.%(ext)s",
+                "--paths", "home:/Users/example/Media Library",
+                "-P", "temp:/private/tmp/ytdp-fragments"
+            ],
+            technicalDetail: """
+            Command output: yt-dlp --output /Users/example/Movies/private-template/%(title)s.%(ext)s \
+            -o /Users/example/Downloads/short-template.%(ext)s \
+            --paths home:/Users/example/Media Library -P temp:/private/tmp/ytdp-fragments
+            Safe context: output template rejected
+            """
+        )
+
+        try await logger.record(event)
+
+        let logURL = await logger.currentLogURL
+        let text = try String(contentsOf: logURL, encoding: .utf8)
+        for pathFragment in [
+            "private-template", "short-template", "Media Library", "ytdp-fragments"
+        ] {
+            XCTAssertFalse(text.contains(pathFragment), "Serialized diagnostics leaked \(pathFragment)")
+        }
+        XCTAssertTrue(text.contains("Safe context: output template rejected"))
+        XCTAssertTrue(text.contains("[REDACTED]"))
+    }
+
     func testSecretsAreRedactedBeforeDiskWrite() async throws {
         let logger = DiagnosticsLogger(root: try temporaryDirectory())
         let event = DiagnosticEvent(

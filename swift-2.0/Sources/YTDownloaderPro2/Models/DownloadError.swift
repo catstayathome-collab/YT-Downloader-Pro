@@ -79,11 +79,23 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         "--geo-verification-proxy",
         "--proxy"
     ]
+    private static let localPathArgumentFlags: Set<String> = [
+        "-P",
+        "-o",
+        "--output",
+        "--paths"
+    ]
     private static let sensitiveFlagInTextPattern = try! NSRegularExpression(
         pattern: #"(?<!\S)((?:-[up2]|(?i:--(?:add-header|ap-password|ap-username|cookies|cookies-from-browser|extractor-args|http-header|netrc-cmd|netrc-location|password|twofactor|username|video-password)))(?:\s+|=))(?:(?:\"[^\"]*\"|'[^']*')|\S+)"#
     )
     private static let attachedSensitiveShortFlagPattern = try! NSRegularExpression(
         pattern: #"(?<!\S)(-[up2])\S+"#
+    )
+    private static let localPathFlagInTextPattern = try! NSRegularExpression(
+        pattern: #"(?<!\S)((?:(?:-P|-o)|(?i:--(?:output|paths)))(?:\s+|=))(?:(?:\"[^\"]*\"|'[^']*')|[^\r\n]+?)(?=\s+(?:-[A-Za-z0-9]|--[A-Za-z0-9])|\r?\n|$)"#
+    )
+    private static let attachedLocalPathShortFlagPattern = try! NSRegularExpression(
+        pattern: #"(?<!\S)(-P|-o)\S+"#
     )
     private static let cookiePathPattern = try! NSRegularExpression(
         pattern: #"(?i)(\bcookies?(?:[-_ ]+file)?(?:\s+(?:from|to|at|path))?\s*[=:]?\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|(?:~?/|/)[^\s,;\r\n]+)"#
@@ -195,9 +207,19 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             in: sanitizedFlags,
             withTemplate: "$1[REDACTED]"
         )
+        let sanitizedPathFlags = replacingMatches(
+            localPathFlagInTextPattern,
+            in: sanitizedAttachedFlags,
+            withTemplate: "$1[REDACTED]"
+        )
+        let sanitizedAttachedPathFlags = replacingMatches(
+            attachedLocalPathShortFlagPattern,
+            in: sanitizedPathFlags,
+            withTemplate: "$1[REDACTED]"
+        )
         let sanitizedCookiePaths = replacingMatches(
             cookiePathPattern,
-            in: sanitizedAttachedFlags,
+            in: sanitizedAttachedPathFlags,
             withTemplate: "$1[REDACTED]"
         )
         let sanitizedCredentials = replacingMatches(
@@ -228,19 +250,28 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
             let normalizedFlag = originalFlag.lowercased()
             let isSensitiveFlag = sensitiveArgumentFlags.contains(normalizedFlag)
                 && (!normalizedFlag.hasPrefix("-") || normalizedFlag.hasPrefix("--") || originalFlag == normalizedFlag)
-            if isSensitiveFlag || URLArgumentFlags.contains(normalizedFlag) {
+            let isLocalPathFlag = localPathArgumentFlags.contains(originalFlag)
+                || localPathArgumentFlags.contains(normalizedFlag)
+            if isSensitiveFlag || URLArgumentFlags.contains(normalizedFlag) || isLocalPathFlag {
                 if flagAndValue.count == 2 {
                     let value = String(flagAndValue[1])
                     let replacement = URLArgumentFlags.contains(normalizedFlag) ? sanitizeURLString(value) : "[REDACTED]"
                     sanitized.append("\(flagAndValue[0])=\(replacement)")
                 } else {
                     sanitized.append(argument)
-                    pendingFlag = normalizedFlag
+                    pendingFlag = isLocalPathFlag ? originalFlag : normalizedFlag
                 }
                 continue
             }
 
             if let shortFlag = ["-u", "-p", "-2"].first(where: {
+                originalFlag.hasPrefix($0) && originalFlag.count > $0.count
+            }) {
+                sanitized.append("\(shortFlag)[REDACTED]")
+                continue
+            }
+
+            if let shortFlag = ["-P", "-o"].first(where: {
                 originalFlag.hasPrefix($0) && originalFlag.count > $0.count
             }) {
                 sanitized.append("\(shortFlag)[REDACTED]")

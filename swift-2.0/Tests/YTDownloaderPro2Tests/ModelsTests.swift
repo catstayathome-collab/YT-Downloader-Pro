@@ -209,7 +209,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(detail.contains("Safe context: HTTP 403 retry 2"))
     }
 
-    func testDiagnosticDetailTreatsShortFlagsAsCaseSensitive() {
+    func testDiagnosticDetailTreatsPasswordShortFlagsAsCaseSensitiveAndRedactsOutputPaths() {
         let detail = DownloadFailure.sanitizedDiagnosticDetail(
             "yt-dlp -u short-user -p short-password -2 two-factor -P /Users/example/Downloads"
         )
@@ -217,6 +217,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(detail.contains("short-user"))
         XCTAssertFalse(detail.contains("short-password"))
         XCTAssertFalse(detail.contains("two-factor"))
-        XCTAssertTrue(detail.contains("-P /Users/example/Downloads"))
+        XCTAssertFalse(detail.contains("/Users/example/Downloads"))
+        XCTAssertTrue(detail.contains("-P [REDACTED]"))
     }
 }
