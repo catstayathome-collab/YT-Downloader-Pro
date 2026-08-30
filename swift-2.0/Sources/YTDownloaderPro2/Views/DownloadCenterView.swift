@@ -259,11 +259,7 @@ enum DownloadCenterCommandRouter {
     }
 
     private static func isSupportedURL(_ value: String) -> Bool {
-        guard let url = URL(string: value),
-              let scheme = url.scheme?.lowercased(),
-              let host = url.host,
-              !host.isEmpty else { return false }
-        return ["http", "https"].contains(scheme)
+        MediaURLValidator.isSupported(value)
     }
 }
 

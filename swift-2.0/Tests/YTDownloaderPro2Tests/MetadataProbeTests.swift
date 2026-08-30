@@ -193,6 +193,18 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertEqual(commandCount, 0)
     }
 
+    func testCredentialBearingURLDoesNotStartAProcessOrRetry() async {
+        let runner = AnalysisProcessRunner(results: [])
+
+        await assertFailure(
+            from: MetadataProbe(toolchain: .fixture(), processRunner: runner),
+            url: "https://media-user:media-password@www.youtube.com/watch?v=video123",
+            category: .invalidURL
+        )
+        let commandCount = await runner.commandCount()
+        XCTAssertEqual(commandCount, 0)
+    }
+
     private func assertFailure(
         from probe: MetadataProbe,
         url: String,

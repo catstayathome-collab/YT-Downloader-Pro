@@ -238,10 +238,7 @@ actor MetadataProbe: MetadataAnalyzing {
     }
 
     private func isSupportedURL(_ value: String) -> Bool {
-        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(), let host = url.host else {
-            return false
-        }
-        return ["http", "https"].contains(scheme) && !host.isEmpty
+        MediaURLValidator.isSupported(value)
     }
 
     private func isRetryableClientFailure(_ result: ProcessResult) -> Bool {

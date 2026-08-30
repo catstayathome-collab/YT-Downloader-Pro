@@ -307,6 +307,14 @@ final class OptionsPresentationTests: XCTestCase {
             )
         )
         XCTAssertNil(DownloadCenterCommandRouter.route(.commandV, focus: .nonEditable, selectedJob: nil, clipboard: "not a URL"))
+        XCTAssertNil(
+            DownloadCenterCommandRouter.route(
+                .commandV,
+                focus: .nonEditable,
+                selectedJob: nil,
+                clipboard: "https://media-user:media-password@www.youtube.com/watch?v=video123"
+            )
+        )
     }
 
     private func videoAnalysis(videoFormats: [MediaFormat], audioFormats: [MediaFormat]) -> VideoAnalysis {
