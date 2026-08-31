@@ -231,6 +231,27 @@ final class ThumbnailCacheTests: XCTestCase {
         XCTAssertEqual(requestedURLs, [])
     }
 
+    func testFetchRejectsCredentialBearingURLWithoutCallingInjectedLoader() async throws {
+        let recorder = ThumbnailRequestRecorder()
+        let loader = ThumbnailDataLoader { url in
+            await recorder.record(url)
+            return ThumbnailDownload(data: pngData, mimeType: "image/png")
+        }
+        let cache = ThumbnailCache(root: try temporaryDirectory(), loader: loader)
+
+        do {
+            _ = try await cache.fetch(
+                remoteURL: try XCTUnwrap(URL(string: "https://thumb-user:thumb-secret@images.example.test/thumbnail.png")),
+                for: UUID()
+            )
+            XCTFail("Expected a credential-bearing thumbnail URL to be rejected")
+        } catch let error as ThumbnailCacheError {
+            XCTAssertEqual(error, .unsupportedRemoteURL)
+        }
+        let requestedURLs = await recorder.urls
+        XCTAssertEqual(requestedURLs, [])
+    }
+
     func testFetchUsesValidatedImageTypeForStoredExtension() async throws {
         let recorder = ThumbnailRequestRecorder()
         let loader = ThumbnailDataLoader { url in

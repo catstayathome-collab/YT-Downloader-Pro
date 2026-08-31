@@ -101,6 +101,53 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertEqual(synthesizedPlaylist.entries.first?.titleSource, .synthesizedUnavailableVideo)
     }
 
+    func testVideoMetadataDoesNotExposeCredentialBearingURLs() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let format = #"{"format_id":"137","url":"https://media.test/video","vcodec":"avc1","acodec":"none","ext":"mp4","height":1080}"#
+        let result = try await probe.decodeAnalysisOutput(
+            """
+            {
+              "webpage_url":"https://viewer:secret@www.youtube.com/watch?v=video123",
+              "thumbnail":"https://thumb-user:thumb-secret@images.test/video.jpg",
+              "formats":[\(format)]
+            }
+            """,
+            requestedURL: "https://www.youtube.com/watch?v=video123"
+        )
+
+        guard case let .video(video) = result else {
+            return XCTFail("Expected video analysis")
+        }
+        XCTAssertEqual(video.sourceURL, "https://www.youtube.com/watch?v=video123")
+        XCTAssertNil(video.thumbnailURL)
+    }
+
+    func testPlaylistMetadataDoesNotExposeCredentialBearingURLs() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let result = try await probe.decodeAnalysisOutput(
+            """
+            {
+              "_type":"playlist",
+              "id":"playlist",
+              "entries":[
+                {
+                  "id":"entry123",
+                  "webpage_url":"https://viewer:secret@www.youtube.com/watch?v=entry123",
+                  "thumbnail":"https://thumb-user:thumb-secret@images.test/entry.jpg"
+                }
+              ]
+            }
+            """,
+            requestedURL: "https://www.youtube.com/playlist?list=playlist"
+        )
+
+        guard case let .playlist(playlist) = result else {
+            return XCTFail("Expected playlist analysis")
+        }
+        XCTAssertEqual(playlist.entries.first?.sourceURL, "https://www.youtube.com/watch?v=entry123")
+        XCTAssertNil(playlist.entries.first?.thumbnailURL)
+    }
+
     func testMalformedJSONBecomesSanitizedMetadataFailureWithoutRetry() async {
         let runner = AnalysisProcessRunner(results: [
             .init(exitCode: 0, stdout: "{not-json", stderr: "raw-stderr-secret")

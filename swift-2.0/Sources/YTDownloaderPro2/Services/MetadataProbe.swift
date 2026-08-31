@@ -118,11 +118,11 @@ actor MetadataProbe: MetadataAnalyzing {
 
         let title = metadata.title?.nonEmpty
         return .video(VideoAnalysis(
-            sourceURL: metadata.webpageURL ?? metadata.originalURL ?? requestedURL,
+            sourceURL: firstSupportedURL(in: [metadata.webpageURL, metadata.originalURL]) ?? requestedURL,
             title: title ?? "Untitled video",
             titleSource: title == nil ? .synthesizedUntitledVideo : .metadata,
             duration: metadata.duration,
-            thumbnailURL: metadata.thumbnail.flatMap(URL.init(string:)),
+            thumbnailURL: supportedRemoteURL(metadata.thumbnail),
             videoFormats: videoFormats,
             audioFormats: audioFormats
         ))
@@ -133,7 +133,8 @@ actor MetadataProbe: MetadataAnalyzing {
             guard let id = entry?.id?.nonEmpty else { return nil }
             let availability = entry?.availability?.lowercased()
             let isAvailable = availability == nil || availability == "public"
-            let sourceURL = entry?.webpageURL ?? entry?.originalURL ?? entry?.url ?? "https://www.youtube.com/watch?v=\(id)"
+            let sourceURL = firstSupportedURL(in: [entry?.webpageURL, entry?.originalURL, entry?.url])
+                ?? "https://www.youtube.com/watch?v=\(id)"
 
             let title = entry?.title?.nonEmpty
             return PlaylistEntry(
@@ -142,7 +143,7 @@ actor MetadataProbe: MetadataAnalyzing {
                 title: title ?? "Unavailable video",
                 titleSource: title == nil ? .synthesizedUnavailableVideo : .metadata,
                 duration: entry?.duration,
-                thumbnailURL: entry?.thumbnail.flatMap(URL.init(string:)),
+                thumbnailURL: supportedRemoteURL(entry?.thumbnail),
                 isAvailable: isAvailable,
                 unavailabilityReason: isAvailable ? nil : availability
             )
@@ -253,6 +254,15 @@ actor MetadataProbe: MetadataAnalyzing {
             exitCode: result.exitCode
         )
     }
+
+    private func firstSupportedURL(in candidates: [String?]) -> String? {
+        candidates.compactMap { $0?.nonEmpty }.first { MediaURLValidator.isSupported($0) }
+    }
+
+    private func supportedRemoteURL(_ value: String?) -> URL? {
+        guard let value = value?.nonEmpty, MediaURLValidator.isSupported(value) else { return nil }
+        return URL(string: value)
+    }
 }
 
 private struct RawMetadata: Decodable {
@@ -361,9 +371,6 @@ private extension String {
     }
 
     var isUsableRemoteURL: Bool {
-        guard let url = URL(string: self), let scheme = url.scheme?.lowercased(), let host = url.host else {
-            return false
-        }
-        return ["http", "https"].contains(scheme) && !host.isEmpty
+        MediaURLValidator.isSupported(self)
     }
 }

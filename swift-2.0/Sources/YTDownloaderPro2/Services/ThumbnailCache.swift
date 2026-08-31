@@ -186,7 +186,12 @@ actor ThumbnailCache {
     }
 
     func download(remoteURL: URL) async throws -> ThumbnailDownload {
-        guard let scheme = remoteURL.scheme?.lowercased(), ["http", "https"].contains(scheme), remoteURL.host != nil else {
+        guard let components = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host?.isEmpty == false,
+              components.user == nil,
+              components.password == nil else {
             throw ThumbnailCacheError.unsupportedRemoteURL
         }
 
