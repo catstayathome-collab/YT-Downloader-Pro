@@ -543,6 +543,32 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(startedIDs, [])
     }
 
+    func testRestoreStripsUserInfoFromRetainedMediaURLsBeforePublishingHistory() async throws {
+        var queued = DownloadJob.fixture(
+            sourceURL: "https://stored-user:stored-pass@youtube.test/watch?v=queued",
+            status: .queued
+        )
+        queued.sourceMetadata = "https://meta-user:meta-pass@youtube.test/watch?v=queued"
+        var completed = DownloadJob.fixture(
+            sourceURL: "https://done-user:done-pass@youtube.test/watch?v=done",
+            status: .completed
+        )
+        completed.sourceMetadata = "https://done-meta:done-secret@youtube.test/watch?v=done"
+        let fixture = try StoreFixture(jobs: [queued, completed])
+        defer { fixture.cleanUp() }
+
+        XCTAssertEqual(fixture.store.jobs[0].sourceURL, "https://youtube.test/watch?v=queued")
+        XCTAssertEqual(fixture.store.jobs[0].sourceMetadata, "https://youtube.test/watch?v=queued")
+        XCTAssertEqual(fixture.store.jobs[1].sourceURL, "https://youtube.test/watch?v=done")
+        XCTAssertEqual(fixture.store.jobs[1].sourceMetadata, "https://youtube.test/watch?v=done")
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: queued.id)
+
+        let startedSourceURLs = await fixture.runner.startedSourceURLs()
+        XCTAssertEqual(startedSourceURLs[queued.id], "https://youtube.test/watch?v=queued")
+    }
+
     func testCancellingRestoredPausedJobDelegatesRunnerOwnedCleanup() async throws {
         let restored = DownloadJob.fixture(status: .paused)
         let fixture = try StoreFixture(jobs: [restored])
@@ -1487,6 +1513,7 @@ private actor ControlledUpdateChecker: UpdateChecking {
 
 private actor StoreRunner: JobRunning {
     private var starts: [UUID] = []
+    private var startURLs: [UUID: String] = [:]
     private var cancellations: [UUID] = []
     private var quitInterruptions: [UUID] = []
     private var continuations: [UUID: AsyncThrowingStream<DownloadEvent, Error>.Continuation] = [:]
@@ -1504,11 +1531,12 @@ private actor StoreRunner: JobRunning {
 
     nonisolated func events(for job: DownloadJob) -> AsyncThrowingStream<DownloadEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task { await self.recordStart(job.id, continuation: continuation) }
+            Task { await self.recordStart(job, continuation: continuation) }
         }
     }
 
     func startedIDs() -> [UUID] { starts }
+    func startedSourceURLs() -> [UUID: String] { startURLs }
 
     func pause(jobID: UUID) async -> Bool {
         guard continuations[jobID] != nil else { return false }
@@ -1649,10 +1677,12 @@ private actor StoreRunner: JobRunning {
     }
 
     private func recordStart(
-        _ jobID: UUID,
+        _ job: DownloadJob,
         continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation
     ) {
+        let jobID = job.id
         starts.append(jobID)
+        startURLs[jobID] = job.sourceURL
         continuations[jobID] = continuation
     }
 

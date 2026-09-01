@@ -1104,6 +1104,12 @@ final class DownloadStore: ObservableObject {
     private static func recoveredJobs(from jobs: [DownloadJob]) -> [DownloadJob] {
         jobs.map { job in
             var restored = job
+            restored.sourceURL = MediaURLValidator.credentialFreeEquivalent(of: restored.sourceURL)
+                ?? restored.sourceURL
+            if let sourceMetadata = restored.sourceMetadata {
+                restored.sourceMetadata = MediaURLValidator.credentialFreeEquivalent(of: sourceMetadata)
+                    ?? sourceMetadata
+            }
             if restored.status.isActive {
                 restored.status = .paused
                 restored.updatedAt = .now
