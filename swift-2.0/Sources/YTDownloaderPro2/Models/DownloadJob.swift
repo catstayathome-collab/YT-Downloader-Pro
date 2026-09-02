@@ -102,4 +102,15 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
             completedAt = timestamp
         }
     }
+
+    func scrubbingRetainedMediaURLCredentials() -> DownloadJob {
+        var scrubbed = self
+        scrubbed.sourceURL = MediaURLValidator.credentialFreeEquivalent(of: scrubbed.sourceURL)
+            ?? scrubbed.sourceURL
+        if let sourceMetadata = scrubbed.sourceMetadata {
+            scrubbed.sourceMetadata = MediaURLValidator.credentialFreeEquivalent(of: sourceMetadata)
+                ?? sourceMetadata
+        }
+        return scrubbed
+    }
 }

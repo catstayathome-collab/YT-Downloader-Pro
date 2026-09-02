@@ -38,6 +38,44 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.status), [.paused])
     }
 
+    func testSavingJobsStripsUserInfoFromRetainedMediaURLsBeforeDiskWrite() async throws {
+        let root = try temporaryDirectory()
+        let sut = PersistenceController(root: root)
+        var job = DownloadJob.fixture(
+            sourceURL: "https://disk-user:disk-pass@youtube.test/watch?v=disk",
+            status: .completed
+        )
+        job.sourceMetadata = "https://meta-user:meta-pass@youtube.test/watch?v=disk"
+
+        try await sut.saveJobs([job], flush: true)
+
+        let storedData = try Data(contentsOf: root.appendingPathComponent("downloads.json"))
+        let storedSnapshot = String(decoding: storedData, as: UTF8.self)
+        XCTAssertFalse(storedSnapshot.contains("disk-user"))
+        XCTAssertFalse(storedSnapshot.contains("disk-pass"))
+        XCTAssertFalse(storedSnapshot.contains("meta-user"))
+        XCTAssertFalse(storedSnapshot.contains("meta-pass"))
+        let loaded = try await sut.loadJobs()
+        XCTAssertEqual(loaded.first?.sourceURL, "https://youtube.test/watch?v=disk")
+        XCTAssertEqual(loaded.first?.sourceMetadata, "https://youtube.test/watch?v=disk")
+    }
+
+    func testLoadingLegacySnapshotStripsUserInfoFromRetainedMediaURLs() async throws {
+        let root = try temporaryDirectory()
+        let sut = PersistenceController(root: root)
+        var job = DownloadJob.fixture(
+            sourceURL: "https://legacy-user:legacy-pass@youtube.test/watch?v=legacy",
+            status: .queued
+        )
+        job.sourceMetadata = "https://legacy-meta:legacy-secret@youtube.test/watch?v=legacy"
+        try writeSnapshot([job], to: root.appendingPathComponent("downloads.json"))
+
+        let loaded = try await sut.loadJobs()
+
+        XCTAssertEqual(loaded.first?.sourceURL, "https://youtube.test/watch?v=legacy")
+        XCTAssertEqual(loaded.first?.sourceMetadata, "https://youtube.test/watch?v=legacy")
+    }
+
     func testCorruptPrimaryUsesPreviousSnapshot() async throws {
         let root = try temporaryDirectory()
         let sut = PersistenceController(root: root)
@@ -254,4 +292,15 @@ final class PersistenceControllerTests: XCTestCase {
 private final class SecurityScopeRecorder: @unchecked Sendable {
     var startCount = 0
     var stopCount = 0
+}
+
+private struct TestJobsSnapshot: Codable {
+    let schemaVersion: Int
+    let jobs: [DownloadJob]
+}
+
+private func writeSnapshot(_ jobs: [DownloadJob], to url: URL) throws {
+    let snapshot = TestJobsSnapshot(schemaVersion: 1, jobs: jobs)
+    let data = try JSONEncoder().encode(snapshot)
+    try data.write(to: url)
 }

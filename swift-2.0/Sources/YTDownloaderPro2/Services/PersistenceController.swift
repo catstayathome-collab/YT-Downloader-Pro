@@ -76,7 +76,7 @@ actor PersistenceController {
 
     func recoverInterruptedJobs(_ jobs: [DownloadJob]) -> [DownloadJob] {
         jobs.map { job in
-            var restored = job
+            var restored = job.scrubbingRetainedMediaURLCredentials()
             if restored.status.isActive {
                 restored.status = .paused
             }
@@ -118,7 +118,10 @@ actor PersistenceController {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: stateDirectoryURL, withIntermediateDirectories: true)
 
-        let snapshot = JobsSnapshot(schemaVersion: Self.schemaVersion, jobs: jobs)
+        let snapshot = JobsSnapshot(
+            schemaVersion: Self.schemaVersion,
+            jobs: jobs.map { $0.scrubbingRetainedMediaURLCredentials() }
+        )
         let data = try JSONEncoder().encode(snapshot)
         try data.write(to: nextURL, options: .atomic)
 
