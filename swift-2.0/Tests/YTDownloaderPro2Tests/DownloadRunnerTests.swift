@@ -39,6 +39,23 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertFalse(fixture.commandLog().contains("/tmp/stale-display-directory"))
     }
 
+    func testCredentialBearingJobURLFailsBeforeLaunchingHelper() async throws {
+        // Validating only UI input or persistence would let direct runner jobs pass credentials to yt-dlp.
+        let fixture = try RunnerFixture(mode: "success")
+        var job = fixture.job()
+        job.sourceURL = "https://runner-user:runner-password@fake.test/success?state=\(fixture.directory.path)"
+
+        do {
+            _ = try await collect(fixture.runner.events(for: job))
+            XCTFail("Expected unsafe source URL failure")
+        } catch let failure as DownloadFailure {
+            XCTAssertEqual(failure.category, .invalidURL)
+            XCTAssertFalse(failure.technicalDetail?.contains("runner-password") == true)
+        }
+        XCTAssertEqual(fixture.scope.startCount, 0)
+        XCTAssertTrue(fixture.commandLog().isEmpty)
+    }
+
     func testExitZeroWithoutOwnedFinalOutputFailsInsteadOfCompleting() async throws {
         // Removing final-output verification would emit completed for this zero-exit process.
         let fixture = try RunnerFixture(mode: "no-final")

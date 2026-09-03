@@ -202,6 +202,15 @@ actor DownloadRunner: JobRunning {
     private func prepareAndRun(jobID: UUID, attempt: Int) async {
         guard var activeDownload = active[jobID] else { return }
 
+        guard MediaURLValidator.isSupported(activeDownload.job.sourceURL) else {
+            await finish(
+                jobID: jobID,
+                error: DownloadFailure(category: .invalidURL, technicalDetail: "Unsupported or unsafe media URL."),
+                removeMarker: true
+            )
+            return
+        }
+
         if attempt == 0, let toolchainValidator {
             do {
                 _ = try await toolchainValidator.validate(force: false)
