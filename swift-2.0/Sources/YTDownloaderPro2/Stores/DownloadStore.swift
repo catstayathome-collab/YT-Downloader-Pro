@@ -1049,7 +1049,7 @@ final class DownloadStore: ObservableObject {
             _ = try await toolchainValidator.validate(force: false)
         }
         do {
-            return try await analyzer.analyze(url: url, options: options)
+            return try await analyzer.analyze(url: url, options: options).scrubbingMediaURLCredentials()
         } catch {
             let failure = error as? DownloadFailure
             let shouldRevalidate = failure?.category == .bundledDownloaderUnavailable

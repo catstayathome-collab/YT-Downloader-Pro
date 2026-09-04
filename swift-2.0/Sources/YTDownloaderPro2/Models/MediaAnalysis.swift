@@ -145,3 +145,44 @@ struct PlaylistAnalysis: Codable, Equatable, Sendable {
     var titleSource: MediaTitleSource?
     var entries: [PlaylistEntry]
 }
+
+extension AnalysisResult {
+    func scrubbingMediaURLCredentials() -> AnalysisResult {
+        switch self {
+        case let .video(video):
+            .video(video.scrubbingMediaURLCredentials())
+        case let .playlist(playlist):
+            .playlist(playlist.scrubbingMediaURLCredentials())
+        }
+    }
+}
+
+extension VideoAnalysis {
+    func scrubbingMediaURLCredentials() -> VideoAnalysis {
+        var scrubbed = self
+        scrubbed.sourceURL = MediaURLValidator.credentialFreeEquivalent(of: sourceURL) ?? sourceURL
+        if let thumbnailURL, !MediaURLValidator.isSupported(thumbnailURL.absoluteString) {
+            scrubbed.thumbnailURL = nil
+        }
+        return scrubbed
+    }
+}
+
+extension PlaylistAnalysis {
+    func scrubbingMediaURLCredentials() -> PlaylistAnalysis {
+        var scrubbed = self
+        scrubbed.entries = entries.map { $0.scrubbingMediaURLCredentials() }
+        return scrubbed
+    }
+}
+
+extension PlaylistEntry {
+    func scrubbingMediaURLCredentials() -> PlaylistEntry {
+        var scrubbed = self
+        scrubbed.sourceURL = MediaURLValidator.credentialFreeEquivalent(of: sourceURL) ?? sourceURL
+        if let thumbnailURL, !MediaURLValidator.isSupported(thumbnailURL.absoluteString) {
+            scrubbed.thumbnailURL = nil
+        }
+        return scrubbed
+    }
+}

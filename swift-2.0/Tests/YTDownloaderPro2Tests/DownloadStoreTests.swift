@@ -345,6 +345,24 @@ final class DownloadStoreTests: XCTestCase {
         await fixture.store.cancel(addedJob.id)
     }
 
+    func testAddingVideoScrubsAnalyzerReturnedUserInfoBeforePersistingOrStarting() async throws {
+        let analysis = VideoAnalysis.fixture(
+            sourceURL: "https://analysis-user:analysis-pass@youtube.test/watch?v=video"
+        )
+        let fixture = try StoreFixture(analysis: .video(analysis))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/request")
+        await fixture.store.addVideo(options: .defaults)
+        let addedJob = try XCTUnwrap(fixture.store.jobs.first)
+        try await fixture.runner.waitForStart(of: addedJob.id)
+
+        XCTAssertEqual(addedJob.sourceURL, "https://youtube.test/watch?v=video")
+        XCTAssertEqual(addedJob.sourceMetadata, "https://youtube.test/watch?v=video")
+        let startedSourceURLs = await fixture.runner.startedSourceURLs()
+        XCTAssertEqual(startedSourceURLs[addedJob.id], "https://youtube.test/watch?v=video")
+    }
+
     func testAddingPlaylistAutomaticallyStartsOnlyTheNewBatchInSelectionOrder() async throws {
         let retainedQueuedJob = DownloadJob.fixture(title: "Retained queued job")
         let fixture = try StoreFixture(
@@ -372,6 +390,33 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(allStartedIDs, addedJobs.map(\.id))
         XCTAssertFalse(allStartedIDs.contains(retainedQueuedJob.id))
         await fixture.store.cancel(addedJobs[1].id)
+    }
+
+    func testAddingPlaylistScrubsAnalyzerReturnedUserInfoBeforePersistingOrStarting() async throws {
+        let entry = PlaylistEntry(
+            id: "unsafe-entry",
+            sourceURL: "https://playlist-user:playlist-pass@youtube.test/watch?v=entry",
+            title: "Unsafe entry",
+            duration: 30,
+            thumbnailURL: nil
+        )
+        let playlist = PlaylistAnalysis(
+            id: "playlist",
+            title: "Unsafe playlist",
+            entries: [entry]
+        )
+        let fixture = try StoreFixture(analysis: .playlist(playlist))
+        defer { fixture.cleanUp() }
+
+        await fixture.store.analyzeURL("https://youtube.test/playlist")
+        await fixture.store.addPlaylistEntries(selectedIDs: [entry.id], options: .defaults)
+        let addedJob = try XCTUnwrap(fixture.store.jobs.first)
+        try await fixture.runner.waitForStart(of: addedJob.id)
+
+        XCTAssertEqual(addedJob.sourceURL, "https://youtube.test/watch?v=entry")
+        XCTAssertEqual(addedJob.sourceMetadata, "https://youtube.test/watch?v=entry")
+        let startedSourceURLs = await fixture.runner.startedSourceURLs()
+        XCTAssertEqual(startedSourceURLs[addedJob.id], "https://youtube.test/watch?v=entry")
     }
 
     func testOnlyQueuedJobCanBeEdited() async throws {
