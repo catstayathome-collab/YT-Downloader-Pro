@@ -815,6 +815,47 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(persisted.first, retained)
     }
 
+    func testApplyingFailedJobEditSessionScrubsRetainedMediaURLsBeforeRetry() async throws {
+        var failed = DownloadJob.fixture(title: "Old metadata", status: .failed)
+        failed.failure = DownloadFailure(category: .formatReselectionRequired)
+        let safe = VideoAnalysis.fixture(
+            sourceURL: failed.sourceURL,
+            videoFormats: [.fixture(id: "fresh-video")],
+            audioFormats: [.fixture(id: "fresh-audio")]
+        )
+        let fixture = try StoreFixture(jobs: [failed], analysis: .video(safe))
+        defer { fixture.cleanUp() }
+        let preparedSession = await fixture.store.prepareFailedJobEdit(failed.id, options: failed.options)
+        let session = try XCTUnwrap(preparedSession)
+        let unsafeAnalysis = VideoAnalysis.fixture(
+            sourceURL: "https://edit-user:edit-pass@youtube.test/watch?v=retry",
+            title: "Fresh metadata",
+            thumbnailURL: URL(string: "https://thumb-user:thumb-pass@images.test/retry.jpg"),
+            videoFormats: [.fixture(id: "fresh-video")],
+            audioFormats: [.fixture(id: "fresh-audio")]
+        )
+        let unsafeSession = FailedJobEditSession(
+            jobID: session.jobID,
+            generation: session.generation,
+            analysis: unsafeAnalysis,
+            options: session.options
+        )
+
+        let applied = await fixture.store.applyFailedJobEdit(unsafeSession, options: unsafeSession.options)
+
+        let retained = try XCTUnwrap(fixture.store.jobs.first)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(retained.sourceURL, "https://youtube.test/watch?v=retry")
+        XCTAssertEqual(retained.sourceMetadata, "https://youtube.test/watch?v=retry")
+        XCTAssertNil(retained.thumbnailCachePath)
+        let persisted = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(persisted.first?.sourceURL, "https://youtube.test/watch?v=retry")
+        await fixture.store.start(failed.id)
+        try await fixture.runner.waitForStart(of: failed.id)
+        let startedSourceURLs = await fixture.runner.startedSourceURLs()
+        XCTAssertEqual(startedSourceURLs[failed.id], "https://youtube.test/watch?v=retry")
+    }
+
     func testFailedJobEditRejectsFormatOutsideFreshSession() async throws {
         var failed = DownloadJob.fixture(status: .failed)
         failed.failure = DownloadFailure(category: .formatReselectionRequired)

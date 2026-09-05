@@ -680,7 +680,8 @@ final class DownloadStore: ObservableObject {
               ownsRetry(jobID: session.jobID, generation: session.generation),
               let index = jobs.firstIndex(where: { $0.id == session.jobID }),
               jobs[index].status == .failed else { return false }
-        let analysis = AnalysisResult.video(session.analysis)
+        let sanitizedAnalysis = session.analysis.scrubbingMediaURLCredentials()
+        let analysis = AnalysisResult.video(sanitizedAnalysis)
         guard options.selectedFormatsRemainAvailable(in: analysis) else {
             await retainRetryFailure(
                 DownloadFailure(
@@ -693,11 +694,11 @@ final class DownloadStore: ObservableObject {
             return false
         }
 
-        jobs[index].sourceURL = session.analysis.sourceURL
-        jobs[index].title = session.analysis.title
-        jobs[index].titleSource = session.analysis.titleSource
-        jobs[index].duration = session.analysis.duration
-        jobs[index].sourceMetadata = session.analysis.sourceURL
+        jobs[index].sourceURL = sanitizedAnalysis.sourceURL
+        jobs[index].title = sanitizedAnalysis.title
+        jobs[index].titleSource = sanitizedAnalysis.titleSource
+        jobs[index].duration = sanitizedAnalysis.duration
+        jobs[index].sourceMetadata = sanitizedAnalysis.sourceURL
         jobs[index].options = options
         jobs[index].failure = nil
         jobs[index].retryCount += 1
@@ -710,7 +711,7 @@ final class DownloadStore: ObservableObject {
         currentRetryGeneration[session.jobID] = nil
         await persist(flush: true)
         guard !isPreparingToQuit, jobs.contains(where: { $0.id == session.jobID }) else { return true }
-        cacheThumbnail(from: session.analysis.thumbnailURL, for: session.jobID)
+        cacheThumbnail(from: sanitizedAnalysis.thumbnailURL, for: session.jobID)
         return true
     }
 
