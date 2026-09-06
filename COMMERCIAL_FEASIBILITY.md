@@ -284,6 +284,8 @@ This decision is implemented by the following reviewable documents:
   it remains unsubmitted until fresh owner approval.
 - `LEGAL_REVIEW_BRIEF.md`: facts and questions for qualified Taiwan counsel.
 - `PRIVACY_DATA_MAP.md`: current and proposed data inventory and boundaries.
+- `PRIVACY_THREAT_MODEL.md`: macOS Swift 2.x privacy assets, trust boundaries,
+  implemented controls, and blocked launch gates.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and
