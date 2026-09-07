@@ -286,6 +286,8 @@ This decision is implemented by the following reviewable documents:
 - `PRIVACY_DATA_MAP.md`: current and proposed data inventory and boundaries.
 - `PRIVACY_THREAT_MODEL.md`: macOS Swift 2.x privacy assets, trust boundaries,
   implemented controls, and blocked launch gates.
+- `SUPPORT_REPORT_AND_DATA_REQUESTS.md`: user-reviewed support report payloads,
+  local export and deletion rules, and future backend data-request gates.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and

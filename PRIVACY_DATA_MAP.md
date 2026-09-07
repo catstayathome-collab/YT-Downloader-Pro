@@ -116,6 +116,9 @@ Sanitization reduces risk but is not proof that a log is anonymous. Titles,
 paths, unusual error text, IP addresses, or identifiers may still identify a
 user or activity and must be tested with adversarial fixtures.
 
+Support-report preview, local export, and local deletion rules are specified in
+`SUPPORT_REPORT_AND_DATA_REQUESTS.md`.
+
 ### 3.6 App settings
 
 Stored in local `UserDefaults`:

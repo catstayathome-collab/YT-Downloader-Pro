@@ -104,6 +104,8 @@ Before a paid launch decision, keep current passing evidence for:
 - A privacy review covering deletion/export, support reports, optional sync,
   backups, credential rotation, incident response, cancellation, refunds, and
   shutdown.
+- `SUPPORT_REPORT_AND_DATA_REQUESTS.md` stays current with the implemented
+  support-preview, local export, and local deletion behavior.
 
 ## 7. Open Launch Gates
 
@@ -116,4 +118,3 @@ The following remain blocked until fresh approval and dated evidence exist:
 - Collection of cloud download history.
 - Public release publishing or repository visibility changes.
 - Windows commercial implementation.
-
