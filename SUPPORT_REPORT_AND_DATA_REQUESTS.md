@@ -44,6 +44,18 @@ backend, cloud history sync, payment processing, or any external submission.
 
 ## 3. Support Report Payload
 
+Current local foundation:
+
+- `SupportReportDraft` builds a macOS Swift 2.x preview payload for user review.
+- The default preview includes typed environment and failure context, but leaves
+  optional source URL, title, format, screenshot, contact, diagnostic-export,
+  and media-file fields disabled.
+- Support-specific diagnostic excerpts receive an additional local redaction pass
+  so URLs, local paths, selected media titles, cookies, and tokens do not appear
+  in the default encoded payload.
+- No submission endpoint, support vendor, email flow, account backend, or upload
+  action is implemented by this model.
+
 ### Included by default
 
 The first macOS Swift 2.x support report may include:

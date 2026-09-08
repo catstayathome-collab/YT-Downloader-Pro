@@ -220,4 +220,75 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(detail.contains("/Users/example/Downloads"))
         XCTAssertTrue(detail.contains("-P [REDACTED]"))
     }
+
+    func testDefaultSupportReportPayloadExcludesDownloadActivityAndSensitiveAttachments() throws {
+        let jobID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let incidentID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let failure = DownloadFailure(
+            category: .clientValidationFailed,
+            technicalDetail: """
+            ERROR: HTTP 403 for https://user:password@media.example/watch?v=private-video&token=secret-token
+            Title: Private Lecture
+            Output path: /Users/example/Movies/Private Lecture.mp4
+            Raw stderr: cookie=secret-cookie
+            """,
+            toolExitCode: 1
+        )
+        let selectedJob = DownloadJob.fixture(
+            id: jobID,
+            sourceURL: "https://user:password@media.example/watch?v=private-video",
+            title: "Private Lecture",
+            status: .failed,
+            outputKind: .mp4,
+            cookies: .chrome,
+            outputURL: URL(fileURLWithPath: "/Users/example/Movies/Private Lecture.mp4")
+        )
+        let environment = SupportReportDraft.Environment(
+            appVersion: "2.0.0-test",
+            releaseChannel: "internal",
+            macOSVersion: "14.6",
+            architecture: "arm64",
+            localeIdentifier: "zh-Hant"
+        )
+
+        let draft = SupportReportDraft.defaultPreview(
+            category: .downloadFailure,
+            subject: "Download failed",
+            message: "Please review the sanitized local incident.",
+            environment: environment,
+            incidentID: incidentID,
+            selectedJob: selectedJob,
+            selectedFailure: failure,
+            diagnosticLines: [
+                "Downloading https://media.example/watch?v=private-video",
+                "Cookie: SID=secret-cookie",
+                "Wrote file /Users/example/Movies/Private Lecture.mp4",
+                "Safe context: HTTP 403 retry 1"
+            ]
+        )
+
+        XCTAssertEqual(draft.category, .downloadFailure)
+        XCTAssertEqual(draft.subject, "Download failed")
+        XCTAssertEqual(draft.message, "Please review the sanitized local incident.")
+        XCTAssertEqual(draft.environment, environment)
+        XCTAssertEqual(draft.incidentID, incidentID)
+        XCTAssertEqual(draft.failure?.jobID, jobID)
+        XCTAssertEqual(draft.failure?.category, .clientValidationFailed)
+        XCTAssertEqual(draft.failure?.toolExitCode, 1)
+        XCTAssertNil(draft.optionalFields.sourceURL)
+        XCTAssertNil(draft.optionalFields.mediaTitle)
+        XCTAssertNil(draft.optionalFields.screenshotName)
+        XCTAssertNil(draft.optionalFields.mediaFileName)
+
+        let encodedPayload = String(data: try JSONEncoder().encode(draft), encoding: .utf8)!
+        for forbidden in [
+            "user", "password", "private-video", "secret-token", "Private Lecture",
+            "/Users/example/Movies", "secret-cookie", "chrome", "thumbnail",
+            "sourceURL", "outputURL", "sourceMetadata", "screenshot", "mediaFile"
+        ] {
+            XCTAssertFalse(encodedPayload.contains(forbidden), "Default support payload leaked \(forbidden)")
+        }
+        XCTAssertTrue(encodedPayload.contains("HTTP 403"))
+        XCTAssertTrue(encodedPayload.contains("[REDACTED]"))
+    }
 }
