@@ -50,6 +50,9 @@ Current local foundation:
 - The default preview includes typed environment and failure context, but leaves
   optional source URL, title, format, screenshot, contact, diagnostic-export,
   and media-file fields disabled.
+- The preview includes a local `bypassesPaidPriorityRules` routing flag for
+  privacy, security, copyright, cancellation, incorrect-charge, and
+  account-recovery categories.
 - Support-specific diagnostic excerpts receive an additional local redaction pass
   so URLs, local paths, selected media titles, cookies, and tokens do not appear
   in the default encoded payload.

@@ -291,4 +291,50 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(encodedPayload.contains("HTTP 403"))
         XCTAssertTrue(encodedPayload.contains("[REDACTED]"))
     }
+
+    func testSupportReportRoutingBypassesPaidPriorityForSafetyAndAccountCategories() throws {
+        let bypassCategories: Set<SupportReportDraft.Category> = [
+            .privacy,
+            .security,
+            .copyright,
+            .cancellation,
+            .incorrectCharge,
+            .accountRecovery
+        ]
+        let paidPriorityCategories: Set<SupportReportDraft.Category> = [
+            .downloadFailure,
+            .general
+        ]
+        let environment = SupportReportDraft.Environment(
+            appVersion: "2.0.0-test",
+            releaseChannel: "internal",
+            macOSVersion: "14.6",
+            architecture: "arm64",
+            localeIdentifier: "zh-Hant"
+        )
+
+        for category in bypassCategories {
+            let draft = SupportReportDraft.defaultPreview(
+                category: category,
+                subject: "Review \(category.rawValue)",
+                message: "Please review this local preview.",
+                environment: environment
+            )
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
+
+            XCTAssertEqual(payload["bypassesPaidPriorityRules"] as? Bool, true, category.rawValue)
+        }
+
+        for category in paidPriorityCategories {
+            let draft = SupportReportDraft.defaultPreview(
+                category: category,
+                subject: "Review \(category.rawValue)",
+                message: "Please review this local preview.",
+                environment: environment
+            )
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
+
+            XCTAssertEqual(payload["bypassesPaidPriorityRules"] as? Bool, false, category.rawValue)
+        }
+    }
 }

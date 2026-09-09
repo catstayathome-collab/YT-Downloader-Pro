@@ -10,6 +10,15 @@ struct SupportReportDraft: Codable, Equatable, Sendable {
         case incorrectCharge
         case accountRecovery
         case general
+
+        var bypassesPaidPriorityRules: Bool {
+            switch self {
+            case .privacy, .security, .copyright, .cancellation, .incorrectCharge, .accountRecovery:
+                true
+            case .downloadFailure, .general:
+                false
+            }
+        }
     }
 
     struct Environment: Codable, Equatable, Sendable {
@@ -47,6 +56,7 @@ struct SupportReportDraft: Codable, Equatable, Sendable {
     var failure: FailureContext?
     var diagnosticExcerpt: [String]
     var optionalFields: OptionalFields
+    var bypassesPaidPriorityRules: Bool
 
     static func defaultPreview(
         category: Category,
@@ -82,7 +92,8 @@ struct SupportReportDraft: Codable, Equatable, Sendable {
                 excluding: excludedPhrases,
                 maximumLines: maximumDiagnosticLines
             ),
-            optionalFields: .disabled
+            optionalFields: .disabled,
+            bypassesPaidPriorityRules: category.bypassesPaidPriorityRules
         )
     }
 
