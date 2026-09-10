@@ -337,4 +337,72 @@ final class ModelsTests: XCTestCase {
             XCTAssertEqual(payload["bypassesPaidPriorityRules"] as? Bool, false, category.rawValue)
         }
     }
+
+    func testDefaultLocalExportScrubsJobsAndExcludesSensitiveLocalAttachments() throws {
+        let jobID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let exportDate = Date(timeIntervalSince1970: 1_789_000_000)
+        let unsafeOptions = DownloadOptions(
+            outputKind: .mp4,
+            cookies: .chrome,
+            outputDirectoryBookmark: Data("bookmark-secret".utf8),
+            outputDirectoryDisplayPath: "/Users/example/Movies"
+        )
+        let unsafeJob = DownloadJob(
+            id: jobID,
+            sourceURL: "https://source-user:source-password@media.example/watch?v=private-video",
+            title: "Private Lecture",
+            thumbnailCachePath: "/Users/example/Library/Application Support/YT Downloader Pro/Thumbnails/private-thumb.jpg",
+            sourceMetadata: "https://metadata-user:metadata-password@media.example/watch?v=metadata-token",
+            status: .completed,
+            outputURL: URL(fileURLWithPath: "/Users/example/Movies/Private Lecture.mp4"),
+            options: unsafeOptions,
+            completedAt: exportDate
+        )
+        let unsafeSettings = AppSettings(
+            maximumConcurrentDownloads: 4,
+            languageOverride: "zh-Hant",
+            defaultOptions: unsafeOptions,
+            automaticallyCheckForUpdates: false
+        )
+
+        let draft = LocalDataExportDraft.defaultPreview(
+            appVersion: "2.0.0-test",
+            releaseChannel: "internal",
+            exportDate: exportDate,
+            jobs: [unsafeJob],
+            settings: unsafeSettings,
+            diagnosticLines: [
+                "Cookie: SID=secret-cookie",
+                "Downloading https://diag-user:diag-password@media.example/watch?v=diagnostic-token",
+                "Writing /Users/example/Movies/Private Lecture.mp4",
+                "Safe context: retry complete"
+            ],
+            maximumDiagnosticLines: 2
+        )
+
+        XCTAssertEqual(draft.manifest.schemaVersion, 1)
+        XCTAssertEqual(draft.manifest.selectedSections, [.jobs, .settings, .thumbnails, .diagnostics])
+        XCTAssertEqual(draft.jobs.map(\.sourceURL), ["https://media.example/watch?v=private-video"])
+        XCTAssertEqual(draft.jobs.map(\.sourceMetadata), ["https://media.example/watch?v=metadata-token"])
+        XCTAssertEqual(draft.jobs.map(\.outputURL), [nil])
+        XCTAssertEqual(draft.jobs.map(\.options.cookies), [.none])
+        XCTAssertNil(draft.settings.defaultOptions.outputDirectoryBookmark)
+        XCTAssertNil(draft.settings.defaultOptions.outputDirectoryDisplayPath)
+        XCTAssertEqual(draft.thumbnailReferences, [
+            LocalDataExportDraft.ThumbnailReference(jobID: jobID, cacheName: "private-thumb.jpg")
+        ])
+        XCTAssertEqual(draft.diagnosticExcerpt.count, 2)
+
+        let encodedPayload = String(data: try JSONEncoder().encode(draft), encoding: .utf8)!
+        for forbidden in [
+            "source-user", "source-password", "metadata-user", "metadata-password",
+            "diag-user", "diag-password", "diagnostic-token", "secret-cookie",
+            "bookmark-secret", "/Users/example", "Private Lecture.mp4", "chrome",
+            "outputDirectoryBookmark"
+        ] {
+            XCTAssertFalse(encodedPayload.contains(forbidden), "Default local export leaked \(forbidden)")
+        }
+        XCTAssertTrue(encodedPayload.contains("https:\\/\\/media.example\\/watch?v=private-video"))
+        XCTAssertTrue(encodedPayload.contains("[REDACTED]"))
+    }
 }

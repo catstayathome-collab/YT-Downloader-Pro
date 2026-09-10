@@ -97,6 +97,19 @@ The support form must reject or remove:
 
 ## 4. Local Export
 
+Current local foundation:
+
+- `LocalDataExportDraft` builds a macOS Swift 2.x preview payload for a local
+  export manifest, selected queue/history records, sanitized settings,
+  thumbnail cache references, and bounded diagnostic excerpts.
+- The default export preview scrubs retained job media URL credentials and
+  removes output media paths, browser-cookie mode, security-scoped bookmark
+  data, and output-folder display paths before encoding.
+- Thumbnail references expose only local cache file names, not remote thumbnail
+  URLs or embedded image data.
+- No file writer, submission endpoint, support vendor, email flow, account
+  backend, or upload action is implemented by this model.
+
 The app should expose a local export action before any cloud account or support
 backend exists. Export is useful for self-service troubleshooting and future
 data-access requests.
@@ -162,8 +175,8 @@ Before paid launch or support submission is enabled:
 - UI or presentation tests prove optional report fields start disabled and the
   final preview shows every field selected for submission.
 - Local export tests prove retained job URLs are credential-free and bookmarks,
-  Keychain tokens, cookies, media files, and full diagnostics are excluded by
-  default.
+  Keychain tokens, cookies, media files, remote thumbnail URLs, local output
+  paths, and full diagnostics are excluded by default.
 - Deletion tests prove clearing history removes local job records and thumbnails
   without deleting downloaded media.
 - Support-routing tests prove privacy, security, copyright, cancellation,
