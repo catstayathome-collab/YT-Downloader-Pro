@@ -33,7 +33,7 @@
 - Consumes: `MediaURLValidator.isSupported(_:)`.
 - Produces: `MediaURLInputParseResult` and `MediaURLInputParser.parse(_:)`.
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 ```swift
 func testParsesMixedWhitespaceInFirstSeenOrder() {
@@ -54,11 +54,11 @@ func testRejectsCredentialsAndNonHTTPLinks() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and confirm missing parser symbols fail compilation**
+- [x] **Step 2: Run the focused test and confirm missing parser symbols fail compilation**
 
 Run: `swift test --package-path swift-2.0 --disable-sandbox --filter MediaURLInputParserTests`
 
-- [ ] **Step 3: Implement the pure parser**
+- [x] **Step 3: Implement the pure parser**
 
 ```swift
 struct MediaURLInputParseResult: Equatable, Sendable {
@@ -74,8 +74,8 @@ enum MediaURLInputParser {
 
 Use Foundation link detection, normalize scheme and host to lowercase, remove fragments, preserve query strings, validate before acceptance, and deduplicate by normalized string.
 
-- [ ] **Step 4: Run focused parser tests until green**
-- [ ] **Step 5: Commit parser and tests**
+- [x] **Step 4: Run focused parser tests until green**
+- [x] **Step 5: Commit parser and tests**
 
 ---
 
@@ -91,7 +91,7 @@ Use Foundation link detection, normalize scheme and host to lowercase, remove fr
 - Consumes: existing `DownloadJob` persistence and recovery.
 - Produces: `DownloadJob.awaitsBatchAnalysis: Bool` with legacy default `false`.
 
-- [ ] **Step 1: Write failing Codable tests**
+- [x] **Step 1: Write failing Codable tests**
 
 ```swift
 func testBatchAnalysisMarkerRoundTrips() throws {
@@ -106,10 +106,10 @@ func testLegacyJobWithoutBatchMarkerDefaultsToFalse() throws {
 }
 ```
 
-- [ ] **Step 2: Run focused model and persistence tests and confirm the marker is missing**
-- [ ] **Step 3: Add the marker, initializer parameter, and explicit backward-compatible decoding**
-- [ ] **Step 4: Run focused model and persistence tests until green**
-- [ ] **Step 5: Commit the model migration**
+- [x] **Step 2: Run focused model and persistence tests and confirm the marker is missing**
+- [x] **Step 3: Add the marker, initializer parameter, and explicit backward-compatible decoding**
+- [x] **Step 4: Run focused model and persistence tests until green**
+- [x] **Step 5: Commit the model migration**
 
 ---
 
@@ -123,7 +123,7 @@ func testLegacyJobWithoutBatchMarkerDefaultsToFalse() throws {
 - Consumes: `MediaURLInputParser.parse(_:)`, `DownloadJob.awaitsBatchAnalysis`, `MetadataAnalyzing`, existing `automaticallyStartNewJobs(_:)`.
 - Produces: `URLInputSubmissionResult` and `DownloadStore.submitURLInput(_:) async -> URLInputSubmissionResult`.
 
-- [ ] **Step 1: Write failing routing and immediate-placeholder tests**
+- [x] **Step 1: Write failing routing and immediate-placeholder tests**
 
 ```swift
 let single = await store.submitURLInput("https://youtube.test/one")
@@ -136,14 +136,14 @@ XCTAssertEqual(store.jobs.map(\.awaitsBatchAnalysis), [true, true])
 XCTAssertEqual(store.jobs.map(\.status), [.analyzing, .analyzing])
 ```
 
-- [ ] **Step 2: Run focused tests and confirm `submitURLInput` is absent**
-- [ ] **Step 3: Implement single-versus-batch routing and persist placeholders before starting work**
-- [ ] **Step 4: Write failing FIFO, no-overlap, success, and failure-isolation tests with a controlled analyzer**
-- [ ] **Step 5: Implement `batchAnalysisTask`, `batchAnalysisRequestTask`, pending IDs, and stale-result guards**
-- [ ] **Step 6: Write failing video identity and playlist replacement-order tests**
-- [ ] **Step 7: Implement in-place video adoption and playlist placeholder replacement using sanitized metadata and default options**
-- [ ] **Step 8: Run focused store tests until green**
-- [ ] **Step 9: Commit the batch engine**
+- [x] **Step 2: Run focused tests and confirm `submitURLInput` is absent**
+- [x] **Step 3: Implement single-versus-batch routing and persist placeholders before starting work**
+- [x] **Step 4: Write failing FIFO, no-overlap, success, and failure-isolation tests with a controlled analyzer**
+- [x] **Step 5: Implement `batchAnalysisTask`, `batchAnalysisRequestTask`, pending IDs, and stale-result guards**
+- [x] **Step 6: Write failing video identity and playlist replacement-order tests**
+- [x] **Step 7: Implement in-place video adoption and playlist placeholder replacement using sanitized metadata and default options**
+- [x] **Step 8: Run focused store tests until green**
+- [x] **Step 9: Commit the batch engine**
 
 ---
 
@@ -158,15 +158,15 @@ XCTAssertEqual(store.jobs.map(\.status), [.analyzing, .analyzing])
 - Consumes: Task 3 batch ownership fields and placeholder marker.
 - Produces: cancellation of one placeholder only, FIFO recovery, and joined shutdown.
 
-- [ ] **Step 1: Write failing tests for cancelling waiting and active placeholders**
-- [ ] **Step 2: Run focused tests and confirm cancellation reaches the coordinator incorrectly or leaves work pending**
-- [ ] **Step 3: Route placeholder cancellation to the batch queue and current child task before coordinator cancellation**
-- [ ] **Step 4: Write failing recovered-placeholder FIFO test**
-- [ ] **Step 5: Requeue recovered batch placeholders without submitting them to `DownloadCoordinator`**
-- [ ] **Step 6: Write failing quit test that requires both batch tasks to be cancelled and joined**
-- [ ] **Step 7: Extend `deinit` and `performQuit()` to cancel and await batch work**
-- [ ] **Step 8: Run focused recovery, cancellation, and shutdown tests until green**
-- [ ] **Step 9: Commit lifecycle handling**
+- [x] **Step 1: Write failing tests for cancelling waiting and active placeholders**
+- [x] **Step 2: Run focused tests and confirm cancellation reaches the coordinator incorrectly or leaves work pending**
+- [x] **Step 3: Route placeholder cancellation to the batch queue and current child task before coordinator cancellation**
+- [x] **Step 4: Write failing recovered-placeholder FIFO test**
+- [x] **Step 5: Requeue recovered batch placeholders without submitting them to `DownloadCoordinator`**
+- [x] **Step 6: Write failing quit test that requires both batch tasks to be cancelled and joined**
+- [x] **Step 7: Extend `deinit` and `performQuit()` to cancel and await batch work**
+- [x] **Step 8: Run focused recovery, cancellation, and shutdown tests until green**
+- [x] **Step 9: Commit lifecycle handling**
 
 ---
 
@@ -183,7 +183,7 @@ XCTAssertEqual(store.jobs.map(\.status), [.analyzing, .analyzing])
 - Consumes: `DownloadStore.submitURLInput(_:)` and `URLInputSubmissionResult`.
 - Produces: shared Enter/button submission, accepted-only field clearing, complete multi-line clipboard placement, and count-only feedback.
 
-- [ ] **Step 1: Write failing pure presentation tests**
+- [x] **Step 1: Write failing pure presentation tests**
 
 ```swift
 XCTAssertEqual(URLInputPresentation.displayText(for: "one\ntwo"), "one two")
@@ -191,13 +191,13 @@ XCTAssertTrue(URLInputPresentation.shouldClearInput(after: .init(acceptedCount: 
 XCTAssertFalse(URLInputPresentation.shouldClearInput(after: .init(acceptedCount: 0, rejectedCount: 1, duplicateCount: 0)))
 ```
 
-- [ ] **Step 2: Run focused view tests and confirm presentation symbols are absent**
-- [ ] **Step 3: Implement presentation helpers and route Enter/button through one async submission method**
-- [ ] **Step 4: Accept multi-URL clipboard text when at least one supported URL is parsed and preserve all accepted URLs for submission**
-- [ ] **Step 5: Add English, Japanese, and Traditional Chinese strings for analyzing title, no-valid-URL error, empty-playlist failure, and skipped counts**
-- [ ] **Step 6: Extend localization completeness and secret/non-echo tests**
-- [ ] **Step 7: Run focused view and localization tests until green**
-- [ ] **Step 8: Commit presentation and localization**
+- [x] **Step 2: Run focused view tests and confirm presentation symbols are absent**
+- [x] **Step 3: Implement presentation helpers and route Enter/button through one async submission method**
+- [x] **Step 4: Accept multi-URL clipboard text when at least one supported URL is parsed and preserve all accepted URLs for submission**
+- [x] **Step 5: Add English, Japanese, and Traditional Chinese strings for analyzing title, no-valid-URL error, empty-playlist failure, and skipped counts**
+- [x] **Step 6: Extend localization completeness and secret/non-echo tests**
+- [x] **Step 7: Run focused view and localization tests until green**
+- [x] **Step 8: Commit presentation and localization**
 
 ---
 
@@ -210,9 +210,9 @@ XCTAssertFalse(URLInputPresentation.shouldClearInput(after: .init(acceptedCount:
 - Consumes: all previous tasks.
 - Produces: verified feature branch suitable for review and later local integration.
 
-- [ ] **Step 1: Run `git diff --check`**
-- [ ] **Step 2: Run the complete strict Swift suite with project-local Clang module cache and warnings as errors**
-- [ ] **Step 3: Run the complete Python suite**
-- [ ] **Step 4: Build the arm64 internal app and verify helper inventory, SBOM, licenses, signatures, and deterministic ZIP report**
-- [ ] **Step 5: Review the final diff for unrelated changes and privacy boundary regressions**
+- [x] **Step 1: Run `git diff --check`**
+- [x] **Step 2: Run the complete strict Swift suite with project-local Clang module cache and warnings as errors**
+- [x] **Step 3: Run the complete Python suite**
+- [x] **Step 4: Build the arm64 internal app and verify helper inventory, SBOM, licenses, signatures, and deterministic ZIP report**
+- [x] **Step 5: Review the final diff for unrelated changes and privacy boundary regressions**
 - [ ] **Step 6: Commit any verification-only fixes, then use the finishing-development-branch workflow**
