@@ -131,6 +131,24 @@ not be merged silently with local export.
 
 ## 5. Local Deletion
 
+Current local foundation:
+
+- `LocalDeletionDraft` builds a macOS Swift 2.x preview payload for local
+  deletion actions before UI or filesystem execution.
+- History previews list only the local job record identifiers and thumbnail
+  cache file names selected by the action. They do not include media titles,
+  output paths, source URLs, or downloaded media file paths.
+- Clearing completed history and clearing failed/cancelled history explicitly
+  retain downloaded media, settings, and diagnostics.
+- Clearing diagnostics and resetting settings explicitly retain queue/history
+  records, thumbnail cache entries, and downloaded media.
+- Deleting a selected media file is represented as the only preview action that
+  deletes downloaded media, and the payload keeps only the selected file name,
+  not its full local path.
+- No file writer, diagnostic remover, settings resetter, media deleter,
+  submission endpoint, support vendor, email flow, account backend, or upload
+  action is implemented by this model.
+
 The macOS app must provide separate deletion actions with distinct labels:
 
 | Action | Deletes | Does not delete |
@@ -177,8 +195,9 @@ Before paid launch or support submission is enabled:
 - Local export tests prove retained job URLs are credential-free and bookmarks,
   Keychain tokens, cookies, media files, remote thumbnail URLs, local output
   paths, and full diagnostics are excluded by default.
-- Deletion tests prove clearing history removes local job records and thumbnails
-  without deleting downloaded media.
+- Deletion preview tests prove history clearing targets only the intended local
+  job records and thumbnail names, excludes output paths and media titles, and
+  keeps downloaded media deletion behind a separately named media-file action.
 - Support-routing tests prove privacy, security, copyright, cancellation,
   incorrect-charge, and account-recovery categories do not depend on Pro status.
 - Manual clean-Mac testing confirms exported files contain only the selected

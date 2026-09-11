@@ -405,4 +405,102 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(encodedPayload.contains("https:\\/\\/media.example\\/watch?v=private-video"))
         XCTAssertTrue(encodedPayload.contains("[REDACTED]"))
     }
+
+    func testLocalDeletionHistoryPreviewSeparatesRecordsThumbnailsAndMediaFiles() throws {
+        let completedID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let failedID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let activeID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        let completed = DownloadJob(
+            id: completedID,
+            sourceURL: "https://media.example/completed",
+            title: "Completed Lecture",
+            thumbnailCachePath: "/Users/example/Library/Application Support/YT Downloader Pro/Thumbnails/completed-thumb.jpg",
+            status: .completed,
+            outputURL: URL(fileURLWithPath: "/Users/example/Movies/Completed Lecture.mp4")
+        )
+        let failed = DownloadJob(
+            id: failedID,
+            sourceURL: "https://media.example/failed",
+            title: "Failed Lecture",
+            thumbnailCachePath: "/Users/example/Library/Application Support/YT Downloader Pro/Thumbnails/failed-thumb.jpg",
+            status: .failed,
+            outputURL: URL(fileURLWithPath: "/Users/example/Movies/Failed Lecture.mp4")
+        )
+        let active = DownloadJob(
+            id: activeID,
+            sourceURL: "https://media.example/active",
+            title: "Active Lecture",
+            thumbnailCachePath: "/Users/example/Library/Application Support/YT Downloader Pro/Thumbnails/active-thumb.jpg",
+            status: .downloading,
+            outputURL: URL(fileURLWithPath: "/Users/example/Movies/Active Lecture.mp4")
+        )
+
+        let completedPreview = LocalDeletionDraft.historyPreview(
+            action: .clearCompletedHistory,
+            jobs: [completed, failed, active]
+        )
+        let stoppedPreview = LocalDeletionDraft.historyPreview(
+            action: .clearFailedAndCancelledHistory,
+            jobs: [completed, failed, active]
+        )
+
+        XCTAssertEqual(completedPreview.action, .clearCompletedHistory)
+        XCTAssertEqual(completedPreview.jobRecordIDs, [completedID])
+        XCTAssertEqual(completedPreview.thumbnailCacheNames, ["completed-thumb.jpg"])
+        XCTAssertEqual(completedPreview.deletedData, [.localJobRecords, .thumbnailCacheFiles])
+        XCTAssertEqual(completedPreview.retainedData, [.downloadedMediaFiles, .settings, .diagnostics])
+        XCTAssertFalse(completedPreview.deletesDownloadedMedia)
+        XCTAssertTrue(completedPreview.requiresSeparateMediaFileAction)
+
+        XCTAssertEqual(stoppedPreview.action, .clearFailedAndCancelledHistory)
+        XCTAssertEqual(stoppedPreview.jobRecordIDs, [failedID])
+        XCTAssertEqual(stoppedPreview.thumbnailCacheNames, ["failed-thumb.jpg"])
+        XCTAssertFalse(stoppedPreview.deletesDownloadedMedia)
+
+        let encodedPayload = String(data: try JSONEncoder().encode(completedPreview), encoding: .utf8)!
+        for forbidden in [
+            "Completed Lecture", "Active Lecture", "/Users/example", "Completed Lecture.mp4",
+            "Active Lecture.mp4", activeID.uuidString, "outputURL"
+        ] {
+            XCTAssertFalse(encodedPayload.contains(forbidden), "Local deletion preview leaked \(forbidden)")
+        }
+    }
+
+    func testLocalDeletionActionPreviewsKeepMediaDeletionSeparate() throws {
+        let diagnosticsPreview = LocalDeletionDraft.actionPreview(.clearDiagnostics)
+        let resetPreview = LocalDeletionDraft.actionPreview(.resetSettings)
+        let mediaPreview = LocalDeletionDraft.actionPreview(
+            .deleteSelectedMediaFile,
+            selectedMediaFileURL: URL(fileURLWithPath: "/Users/example/Movies/Private Clip.mp4")
+        )
+
+        XCTAssertEqual(diagnosticsPreview.deletedData, [.diagnostics])
+        XCTAssertEqual(
+            diagnosticsPreview.retainedData,
+            [.localJobRecords, .thumbnailCacheFiles, .downloadedMediaFiles, .settings]
+        )
+        XCTAssertFalse(diagnosticsPreview.deletesDownloadedMedia)
+        XCTAssertTrue(diagnosticsPreview.requiresSeparateMediaFileAction)
+
+        XCTAssertEqual(resetPreview.deletedData, [.settings, .outputFolderBookmark])
+        XCTAssertEqual(
+            resetPreview.retainedData,
+            [.localJobRecords, .thumbnailCacheFiles, .downloadedMediaFiles, .diagnostics]
+        )
+        XCTAssertFalse(resetPreview.deletesDownloadedMedia)
+        XCTAssertTrue(resetPreview.requiresSeparateMediaFileAction)
+
+        XCTAssertEqual(mediaPreview.action, .deleteSelectedMediaFile)
+        XCTAssertEqual(mediaPreview.selectedMediaFileName, "Private Clip.mp4")
+        XCTAssertEqual(mediaPreview.deletedData, [.downloadedMediaFiles])
+        XCTAssertEqual(
+            mediaPreview.retainedData,
+            [.localJobRecords, .thumbnailCacheFiles, .settings, .diagnostics]
+        )
+        XCTAssertTrue(mediaPreview.deletesDownloadedMedia)
+        XCTAssertFalse(mediaPreview.requiresSeparateMediaFileAction)
+
+        let encodedPayload = String(data: try JSONEncoder().encode(mediaPreview), encoding: .utf8)!
+        XCTAssertFalse(encodedPayload.contains("/Users/example"), "Media deletion preview leaked the selected path")
+    }
 }
