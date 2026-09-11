@@ -48,14 +48,16 @@ python3 -m unittest tests.test_swift_bundle -v
 ./scripts/build_swift_2.sh \
   --version 2.0.0 \
   --architectures arm64 \
+  --sbom-created 2026-08-27T00:00:00Z \
   --unsigned-test
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
   --expected-version 2.0.0 \
-  --architectures arm64
+  --architectures arm64 \
+  --inventory tools/macos-helper-inventory.json
 ```
 
-輸出為 `dist/YT Downloader Pro 2.app`、arm64 內部測試 ZIP 與 `dist/swift-2.0-bundle-report.json`。工程架構、開發、發布及問題排除分別記錄於 `docs/swift-2.0/ARCHITECTURE.md`、`DEVELOPMENT.md`、`RELEASE.md`、`TROUBLESHOOTING.md`，人工驗收表位於 `docs/SWIFT_2_TEST_CHECKLIST.md`。
+輸出為 `dist/YT Downloader Pro 2.app`、arm64 內部測試 ZIP 與 `dist/swift-2.0-bundle-report.json`。工程架構、開發、發布、SBOM/授權維護及問題排除分別記錄於 `docs/swift-2.0/ARCHITECTURE.md`、`DEVELOPMENT.md`、`RELEASE.md`、`SBOM_AND_LICENSES.md`、`TROUBLESHOOTING.md`，人工驗收表位於 `docs/SWIFT_2_TEST_CHECKLIST.md`。
 
 ## 已知限制
 

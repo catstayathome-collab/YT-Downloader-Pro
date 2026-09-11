@@ -119,6 +119,7 @@ Build the internal app only after focused tests are green:
 ./scripts/build_swift_2.sh \
   --version 2.0.0 \
   --architectures arm64 \
+  --sbom-created 2026-08-27T00:00:00Z \
   --unsigned-test
 ```
 
@@ -267,7 +268,8 @@ issues, build first and run:
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
   --expected-version 2.0.0 \
-  --architectures arm64
+  --architectures arm64 \
+  --inventory tools/macos-helper-inventory.json
 codesign --verify --deep --strict --verbose=2 \
   'dist/YT Downloader Pro 2.app'
 ```

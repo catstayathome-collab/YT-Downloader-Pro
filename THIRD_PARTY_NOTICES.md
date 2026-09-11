@@ -7,8 +7,16 @@ This project bundles command-line tools used by YT Downloader Pro.
 - Source: https://github.com/yt-dlp/yt-dlp
 - Bundled helper: `tools/yt-dlp_macos`
 - Bundled macOS helper version reported by `--version`: `2026.07.04`
+- Bundled helper SHA-256 before release re-signing: `498bd0dae17855c599d371d68ec5bafc439a9d8640e838be25c765a9792f261b`
+- Matching source archive: https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.tar.gz
+- Source archive SHA-256: `31c32457d1a573a341bb0929386c624fe47339a5338829e6e9c9454bdfa7397a`
 - Bundled Python package: `yt-dlp==2026.6.9`
-- License details are provided by the upstream project.
+- The yt-dlp project source is dedicated under the Unlicense. The official
+  PyInstaller standalone executable includes GPL-licensed components; upstream
+  identifies that distributed combined work as GPL version 3 or later.
+- macOS bundle license texts: `tools/licenses/GPL-3.0-or-later.txt`,
+  `tools/licenses/yt-dlp-Unlicense.txt`, and
+  `tools/licenses/yt-dlp-THIRD_PARTY_LICENSES.txt`
 
 ## yt-dlp-ejs
 
@@ -69,6 +77,8 @@ This project bundles command-line tools used by YT Downloader Pro.
 - Version: 3.100
 - License: GNU Lesser General Public License, version 2
 - Purpose: statically linked into FFmpeg to provide the `libmp3lame` MP3 encoder.
+- Both bundled `ffmpeg` and `ffprobe` contain LAME symbols and are represented by
+  `STATIC_LINK` relationships in the macOS SPDX document.
 - License text: `tools/licenses/LAME-LGPL-2.0.txt`
 
 ## Swift 2.0 macOS Bundle
@@ -80,9 +90,17 @@ The Swift 2.0 packaging script copies exactly one of each macOS helper to:
 - `YT Downloader Pro 2.app/Contents/Helpers/ffprobe`
 - `YT Downloader Pro 2.app/Contents/Helpers/qjs`
 
-It also copies this notice and the FFmpeg, LAME, and QuickJS license texts under
+It also copies this notice, a source-availability index, an SPDX 2.3 SBOM, and
+the exact yt-dlp, FFmpeg, LAME, and QuickJS license texts under
 `Contents/Resources/`. Repository helper files are not modified during assembly;
-only copied bundle files are re-signed.
+only copied bundle files are re-signed. The SBOM records both the canonical
+pre-signing helper hashes and the final hashes after the copied helpers are
+signed.
+
+The canonical inventory is `tools/macos-helper-inventory.json`. Its helper and
+license hashes are enforced by `scripts/generate_swift_sbom.py`; the packaged
+SBOM is independently enforced by `scripts/check_swift_bundle.py`. See
+`docs/swift-2.0/SBOM_AND_LICENSES.md` for the maintenance contract and limits.
 
 The current provenance-aligned FFmpeg 9.0, FFprobe 9.0, and QuickJS 2026-06-04
 binaries are arm64-only. `yt-dlp_macos` is universal, but that does not make the

@@ -14,13 +14,16 @@ toolchain.
 
 ## Deterministic Assembly
 
-The build script accepts a three-component version and an explicit signing mode.
-For the current internal candidate:
+The build script accepts a three-component version, an explicit signing mode,
+and an explicit RFC3339 UTC SBOM creation time. Use the actual candidate evidence
+timestamp; do not silently reuse the helper inventory date. For the current
+internal candidate:
 
 ```bash
 ./scripts/build_swift_2.sh \
   --version 2.0.0 \
   --architectures arm64 \
+  --sbom-created 2026-08-27T00:00:00Z \
   --unsigned-test
 ```
 
@@ -43,13 +46,17 @@ The script performs these steps in order:
 3. release-build `YTDownloaderPro2` for `arm64-apple-macosx13.0` in
    `build/swift-2.0/arm64`.
 4. Assemble a fresh app with one main executable and exactly four helpers.
-5. Copy `AppIcon.icns`, notices, license texts, `AppMetadata.json`, the source
-   catalog, and compiled English/Japanese/Traditional Chinese resources.
+5. Copy `AppIcon.icns`, notices, the source-availability index, exact license
+   texts, `AppMetadata.json`, the source catalog, and compiled
+   English/Japanese/Traditional Chinese resources.
 6. Set executable/resource modes and remove only `com.apple.quarantine` from
    copied app files. Repository helpers are not modified.
-7. Sign helpers first and the outer app last.
-8. Run the fail-closed verifier and write deterministic JSON.
-9. Create a sorted ZIP with fixed timestamps and preserved POSIX modes.
+7. Sign all four helpers.
+8. Validate the canonical helper/license inventory and generate an SPDX 2.3
+   SBOM from the final signed helper bytes.
+9. Sign the outer app last, protecting the SBOM and all resources.
+10. Run the fail-closed verifier and write deterministic JSON.
+11. Create a sorted ZIP with fixed timestamps and preserved POSIX modes.
 
 Assembly and archive metadata are deterministic for the same signed bundle.
 Swift compiler output, Developer ID secure timestamps, and Apple notarization
@@ -72,6 +79,8 @@ YT Downloader Pro 2.app/
       AppIcon.icns
       AppMetadata.json
       Localizable.xcstrings
+      SBOM.spdx.json
+      SOURCE_AVAILABILITY.md
       THIRD_PARTY_NOTICES.md
       ThirdPartyLicenses/
       en.lproj/Localizable.strings
@@ -86,11 +95,12 @@ macOS `13.0`, executable `YT Downloader Pro 2`, and identifier
 ## Independent Internal Verification
 
 ```bash
-python3 -m unittest tests.test_swift_bundle -v
+python3 -m unittest tests.test_swift_sbom tests.test_swift_bundle -v
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
   --expected-version 2.0.0 \
-  --architectures arm64
+  --architectures arm64 \
+  --inventory tools/macos-helper-inventory.json
 codesign --verify --deep --strict --verbose=2 \
   'dist/YT Downloader Pro 2.app'
 unzip -l 'dist/YT-Downloader-Pro-2.0.0-macOS-arm64-internal.zip'
@@ -107,7 +117,13 @@ Execute the copied helpers, never the repository inputs, for final evidence:
 
 The verifier also checks lipo slices, deployment targets, system-only dynamic
 dependencies, FFmpeg/FFprobe agreement, all signatures, symlink/inode aliases,
-extra executables, required resources, and absence of writable app state.
+extra executables, required resources, absence of writable app state, exact SBOM
+helper hashes, and agreement between executed helper versions and SBOM package
+versions.
+
+The SBOM and source index are technical release evidence, not legal approval.
+Before a commercial release, complete the legal gate in
+`docs/swift-2.0/SBOM_AND_LICENSES.md` and the repository's legal review brief.
 
 Prove the unsupported request fails before assembly:
 
@@ -115,6 +131,7 @@ Prove the unsupported request fails before assembly:
 ./scripts/build_swift_2.sh \
   --version 2.0.0 \
   --architectures universal \
+  --sbom-created 2026-08-27T00:00:00Z \
   --unsigned-test
 ```
 
@@ -128,6 +145,7 @@ List identities and set the exact Application identity:
 ```bash
 security find-identity -v -p codesigning
 IDENTITY='Developer ID Application: Example Name (TEAMID)'
+TEAM_ID='TEAMID1234'
 ```
 
 Build with hardened runtime and secure timestamps:
@@ -136,12 +154,16 @@ Build with hardened runtime and secure timestamps:
 ./scripts/build_swift_2.sh \
   --version 2.0.0 \
   --architectures arm64 \
-  --signing-identity "$IDENTITY"
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
+  --signing-identity "$IDENTITY" \
+  --team-id "$TEAM_ID"
 ```
 
-The script signs each helper with `--options runtime --timestamp`, then signs the
-outer app with the same options. Do not use `codesign --deep` to create a release
-signature; `--deep` is a verification option here.
+The script signs each helper with `--options runtime --timestamp`, generates the
+SBOM, then signs the outer app with the same options. The verifier checks every
+helper and the app for a `Developer ID Application` authority and the exact Team
+ID before it executes helper code. Do not use `codesign --deep` to create a
+release signature; `--deep` is a verification option here.
 
 Inspect and assess the candidate:
 
@@ -177,6 +199,9 @@ python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
   --expected-version 2.0.0 \
   --architectures arm64 \
+  --inventory tools/macos-helper-inventory.json \
+  --signing-mode developer-id \
+  --expected-team-id "$TEAM_ID" \
   --report dist/swift-2.0-bundle-report.json \
   --archive dist/YT-Downloader-Pro-2.0.0-macOS-arm64.zip
 ```

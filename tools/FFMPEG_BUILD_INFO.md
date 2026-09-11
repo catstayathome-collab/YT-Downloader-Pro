@@ -18,6 +18,8 @@ upstream source on 2026-08-12 for YT Downloader Pro 1.8.7.
 - Compiler: Apple clang 17.0.0
 - FFmpeg license reported by configure: LGPL 2.1 or later
 - External codec library: statically built LAME 3.100 (`libmp3lame`)
+- Symbol inspection: both repository `ffmpeg` and `ffprobe` contain LAME symbols,
+  so the source inventory records LAME as statically linked into both helpers.
 - Dynamic dependencies: macOS system frameworks and `/usr/lib` libraries only
 
 FFmpeg configure options:

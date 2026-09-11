@@ -26,10 +26,10 @@ Result values: `Pass`, `Fail`, `Blocked`, or `Not run`.
 | Full pinned Python suite | `python3 -c 'import yaml' && python3 -m unittest discover -s tests -v` (after activating the project venv) | | |
 | Full strict Swift suite | `cd swift-2.0 && swift test --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
 | macOS 13 arm64 release build | `swift build --package-path swift-2.0 --configuration release --triple arm64-apple-macosx13.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
-| End-to-end internal bundle | `./scripts/build_swift_2.sh --version 2.0.0 --architectures arm64 --unsigned-test` | | |
-| Independent bundle verification | `python3 scripts/check_swift_bundle.py 'dist/YT Downloader Pro 2.app' --expected-version 2.0.0 --architectures arm64` | | |
+| End-to-end internal bundle | `./scripts/build_swift_2.sh --version 2.0.0 --architectures arm64 --sbom-created 2026-08-27T00:00:00Z --unsigned-test` | | |
+| Independent bundle verification | `python3 scripts/check_swift_bundle.py 'dist/YT Downloader Pro 2.app' --expected-version 2.0.0 --architectures arm64 --inventory tools/macos-helper-inventory.json` | | |
 | Strict signature check | `codesign --verify --deep --strict --verbose=2 'dist/YT Downloader Pro 2.app'` | | |
-| Universal request fails closed | `./scripts/build_swift_2.sh --version 2.0.0 --architectures universal --unsigned-test` | | |
+| Universal request fails closed | `./scripts/build_swift_2.sh --version 2.0.0 --architectures universal --sbom-created 2026-08-27T00:00:00Z --unsigned-test` | | |
 
 ## Platform And Installation
 

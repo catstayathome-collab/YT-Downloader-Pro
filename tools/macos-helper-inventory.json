@@ -1,0 +1,119 @@
+{
+  "components": [
+    {
+      "downloadLocation": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp_macos",
+      "helpers": [
+        {
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "name": "yt-dlp_macos",
+          "sha256": "498bd0dae17855c599d371d68ec5bafc439a9d8640e838be25c765a9792f261b"
+        }
+      ],
+      "id": "yt-dlp",
+      "licenseConcluded": "GPL-3.0-or-later",
+      "licenseDeclared": "GPL-3.0-or-later",
+      "licenseFiles": [
+        {
+          "name": "GPL-3.0-or-later.txt",
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "name": "yt-dlp-Unlicense.txt",
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+        },
+        {
+          "name": "yt-dlp-THIRD_PARTY_LICENSES.txt",
+          "sha256": "b085c65586a953cdb4b13c6390d63ec984d66912e4b6a19e66ba3582f2ed104b"
+        }
+      ],
+      "name": "yt-dlp macOS standalone",
+      "sourceInfo": "Official PyInstaller macOS release binary for tag 2026.07.04. Its SHA-256 matches the signed-release SHA2-256SUMS file. Upstream source archive: https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.tar.gz (SHA-256 31c32457d1a573a341bb0929386c624fe47339a5338829e6e9c9454bdfa7397a). The standalone binary includes third-party components and upstream identifies the combined work as GPL-3.0-or-later.",
+      "supplier": "Organization: yt-dlp contributors",
+      "version": "2026.07.04"
+    },
+    {
+      "downloadLocation": "https://ffmpeg.org/releases/ffmpeg-9.0.tar.xz",
+      "helpers": [
+        {
+          "architectures": [
+            "arm64"
+          ],
+          "name": "ffmpeg",
+          "sha256": "6460942f5665043fb23aab1964940afd7e1a707751b38142066e97381b00982d"
+        },
+        {
+          "architectures": [
+            "arm64"
+          ],
+          "name": "ffprobe",
+          "sha256": "791a41a9821e4a3804f70050f67c2f4449a091ebf0b06dea178c54fe6d32a8e8"
+        }
+      ],
+      "id": "ffmpeg",
+      "licenseConcluded": "LGPL-2.1-or-later",
+      "licenseDeclared": "LGPL-2.1-or-later",
+      "licenseFiles": [
+        {
+          "name": "FFmpeg-LGPL-2.1.txt",
+          "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+        }
+      ],
+      "name": "FFmpeg",
+      "sourceInfo": "Built from FFmpeg 9.0 source archive SHA-256 7f607a00dd0d28a729d5a4811205812eef01cf6ef6155025febb6f36a9062d52. The exact configure command and signed/unsigned binary hashes are recorded in tools/FFMPEG_BUILD_INFO.md. GPL and nonfree configure options are disabled.",
+      "supplier": "Organization: FFmpeg project",
+      "version": "9.0"
+    },
+    {
+      "downloadLocation": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "embeddedInHelpers": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "helpers": [],
+      "id": "lame",
+      "licenseConcluded": "LGPL-2.0-or-later",
+      "licenseDeclared": "LGPL-2.0-or-later",
+      "licenseFiles": [
+        {
+          "name": "LAME-LGPL-2.0.txt",
+          "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd"
+        }
+      ],
+      "name": "LAME",
+      "sourceInfo": "Built from LAME 3.100 source archive SHA-256 ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e and statically linked into the FFmpeg and FFprobe helpers.",
+      "supplier": "Organization: The LAME Project",
+      "version": "3.100"
+    },
+    {
+      "downloadLocation": "https://bellard.org/quickjs/quickjs-2026-06-04.tar.xz",
+      "helpers": [
+        {
+          "architectures": [
+            "arm64"
+          ],
+          "name": "qjs",
+          "sha256": "5851ca28fd6aec806474c233ea74865cac492d1f305c73d44e45a05b45d3f82f"
+        }
+      ],
+      "id": "quickjs",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "licenseFiles": [
+        {
+          "name": "QuickJS-MIT.txt",
+          "sha256": "598fd7fc928e4350abce36e337ba5a1346923c5c692f5be92c3d8e29ddd7c18d"
+        }
+      ],
+      "name": "QuickJS",
+      "sourceInfo": "Built from QuickJS 2026-06-04 source archive SHA-256 b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a. Build details and signed/unsigned binary hashes are recorded in tools/QUICKJS_BUILD_INFO.md.",
+      "supplier": "Organization: QuickJS project",
+      "version": "2026-06-04"
+    }
+  ],
+  "created": "2026-08-27T00:00:00Z",
+  "platform": "macos",
+  "schemaVersion": 1
+}

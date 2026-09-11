@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT_DIR="$ROOT_DIR/swift-2.0"
 BUILD_ROOT="$ROOT_DIR/build/swift-2.0"
+CLANG_MODULE_CACHE_PATH="$SWIFT_DIR/.build/clang-module-cache"
+export CLANG_MODULE_CACHE_PATH
 DIST_DIR="$ROOT_DIR/dist"
 APP_NAME="YT Downloader Pro 2"
 APP_PATH="$DIST_DIR/$APP_NAME.app"
@@ -12,6 +14,8 @@ REPORT_PATH="$DIST_DIR/swift-2.0-bundle-report.json"
 VERSION=""
 ARCHITECTURE_ARGUMENT="arm64"
 SIGNING_IDENTITY=""
+TEAM_ID=""
+SBOM_CREATED=""
 BUILD_KIND=""
 HELPERS=(yt-dlp_macos ffmpeg ffprobe qjs)
 ARCHITECTURES=()
@@ -25,6 +29,8 @@ Options:
                              (default: arm64)
   --unsigned-test            ad-hoc sign an internal-test app and ZIP
   --signing-identity NAME    sign with a Developer ID Application identity
+  --team-id TEAMID           expected 10-character Apple Team ID (Developer ID only)
+  --sbom-created TIMESTAMP   SPDX creation time in RFC3339 UTC form
   -h, --help                 show this help
 EOF
 }
@@ -59,6 +65,16 @@ while (($#)); do
       SIGNING_IDENTITY="$2"
       shift 2
       ;;
+    --team-id)
+      (($# >= 2)) || fail "--team-id requires a value"
+      TEAM_ID="$2"
+      shift 2
+      ;;
+    --sbom-created)
+      (($# >= 2)) || fail "--sbom-created requires a value"
+      SBOM_CREATED="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -71,6 +87,17 @@ done
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--version must contain three numeric components"
 [[ -n "$BUILD_KIND" ]] || fail "--unsigned-test or --signing-identity is required"
+[[ "$SBOM_CREATED" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
+  fail "--sbom-created must be an RFC3339 UTC timestamp such as 2026-08-27T00:00:00Z"
+python3 -c 'import datetime, sys; value = sys.argv[1]; parsed = datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ"); raise SystemExit(0 if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") == value else 1)' \
+  "$SBOM_CREATED" 2>/dev/null || \
+  fail "--sbom-created must be a real RFC3339 UTC date and time"
+if [[ "$BUILD_KIND" == "developer-id" ]]; then
+  [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || \
+    fail "Developer ID builds require --team-id with 10 uppercase letters or digits"
+else
+  [[ -z "$TEAM_ID" ]] || fail "--team-id is valid only with --signing-identity"
+fi
 
 case "$ARCHITECTURE_ARGUMENT" in
   universal|arm64,x86_64|x86_64,arm64)
@@ -117,6 +144,8 @@ preflight_helper_architectures() {
 }
 
 preflight_helper_architectures
+
+mkdir -p "$CLANG_MODULE_CACHE_PATH"
 
 printf 'Running strict Swift tests...\n'
 swift test \
@@ -172,13 +201,20 @@ done
 
 /usr/bin/install -m 644 "$ROOT_DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 /usr/bin/install -m 644 "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES_DIR/THIRD_PARTY_NOTICES.md"
+/usr/bin/install -m 644 "$ROOT_DIR/SOURCE_AVAILABILITY.md" "$RESOURCES_DIR/SOURCE_AVAILABILITY.md"
 /usr/bin/install -m 644 \
   "$SWIFT_DIR/Sources/YTDownloaderPro2/Resources/AppMetadata.json" \
   "$RESOURCES_DIR/AppMetadata.json"
 /usr/bin/install -m 644 \
   "$SWIFT_DIR/Sources/YTDownloaderPro2/Resources/Localizable.xcstrings" \
   "$RESOURCES_DIR/Localizable.xcstrings"
-for license_name in FFmpeg-LGPL-2.1.txt LAME-LGPL-2.0.txt QuickJS-MIT.txt; do
+for license_name in \
+  FFmpeg-LGPL-2.1.txt \
+  GPL-3.0-or-later.txt \
+  LAME-LGPL-2.0.txt \
+  QuickJS-MIT.txt \
+  yt-dlp-THIRD_PARTY_LICENSES.txt \
+  yt-dlp-Unlicense.txt; do
   /usr/bin/install -m 644 \
     "$ROOT_DIR/tools/licenses/$license_name" \
     "$RESOURCES_DIR/ThirdPartyLicenses/$license_name"
@@ -254,6 +290,16 @@ for helper in "${HELPERS[@]}"; do
   fi
 done
 
+python3 "$ROOT_DIR/scripts/generate_swift_sbom.py" \
+  --inventory "$ROOT_DIR/tools/macos-helper-inventory.json" \
+  --source-helper-root "$ROOT_DIR/tools" \
+  --helper-root "$HELPERS_DIR" \
+  --license-root "$ROOT_DIR/tools/licenses" \
+  --app-version "$VERSION" \
+  --created "$SBOM_CREATED" \
+  --output "$RESOURCES_DIR/SBOM.spdx.json"
+chmod 644 "$RESOURCES_DIR/SBOM.spdx.json"
+
 if [[ "$BUILD_KIND" == "internal" ]]; then
   codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
 else
@@ -261,10 +307,16 @@ else
 fi
 
 ARCHITECTURE_CSV="$(IFS=,; printf '%s' "${ARCHITECTURES[*]}")"
+VERIFY_SIGNING_ARGUMENTS=(--signing-mode "$BUILD_KIND")
+if [[ "$BUILD_KIND" == "developer-id" ]]; then
+  VERIFY_SIGNING_ARGUMENTS+=(--expected-team-id "$TEAM_ID")
+fi
 python3 "$ROOT_DIR/scripts/check_swift_bundle.py" \
   "$APP_PATH" \
   --expected-version "$VERSION" \
   --architectures "$ARCHITECTURE_CSV" \
+  --inventory "$ROOT_DIR/tools/macos-helper-inventory.json" \
+  "${VERIFY_SIGNING_ARGUMENTS[@]}" \
   --report "$REPORT_PATH" \
   --archive "$ZIP_PATH"
 
