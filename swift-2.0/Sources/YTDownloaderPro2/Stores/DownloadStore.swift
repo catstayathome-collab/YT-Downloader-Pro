@@ -145,6 +145,7 @@ final class DownloadStore: ObservableObject {
         self.updateChecker = updateChecker
         self.toolchainValidator = toolchainValidator
         consumeCoordinatorEvents()
+        enqueueRecoveredBatchPlaceholders()
     }
 
     func optionsBySelectingOutputDirectory(_ directory: URL, in options: DownloadOptions) throws -> DownloadOptions {
@@ -227,6 +228,8 @@ final class DownloadStore: ObservableObject {
     deinit {
         eventConsumptionTask?.cancel()
         analysisTask?.cancel()
+        batchAnalysisRequestTask?.cancel()
+        batchAnalysisTask?.cancel()
         updateOperation?.task.cancel()
         let retries = retryOperations.values.flatMap(\.values).map(\.task)
         let thumbnails = thumbnailOperations.values.flatMap(\.values).map(\.task)
@@ -234,8 +237,12 @@ final class DownloadStore: ObservableObject {
         thumbnails.forEach { $0.cancel() }
 
         let analysis = analysisTask
+        let batchRequest = batchAnalysisRequestTask
+        let batch = batchAnalysisTask
         Task.detached {
             _ = await analysis?.result
+            _ = await batchRequest?.result
+            await batch?.value
             for task in retries {
                 _ = await task.result
             }
@@ -683,6 +690,16 @@ final class DownloadStore: ObservableObject {
     func cancel(_ jobID: UUID) async {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        if jobs[index].status == .analyzing, jobs[index].awaitsBatchAnalysis {
+            pendingBatchAnalysisIDs.removeAll { $0 == jobID }
+            jobs[index].awaitsBatchAnalysis = false
+            transitionJob(at: index, to: .cancelled)
+            if currentBatchAnalysisJobID == jobID {
+                batchAnalysisRequestTask?.cancel()
+            }
+            await persist(flush: true)
+            return
+        }
         switch jobs[index].status {
         case .queued:
             if coordinatorManagedJobIDs.contains(jobID) {
@@ -990,6 +1007,7 @@ final class DownloadStore: ObservableObject {
             guard !isPreparingToQuit else { return }
             jobs = restored
             selection = selection.intersection(Set(jobs.map(\.id)))
+            enqueueRecoveredBatchPlaceholders()
         } catch {
             let failure = DownloadFailure.classify(
                 stderr: String(describing: error),
@@ -1079,6 +1097,13 @@ final class DownloadStore: ObservableObject {
         analysisTask = nil
         analysis?.cancel()
 
+        let batchRequest = batchAnalysisRequestTask
+        let batch = batchAnalysisTask
+        batchAnalysisRequestTask = nil
+        batchAnalysisTask = nil
+        batchRequest?.cancel()
+        batch?.cancel()
+
         currentRetryGeneration.removeAll()
         currentQueuedEditGeneration.removeAll()
         let retries = retryOperations.values.flatMap(\.values).map(\.task)
@@ -1089,6 +1114,8 @@ final class DownloadStore: ObservableObject {
         thumbnails.forEach { $0.cancel() }
 
         _ = await analysis?.result
+        _ = await batchRequest?.result
+        await batch?.value
         for task in retries {
             _ = await task.result
         }
@@ -1256,6 +1283,19 @@ final class DownloadStore: ObservableObject {
             && jobs.contains(where: { $0.id == jobID })
     }
 
+    private func enqueueRecoveredBatchPlaceholders() {
+        guard !isPreparingToQuit else { return }
+        let knownIDs = Set(pendingBatchAnalysisIDs + [currentBatchAnalysisJobID].compactMap { $0 })
+        let recoveredIDs = jobs.compactMap { job -> UUID? in
+            guard job.status == .analyzing,
+                  job.awaitsBatchAnalysis,
+                  !knownIDs.contains(job.id) else { return nil }
+            return job.id
+        }
+        pendingBatchAnalysisIDs.append(contentsOf: recoveredIDs)
+        startBatchAnalysisIfNeeded()
+    }
+
     private func invalidateRetry(for jobID: UUID) {
         currentRetryGeneration[jobID] = nil
         retryOperations[jobID]?.values.forEach { $0.task.cancel() }
@@ -1275,7 +1315,7 @@ final class DownloadStore: ObservableObject {
     private static func recoveredJobs(from jobs: [DownloadJob]) -> [DownloadJob] {
         jobs.map { job in
             var restored = job.scrubbingRetainedMediaURLCredentials()
-            if restored.status.isActive {
+            if restored.status.isActive, !restored.awaitsBatchAnalysis {
                 restored.status = .paused
                 restored.updatedAt = .now
             }

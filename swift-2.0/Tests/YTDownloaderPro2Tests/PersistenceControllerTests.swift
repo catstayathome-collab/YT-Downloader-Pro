@@ -40,6 +40,16 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(restored.map(\.status), [.paused, .paused, .paused, .queued, .completed])
     }
 
+    func testInterruptedBatchAnalysisPlaceholderRemainsAnalyzingForStoreRecovery() async throws {
+        let sut = PersistenceController(root: try temporaryDirectory())
+        let placeholder = DownloadJob.fixture(status: .analyzing, awaitsBatchAnalysis: true)
+
+        let restored = await sut.recoverInterruptedJobs([placeholder])
+
+        XCTAssertEqual(restored.first?.status, .analyzing)
+        XCTAssertEqual(restored.first?.awaitsBatchAnalysis, true)
+    }
+
     func testLoadingJobsRestoresInterruptedActiveJobsAsPaused() async throws {
         let sut = PersistenceController(root: try temporaryDirectory())
         try await sut.saveJobs([.fixture(status: .merging)], flush: true)

@@ -77,7 +77,7 @@ actor PersistenceController {
     func recoverInterruptedJobs(_ jobs: [DownloadJob]) -> [DownloadJob] {
         jobs.map { job in
             var restored = job.scrubbingRetainedMediaURLCredentials()
-            if restored.status.isActive {
+            if restored.status.isActive, !restored.awaitsBatchAnalysis {
                 restored.status = .paused
             }
             return restored

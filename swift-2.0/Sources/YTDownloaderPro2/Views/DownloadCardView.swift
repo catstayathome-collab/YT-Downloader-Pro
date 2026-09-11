@@ -137,6 +137,8 @@ struct DownloadCardPresentation: Equatable {
         switch job.status {
         case .queued:
             [.edit, .startNow, .cancel]
+        case .analyzing where job.awaitsBatchAnalysis:
+            [.cancel]
         case .analyzing, .downloading:
             [.pause, .cancel]
         case .paused:

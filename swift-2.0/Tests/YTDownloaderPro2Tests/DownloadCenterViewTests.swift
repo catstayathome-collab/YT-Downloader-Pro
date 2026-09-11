@@ -102,6 +102,12 @@ final class DownloadCenterViewTests: XCTestCase {
         )
     }
 
+    func testBatchAnalysisPlaceholderOffersCancelWithoutInactivePauseAction() {
+        let placeholder = DownloadJob.fixture(status: .analyzing, awaitsBatchAnalysis: true)
+
+        XCTAssertEqual(DownloadCardPresentation(job: placeholder).actions, [.cancel])
+    }
+
     func testFailedAndCancelledCardsUseRecordActions() {
         XCTAssertEqual(
             DownloadCardPresentation(job: .fixture(status: .failed)).actions,
