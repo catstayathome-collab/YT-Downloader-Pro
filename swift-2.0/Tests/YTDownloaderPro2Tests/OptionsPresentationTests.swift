@@ -315,6 +315,15 @@ final class OptionsPresentationTests: XCTestCase {
                 clipboard: "https://media-user:media-password@www.youtube.com/watch?v=video123"
             )
         )
+        XCTAssertEqual(
+            DownloadCenterCommandRouter.route(
+                .commandV,
+                focus: .nonEditable,
+                selectedJob: nil,
+                clipboard: "https://youtu.be/one\nhttps://youtu.be/two"
+            ),
+            .placeClipboardURL("https://youtu.be/one https://youtu.be/two")
+        )
     }
 
     private func videoAnalysis(videoFormats: [MediaFormat], audioFormats: [MediaFormat]) -> VideoAnalysis {

@@ -2,6 +2,54 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
+    func testURLInputPresentationReplacesLineBreaksWithoutDiscardingLinks() {
+        let input = "https://youtu.be/one\r\nhttps://youtu.be/two\nhttps://youtu.be/three"
+
+        XCTAssertEqual(
+            URLInputPresentation.displayText(for: input),
+            "https://youtu.be/one https://youtu.be/two https://youtu.be/three"
+        )
+    }
+
+    func testURLInputClearsOnlyAfterAtLeastOneURLIsAccepted() {
+        XCTAssertTrue(URLInputPresentation.shouldClearInput(after: URLInputSubmissionResult(
+            acceptedCount: 2,
+            rejectedCount: 1,
+            duplicateCount: 1
+        )))
+        XCTAssertFalse(URLInputPresentation.shouldClearInput(after: URLInputSubmissionResult(
+            acceptedCount: 0,
+            rejectedCount: 1,
+            duplicateCount: 0
+        )))
+    }
+
+    func testURLInputFeedbackUsesCountsWithoutEchoingSubmittedURLs() throws {
+        let secretURL = "https://example.test/private-video"
+        let result = URLInputSubmissionResult(acceptedCount: 2, rejectedCount: 1, duplicateCount: 1)
+
+        for identifier in ["en", "ja", "zh-Hant"] {
+            let feedback = try XCTUnwrap(
+                URLInputPresentation.feedback(for: result, locale: Locale(identifier: identifier))
+            )
+            XCTAssertTrue(feedback.contains("2"))
+            XCTAssertTrue(feedback.contains("1"))
+            XCTAssertFalse(feedback.contains(secretURL))
+        }
+    }
+
+    func testNoValidURLFeedbackIsLocalizedAndDoesNotClearInput() throws {
+        let result = URLInputSubmissionResult(acceptedCount: 0, rejectedCount: 2, duplicateCount: 0)
+
+        let values = ["en", "ja", "zh-Hant"].map {
+            URLInputPresentation.feedback(for: result, locale: Locale(identifier: $0))
+        }
+
+        XCTAssertTrue(values.allSatisfy { $0?.isEmpty == false })
+        XCTAssertEqual(Set(values.compactMap { $0 }).count, 3)
+        XCTAssertFalse(URLInputPresentation.shouldClearInput(after: result))
+    }
+
     func testBulkToolbarExplainsDisabledCompletedOnlyStateAndKeepsClearHistoryAvailable() {
         let presentation = DownloadCenterBulkPresentation(jobs: [.fixture(status: .completed)])
 

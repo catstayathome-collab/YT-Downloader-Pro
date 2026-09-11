@@ -1266,6 +1266,52 @@
         }
       }
     },
+    "downloadCenter.batch.analyzingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyzing media"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアを解析中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在分析媒體"
+          }
+        }
+      }
+    },
+    "downloadCenter.batch.playlistEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No available videos were found in this playlist."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この再生リストには利用可能な動画がありません。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個播放清單中沒有可用的影片。"
+          }
+        }
+      }
+    },
     "downloadCenter.bulk.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -1400,6 +1446,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "此分類中沒有下載項目"
+          }
+        }
+      }
+    },
+    "downloadCenter.input.accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d links accepted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 件のリンクを受け付けました。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已接受 %d 個連結。"
+          }
+        }
+      }
+    },
+    "downloadCenter.input.duplicateSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d duplicate links skipped."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 件の重複リンクをスキップしました。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過 %d 個重複連結。"
+          }
+        }
+      }
+    },
+    "downloadCenter.input.invalidSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d invalid links skipped."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 件の無効なリンクをスキップしました。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過 %d 個無效連結。"
+          }
+        }
+      }
+    },
+    "downloadCenter.input.noValidURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid HTTP or HTTPS links were found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な HTTP または HTTPS リンクが見つかりませんでした。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到有效的 HTTP 或 HTTPS 連結。"
           }
         }
       }

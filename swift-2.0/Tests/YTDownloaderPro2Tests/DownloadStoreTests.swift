@@ -577,8 +577,8 @@ final class DownloadStoreTests: XCTestCase {
         try await quit.value
 
         XCTAssertEqual(fixture.store.jobs.map(\.title), [
-            L10n.string(.downloadCenterAnalyzing, locale: fixture.store.settings.locale),
-            L10n.string(.downloadCenterAnalyzing, locale: fixture.store.settings.locale)
+            L10n.string(.downloadCenterBatchAnalyzingTitle, locale: fixture.store.settings.locale),
+            L10n.string(.downloadCenterBatchAnalyzingTitle, locale: fixture.store.settings.locale)
         ])
         XCTAssertTrue(fixture.store.jobs.allSatisfy { $0.awaitsBatchAnalysis })
         let persisted = try await fixture.persistence.loadJobs()

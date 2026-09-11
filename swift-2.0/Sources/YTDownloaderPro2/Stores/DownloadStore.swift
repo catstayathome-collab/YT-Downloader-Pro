@@ -356,7 +356,7 @@ final class DownloadStore: ObservableObject {
         let placeholders = parsed.urls.enumerated().map { index, url in
             DownloadJob(
                 sourceURL: url,
-                title: L10n.string(.downloadCenterAnalyzing, locale: settings.locale),
+                title: L10n.string(.downloadCenterBatchAnalyzingTitle, locale: settings.locale),
                 status: .analyzing,
                 options: settings.defaultOptions,
                 awaitsBatchAnalysis: true,
@@ -565,12 +565,14 @@ final class DownloadStore: ObservableObject {
         let placeholder = jobs[index]
         let entries = playlist.entries.filter(\.isAvailable)
         guard !entries.isEmpty else {
+            var failure = DownloadFailure(
+                category: .metadataUnavailable,
+                technicalDetail: "The analyzed playlist contained no available entries."
+            )
+            failure.summaryKey = L10n.Key.downloadCenterBatchPlaylistEmpty.rawValue
             await failBatchPlaceholder(
                 jobID,
-                with: DownloadFailure(
-                    category: .metadataUnavailable,
-                    technicalDetail: "The analyzed playlist contained no available entries."
-                )
+                with: failure
             )
             return
         }

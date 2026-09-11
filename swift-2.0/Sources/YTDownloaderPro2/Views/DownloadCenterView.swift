@@ -227,6 +227,37 @@ enum DownloadCenterCommandDecision: Equatable {
     case placeClipboardURL(String)
 }
 
+enum URLInputPresentation {
+    static func displayText(for input: String) -> String {
+        input
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+
+    static func shouldClearInput(after result: URLInputSubmissionResult) -> Bool {
+        result.acceptedCount > 0
+    }
+
+    static func feedback(for result: URLInputSubmissionResult, locale: Locale) -> String? {
+        guard result.acceptedCount > 0 else {
+            return L10n.string(.downloadCenterInputNoValidURL, locale: locale)
+        }
+
+        var messages: [String] = []
+        if result.acceptedCount > 1 {
+            messages.append(L10n.string(.downloadCenterInputAccepted, locale: locale, result.acceptedCount))
+        }
+        if result.rejectedCount > 0 {
+            messages.append(L10n.string(.downloadCenterInputInvalidSkipped, locale: locale, result.rejectedCount))
+        }
+        if result.duplicateCount > 0 {
+            messages.append(L10n.string(.downloadCenterInputDuplicateSkipped, locale: locale, result.duplicateCount))
+        }
+        return messages.isEmpty ? nil : messages.joined(separator: " ")
+    }
+}
+
 enum DownloadCenterCommandRouter {
     // Keep routing pure so a monitor consumes input only when the current focus makes the command legal.
     static func route(
@@ -252,14 +283,10 @@ enum DownloadCenterCommandRouter {
             return focus == .playlistSelectionSheet ? .selectAllPlaylistEntries : nil
         case .commandV:
             guard focus == .nonEditable,
-                  let clipboard = clipboard?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  isSupportedURL(clipboard) else { return nil }
-            return .placeClipboardURL(clipboard)
+                  let clipboard,
+                  !MediaURLInputParser.parse(clipboard).urls.isEmpty else { return nil }
+            return .placeClipboardURL(URLInputPresentation.displayText(for: clipboard))
         }
-    }
-
-    private static func isSupportedURL(_ value: String) -> Bool {
-        MediaURLValidator.isSupported(value)
     }
 }
 
@@ -300,6 +327,7 @@ struct DownloadCenterView: View {
     @State private var pendingRecordRemovalJobID: UUID?
     @State private var playlistSelectAllToken = UUID()
     @State private var showsAnalysisErrorDetails = false
+    @State private var urlInputFeedback: String?
     @FocusState private var focusedField: FocusedField?
 
     private enum FocusedField: Hashable {
@@ -490,6 +518,14 @@ struct DownloadCenterView: View {
 
                     Button(L10n.string(.downloadCenterAnalyze, locale: locale), action: analyzeURL)
                         .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAnalyzing)
+                }
+
+                if let urlInputFeedback {
+                    Text(urlInputFeedback)
+                        .font(.caption)
+                        .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(urlInputFeedback)
                 }
 
                 bulkToolbar
@@ -713,9 +749,15 @@ struct DownloadCenterView: View {
     }
 
     private func analyzeURL() {
-        let requestedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requestedURL.isEmpty else { return }
-        Task { await store.analyzeURL(requestedURL) }
+        let submittedInput = url
+        guard !submittedInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task { @MainActor in
+            let result = await store.submitURLInput(submittedInput)
+            if URLInputPresentation.shouldClearInput(after: result), url == submittedInput {
+                url = ""
+            }
+            urlInputFeedback = URLInputPresentation.feedback(for: result, locale: locale)
+        }
     }
 
     private func count(for section: DownloadStatus.SidebarSection) -> Int {
