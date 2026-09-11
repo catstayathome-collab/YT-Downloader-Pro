@@ -26,6 +26,7 @@ extension DownloadJob {
         outputKind: OutputKind = .mp4,
         cookies: CookieMode = .none,
         retryCount: Int = 0,
+        awaitsBatchAnalysis: Bool = false,
         outputURL: URL? = URL(fileURLWithPath: "/tmp/Example video.mp4")
     ) -> DownloadJob {
         DownloadJob(
@@ -35,7 +36,8 @@ extension DownloadJob {
             status: status,
             outputURL: outputURL,
             options: .fixture(outputKind: outputKind, cookies: cookies),
-            retryCount: retryCount
+            retryCount: retryCount,
+            awaitsBatchAnalysis: awaitsBatchAnalysis
         )
     }
 

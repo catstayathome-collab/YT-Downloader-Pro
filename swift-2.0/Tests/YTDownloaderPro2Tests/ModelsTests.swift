@@ -159,6 +159,28 @@ final class ModelsTests: XCTestCase {
         )
     }
 
+    func testBatchAnalysisMarkerRoundTrips() throws {
+        let job = DownloadJob.fixture(status: .analyzing, awaitsBatchAnalysis: true)
+
+        let encoded = try JSONEncoder().encode(job)
+        let decoded = try JSONDecoder().decode(DownloadJob.self, from: encoded)
+
+        XCTAssertTrue(decoded.awaitsBatchAnalysis)
+    }
+
+    func testLegacyJobWithoutBatchAnalysisMarkerDefaultsToFalse() throws {
+        let job = DownloadJob.fixture(status: .analyzing, awaitsBatchAnalysis: true)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as? [String: Any])
+        object.removeValue(forKey: "awaitsBatchAnalysis")
+
+        let decoded = try JSONDecoder().decode(
+            DownloadJob.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertFalse(decoded.awaitsBatchAnalysis)
+    }
+
     func testDownloadFailureRedactsEveryCookieHeaderValue() throws {
         let failure = DownloadFailure(
             category: .unknown,

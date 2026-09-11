@@ -14,6 +14,17 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(loaded, jobs)
     }
 
+    func testRoundTripPreservesBatchAnalysisPlaceholderMarker() async throws {
+        let root = try temporaryDirectory()
+        let sut = PersistenceController(root: root)
+        let job = DownloadJob.fixture(status: .analyzing, awaitsBatchAnalysis: true)
+
+        try await sut.saveJobs([job], flush: true)
+
+        let loaded = try await sut.loadJobs()
+        XCTAssertEqual(loaded.first?.awaitsBatchAnalysis, true)
+    }
+
     func testInterruptedActiveJobsRestoreAsPaused() async throws {
         let sut = PersistenceController(root: try temporaryDirectory())
         let jobs: [DownloadJob] = [
