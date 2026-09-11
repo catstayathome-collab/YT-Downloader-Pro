@@ -9,6 +9,12 @@ enum AnalysisState: Equatable {
     case failed(DownloadFailure)
 }
 
+struct URLInputSubmissionResult: Equatable, Sendable {
+    let acceptedCount: Int
+    let rejectedCount: Int
+    let duplicateCount: Int
+}
+
 struct FailedJobEditSession: Equatable, Sendable, Identifiable {
     let jobID: UUID
     let generation: UInt64
@@ -95,6 +101,10 @@ final class DownloadStore: ObservableObject {
     private var nextOperationGeneration: UInt64 = 0
     private var analysisGeneration: UInt64 = 0
     private var analysisTask: Task<AnalysisResult, Error>?
+    private var pendingBatchAnalysisIDs: [UUID] = []
+    private var currentBatchAnalysisJobID: UUID?
+    private var batchAnalysisTask: Task<Void, Never>?
+    private var batchAnalysisRequestTask: Task<AnalysisResult, Error>?
     private var currentRetryGeneration: [UUID: UInt64] = [:]
     private var discardingRecordIDs: Set<UUID> = []
     private var currentQueuedEditGeneration: [UUID: UInt64] = [:]
@@ -314,6 +324,45 @@ final class DownloadStore: ObservableObject {
         }
     }
 
+    func submitURLInput(_ input: String) async -> URLInputSubmissionResult {
+        let parsed = MediaURLInputParser.parse(input)
+        let submission = URLInputSubmissionResult(
+            acceptedCount: parsed.urls.count,
+            rejectedCount: parsed.rejectedCount,
+            duplicateCount: parsed.duplicateCount
+        )
+        guard !isPreparingToQuit else { return submission }
+        guard !parsed.urls.isEmpty else {
+            analysisState = .failed(DownloadFailure(
+                category: .invalidURL,
+                technicalDetail: "No supported HTTP or HTTPS URL was found in the submitted text."
+            ))
+            return submission
+        }
+
+        if parsed.urls.count == 1, let url = parsed.urls.first {
+            await analyzeURL(url)
+            return submission
+        }
+
+        let createdAt = Date.now
+        let placeholders = parsed.urls.enumerated().map { index, url in
+            DownloadJob(
+                sourceURL: url,
+                title: L10n.string(.downloadCenterAnalyzing, locale: settings.locale),
+                status: .analyzing,
+                options: settings.defaultOptions,
+                awaitsBatchAnalysis: true,
+                createdAt: createdAt.addingTimeInterval(-Double(index) / 1_000)
+            )
+        }
+        jobs.append(contentsOf: placeholders)
+        pendingBatchAnalysisIDs.append(contentsOf: placeholders.map(\.id))
+        await persist(flush: true)
+        startBatchAnalysisIfNeeded()
+        return submission
+    }
+
     func addVideo(options: DownloadOptions) async {
         guard case let .video(video) = analysisState, !isPreparingToQuit else { return }
         let job = DownloadJob(
@@ -428,6 +477,127 @@ final class DownloadStore: ObservableObject {
         guard !queuedNewJobs.isEmpty else { return }
         coordinatorManagedJobIDs.formUnion(queuedNewJobs.map(\.id))
         await coordinator.enqueue(queuedNewJobs)
+    }
+
+    private func startBatchAnalysisIfNeeded() {
+        guard batchAnalysisTask == nil, !pendingBatchAnalysisIDs.isEmpty, !isPreparingToQuit else { return }
+        batchAnalysisTask = Task { @MainActor [weak self] in
+            await self?.processBatchAnalysisQueue()
+        }
+    }
+
+    private func processBatchAnalysisQueue() async {
+        defer {
+            currentBatchAnalysisJobID = nil
+            batchAnalysisRequestTask = nil
+            batchAnalysisTask = nil
+        }
+
+        while !Task.isCancelled, !isPreparingToQuit, !pendingBatchAnalysisIDs.isEmpty {
+            let jobID = pendingBatchAnalysisIDs.removeFirst()
+            guard let job = jobs.first(where: {
+                $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
+            }) else { continue }
+
+            currentBatchAnalysisJobID = jobID
+            let analyzer = metadataAnalyzer
+            let toolchainValidator = self.toolchainValidator
+            let requestTask = Task {
+                try await Self.analyze(
+                    url: job.sourceURL,
+                    options: job.options,
+                    using: analyzer,
+                    toolchainValidator: toolchainValidator
+                )
+            }
+            batchAnalysisRequestTask = requestTask
+            let result = await requestTask.result
+            batchAnalysisRequestTask = nil
+            currentBatchAnalysisJobID = nil
+
+            guard !Task.isCancelled, !isPreparingToQuit,
+                  jobs.contains(where: {
+                      $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
+                  }) else { continue }
+
+            switch result {
+            case let .success(.video(video)):
+                await adoptBatchVideo(video, for: jobID)
+            case let .success(.playlist(playlist)):
+                await adoptBatchPlaylist(playlist, for: jobID)
+            case let .failure(error):
+                await failBatchPlaceholder(jobID, with: failure(from: error))
+            }
+        }
+    }
+
+    private func adoptBatchVideo(_ video: VideoAnalysis, for jobID: UUID) async {
+        guard let index = jobs.firstIndex(where: {
+            $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
+        }) else { return }
+        jobs[index].sourceURL = video.sourceURL
+        jobs[index].title = video.title
+        jobs[index].titleSource = video.titleSource
+        jobs[index].duration = video.duration
+        jobs[index].sourceMetadata = video.sourceURL
+        jobs[index].options = jobs[index].options.replacingStaleSelections(with: video)
+        jobs[index].failure = nil
+        jobs[index].awaitsBatchAnalysis = false
+        transitionJob(at: index, to: .queued)
+        let job = jobs[index]
+        await persist(flush: true)
+        guard jobs.contains(where: { $0.id == jobID && $0.status == .queued }) else { return }
+        cacheThumbnail(from: video.thumbnailURL, for: jobID)
+        await automaticallyStartNewJobs([job])
+    }
+
+    private func adoptBatchPlaylist(_ playlist: PlaylistAnalysis, for jobID: UUID) async {
+        guard let index = jobs.firstIndex(where: {
+            $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
+        }) else { return }
+        let placeholder = jobs[index]
+        let entries = playlist.entries.filter(\.isAvailable)
+        guard !entries.isEmpty else {
+            await failBatchPlaceholder(
+                jobID,
+                with: DownloadFailure(
+                    category: .metadataUnavailable,
+                    technicalDetail: "The analyzed playlist contained no available entries."
+                )
+            )
+            return
+        }
+
+        let newJobs = entries.enumerated().map { offset, entry in
+            DownloadJob(
+                sourceURL: entry.sourceURL,
+                playlistID: playlist.id,
+                title: entry.title,
+                titleSource: entry.titleSource,
+                duration: entry.duration,
+                sourceMetadata: entry.sourceURL,
+                options: placeholder.options,
+                createdAt: placeholder.createdAt.addingTimeInterval(-Double(offset) / 1_000)
+            )
+        }
+        jobs.replaceSubrange(index...index, with: newJobs)
+        selection.remove(jobID)
+        await persist(flush: true)
+        for (job, entry) in zip(newJobs, entries) {
+            cacheThumbnail(from: entry.thumbnailURL, for: job.id)
+        }
+        await automaticallyStartNewJobs(newJobs)
+    }
+
+    private func failBatchPlaceholder(_ jobID: UUID, with failure: DownloadFailure) async {
+        guard let index = jobs.firstIndex(where: {
+            $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
+        }) else { return }
+        jobs[index].awaitsBatchAnalysis = false
+        jobs[index].failure = failure
+        transitionJob(at: index, to: .failed)
+        await persist(flush: true)
+        await recordDiagnostic(jobID: jobID, stage: "batch-analysis", detail: failure.technicalDetail)
     }
 
     func start(_ jobID: UUID) async {
