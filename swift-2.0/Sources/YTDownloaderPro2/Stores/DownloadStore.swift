@@ -694,7 +694,6 @@ final class DownloadStore: ObservableObject {
               let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         if jobs[index].status == .analyzing, jobs[index].awaitsBatchAnalysis {
             pendingBatchAnalysisIDs.removeAll { $0 == jobID }
-            jobs[index].awaitsBatchAnalysis = false
             transitionJob(at: index, to: .cancelled)
             if currentBatchAnalysisJobID == jobID {
                 batchAnalysisRequestTask?.cancel()
@@ -967,6 +966,24 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit, !discardingRecordIDs.contains(jobID),
               let job = jobs.first(where: { $0.id == jobID }),
               job.status == .cancelled else { return }
+        if job.awaitsBatchAnalysis {
+            let replacement = DownloadJob(
+                sourceURL: job.sourceURL,
+                playlistID: job.playlistID,
+                title: job.title,
+                titleSource: job.titleSource,
+                duration: job.duration,
+                sourceMetadata: job.sourceMetadata,
+                status: .analyzing,
+                options: job.options,
+                awaitsBatchAnalysis: true
+            )
+            jobs.append(replacement)
+            pendingBatchAnalysisIDs.append(replacement.id)
+            await persist(flush: true)
+            startBatchAnalysisIfNeeded()
+            return
+        }
         let replacement = DownloadJob(
             sourceURL: job.sourceURL,
             playlistID: job.playlistID,

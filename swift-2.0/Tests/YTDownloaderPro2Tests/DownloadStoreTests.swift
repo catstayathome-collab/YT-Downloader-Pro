@@ -469,7 +469,7 @@ final class DownloadStoreTests: XCTestCase {
         await fixture.store.cancel(waitingID)
 
         XCTAssertEqual(fixture.store.jobs[1].status, .cancelled)
-        XCTAssertFalse(fixture.store.jobs[1].awaitsBatchAnalysis)
+        XCTAssertTrue(fixture.store.jobs[1].awaitsBatchAnalysis)
         await analysis.succeed(
             request: 0,
             with: .video(.fixture(sourceURL: "https://youtube.test/current"))
@@ -499,7 +499,7 @@ final class DownloadStoreTests: XCTestCase {
         try await analysis.waitForCancellationCount(1)
 
         XCTAssertEqual(fixture.store.jobs[0].status, .cancelled)
-        XCTAssertFalse(fixture.store.jobs[0].awaitsBatchAnalysis)
+        XCTAssertTrue(fixture.store.jobs[0].awaitsBatchAnalysis)
         await analysis.succeed(
             request: 0,
             with: .video(.fixture(sourceURL: "https://youtube.test/current"))
@@ -516,6 +516,48 @@ final class DownloadStoreTests: XCTestCase {
         )
         try await fixture.runner.waitForStart(of: nextID)
         await fixture.store.cancel(nextID)
+    }
+
+    func testReAddingCancelledBatchPlaceholderRunsMetadataAnalysisBeforeDownload() async throws {
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(
+            analysis: { url, options in try await analysis.analyze(url: url, options: options) },
+            coordinatorLimit: 2
+        )
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.store.submitURLInput(
+            "https://youtube.test/current https://youtube.test/re-added"
+        )
+        try await analysis.waitForRequestCount(1)
+        let currentID = fixture.store.jobs[0].id
+        let cancelledID = fixture.store.jobs[1].id
+        await fixture.store.cancel(cancelledID)
+
+        await fixture.store.reAdd(cancelledID)
+        let replacement = try XCTUnwrap(fixture.store.jobs.last)
+        XCTAssertNotEqual(replacement.id, cancelledID)
+        XCTAssertEqual(replacement.status, .analyzing)
+        XCTAssertTrue(replacement.awaitsBatchAnalysis)
+
+        await analysis.succeed(
+            request: 0,
+            with: .video(.fixture(sourceURL: "https://youtube.test/current"))
+        )
+        try await fixture.runner.waitForStart(of: currentID)
+        try await analysis.waitForRequestCount(2)
+        let requestedURLs = await analysis.recordedURLs()
+        XCTAssertEqual(requestedURLs, [
+            "https://youtube.test/current",
+            "https://youtube.test/re-added"
+        ])
+
+        await analysis.succeed(
+            request: 1,
+            with: .video(.fixture(sourceURL: "https://youtube.test/re-added"))
+        )
+        try await fixture.runner.waitForStart(of: replacement.id)
+        await fixture.store.cancelActiveAndWaiting()
     }
 
     func testRecoveredBatchPlaceholdersResumeMetadataAnalysisInStoredOrder() async throws {
