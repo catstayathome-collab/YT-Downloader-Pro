@@ -39,14 +39,12 @@ final class AccountSessionStore: ObservableObject {
     }
 
     func signIn(with kind: AuthenticationProviderKind) async {
-        guard environment == .mock,
-              let provider = providers.provider(for: kind) else {
-            if environment == .mock {
-                state = .failed(.providerUnavailable)
-            }
+        guard environment == .mock else { return }
+        guard let (operationID, priorState) = beginOperation() else { return }
+        guard let provider = providers.provider(for: kind) else {
+            finishOperation(operationID, state: .failed(.providerUnavailable))
             return
         }
-        guard let (operationID, priorState) = beginOperation() else { return }
         state = .signingIn(kind)
         let task = Task { try await provider.signIn() }
         activeProviderTask = task
@@ -192,15 +190,19 @@ final class AccountSessionStore: ObservableObject {
         provider: AuthenticationProviderKind
     ) throws {
         guard session.summary.provider == provider,
-              !session.summary.accountID.isEmpty,
-              !session.summary.displayName.isEmpty,
-              !session.accessToken.isEmpty,
-              !session.refreshCredential.isEmpty else {
+              hasOpaqueContent(session.summary.accountID),
+              hasOpaqueContent(session.summary.displayName),
+              hasOpaqueContent(session.accessToken),
+              hasOpaqueContent(session.refreshCredential) else {
             throw AuthenticationProviderError.invalidSession
         }
         guard session.summary.expiresAt > now() else {
             throw AuthenticationProviderError.expiredSession
         }
+    }
+
+    private func hasOpaqueContent(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func presentationError(for error: Error) -> AuthPresentationError {

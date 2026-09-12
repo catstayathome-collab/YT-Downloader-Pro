@@ -48,11 +48,29 @@ actor RecordingCredentialVault: CredentialVault {
 }
 
 actor AuthenticationCallCounter {
+    private(set) var operations: [AuthenticationProviderOperation] = []
     private(set) var signOutCount = 0
+    private(set) var signOutCredentials: [String?] = []
 
-    func recordSignOut() {
-        signOutCount += 1
+    func recordSignIn() {
+        operations.append(.signIn)
     }
+
+    func recordRestore(from envelope: StoredCredentialEnvelope) {
+        operations.append(.restore(envelope))
+    }
+
+    func recordSignOut(refreshCredential: String?) {
+        operations.append(.signOut(refreshCredential))
+        signOutCount += 1
+        signOutCredentials.append(refreshCredential)
+    }
+}
+
+enum AuthenticationProviderOperation: Equatable, Sendable {
+    case signIn
+    case restore(StoredCredentialEnvelope)
+    case signOut(String?)
 }
 
 struct ImmediateAuthenticationProvider: AuthenticationProvider {
@@ -74,15 +92,57 @@ struct ImmediateAuthenticationProvider: AuthenticationProvider {
     }
 
     func signIn() async throws -> AuthenticationSession {
-        try signInResult.get()
+        await counter.recordSignIn()
+        return try signInResult.get()
     }
 
     func restore(from envelope: StoredCredentialEnvelope) async throws -> AuthenticationSession {
-        try restoreResult.get()
+        await counter.recordRestore(from: envelope)
+        return try restoreResult.get()
     }
 
     func signOut(refreshCredential: String?) async {
-        await counter.recordSignOut()
+        await counter.recordSignOut(refreshCredential: refreshCredential)
+    }
+}
+
+actor PendingSignInAuthenticationProvider: AuthenticationProvider {
+    nonisolated let kind: AuthenticationProviderKind
+    private(set) var signInCallCount = 0
+    private var signInContinuation: CheckedContinuation<AuthenticationSession, Error>?
+
+    init(kind: AuthenticationProviderKind) {
+        self.kind = kind
+    }
+
+    func signIn() async throws -> AuthenticationSession {
+        signInCallCount += 1
+        return try await withCheckedThrowingContinuation { continuation in
+            signInContinuation = continuation
+        }
+    }
+
+    func restore(from envelope: StoredCredentialEnvelope) async throws -> AuthenticationSession {
+        throw AuthenticationProviderError.invalidSession
+    }
+
+    func signOut(refreshCredential: String?) async {}
+
+    func waitUntilSignInStarts() async {
+        while signInCallCount == 0 {
+            await Task.yield()
+        }
+    }
+
+    func finishSignIn(_ result: Result<AuthenticationSession, AuthenticationProviderError>) {
+        let continuation = signInContinuation
+        signInContinuation = nil
+        switch result {
+        case let .success(session):
+            continuation?.resume(returning: session)
+        case let .failure(error):
+            continuation?.resume(throwing: error)
+        }
     }
 }
 
@@ -101,12 +161,22 @@ extension AccountSummary {
 extension AuthenticationSession {
     static func fixture(
         provider: AuthenticationProviderKind,
-        accessToken: String = "memory-access"
+        accountID: String = "mock-account",
+        displayName: String = "Demo User",
+        expiresAt: Date = Date(timeIntervalSince1970: 4_000_000_000),
+        accessToken: String = "memory-access",
+        refreshCredential: String = "mock-refresh"
     ) -> AuthenticationSession {
         AuthenticationSession(
-            summary: .fixture(provider: provider),
+            summary: AccountSummary(
+                provider: provider,
+                accountID: accountID,
+                displayName: displayName,
+                planPreview: .pro,
+                expiresAt: expiresAt
+            ),
             accessToken: accessToken,
-            refreshCredential: "mock-refresh"
+            refreshCredential: refreshCredential
         )
     }
 }
