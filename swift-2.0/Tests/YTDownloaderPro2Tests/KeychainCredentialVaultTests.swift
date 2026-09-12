@@ -9,14 +9,30 @@ final class KeychainCredentialVaultTests: XCTestCase {
         }
         let service = "com.catstayathome.YTDownloaderPro.tests.\(UUID().uuidString)"
         let vault = KeychainCredentialVault(servicePrefix: service)
-        let envelope = StoredCredentialEnvelope.fixture(provider: .google, refreshCredential: "round-trip")
-        addTeardownBlock { try? await vault.delete(environment: .mock) }
+        let initialMock = StoredCredentialEnvelope.fixture(provider: .google, refreshCredential: "initial-mock")
+        let replacementMock = StoredCredentialEnvelope.fixture(provider: .apple, refreshCredential: "replacement-mock")
+        let disabledEnvelope = StoredCredentialEnvelope.fixture(provider: .google, refreshCredential: "disabled")
+        addTeardownBlock {
+            try? await vault.delete(environment: .mock)
+            try? await vault.delete(environment: .disabled)
+        }
 
-        try await vault.save(envelope, environment: .mock)
-        let loadedEnvelope = try await vault.load(environment: .mock)
-        XCTAssertEqual(loadedEnvelope, envelope)
+        try await vault.save(initialMock, environment: .mock)
+        let loadedInitialMock = try await vault.load(environment: .mock)
+        XCTAssertEqual(loadedInitialMock, initialMock)
+
+        try await vault.save(replacementMock, environment: .mock)
+        let loadedReplacementMock = try await vault.load(environment: .mock)
+        XCTAssertEqual(loadedReplacementMock, replacementMock)
+
+        try await vault.save(disabledEnvelope, environment: .disabled)
+        let loadedDisabled = try await vault.load(environment: .disabled)
+        XCTAssertEqual(loadedDisabled, disabledEnvelope)
+
         try await vault.delete(environment: .mock)
-        let deletedValue = try await vault.load(environment: .mock)
-        XCTAssertNil(deletedValue)
+        let deletedMock = try await vault.load(environment: .mock)
+        XCTAssertNil(deletedMock)
+        let retainedDisabled = try await vault.load(environment: .disabled)
+        XCTAssertEqual(retainedDisabled, disabledEnvelope)
     }
 }
