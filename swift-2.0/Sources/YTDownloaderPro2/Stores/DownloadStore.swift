@@ -62,10 +62,15 @@ final class DownloadStore: ObservableObject {
     }
 
     var filteredJobs: [DownloadJob] {
-        let visibleJobs = sidebarSection == .all
-            ? jobs
-            : jobs.filter { $0.status.sidebarSection == sidebarSection }
-        return visibleJobs.sorted { $0.createdAt > $1.createdAt }
+        jobs.enumerated()
+            .filter { sidebarSection == .all || $0.element.status.sidebarSection == sidebarSection }
+            .sorted { lhs, rhs in
+                if lhs.element.createdAt != rhs.element.createdAt {
+                    return lhs.element.createdAt > rhs.element.createdAt
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     private struct RetryOperation {
@@ -577,7 +582,7 @@ final class DownloadStore: ObservableObject {
             return
         }
 
-        let newJobs = entries.enumerated().map { offset, entry in
+        let newJobs = entries.map { entry in
             DownloadJob(
                 sourceURL: entry.sourceURL,
                 playlistID: playlist.id,
@@ -586,7 +591,7 @@ final class DownloadStore: ObservableObject {
                 duration: entry.duration,
                 sourceMetadata: entry.sourceURL,
                 options: placeholder.options,
-                createdAt: placeholder.createdAt.addingTimeInterval(-Double(offset) / 1_000)
+                createdAt: placeholder.createdAt
             )
         }
         jobs.replaceSubrange(index...index, with: newJobs)

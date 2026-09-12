@@ -452,6 +452,35 @@ final class DownloadStoreTests: XCTestCase {
         await fixture.store.cancelActiveAndWaiting()
     }
 
+    func testBatchPlaylistEntriesStayContiguousAboveTheFollowingURLInVisibleOrder() async throws {
+        let analysis = ControlledAnalysis()
+        let fixture = try StoreFixture(
+            analysis: { url, options in try await analysis.analyze(url: url, options: options) },
+            coordinatorLimit: 4
+        )
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.store.submitURLInput(
+            "https://youtube.test/playlist https://youtube.test/following"
+        )
+        try await analysis.waitForRequestCount(1)
+        await analysis.succeed(request: 0, with: .playlist(.fixture(entryCount: 3)))
+        try await analysis.waitForRequestCount(2)
+
+        XCTAssertEqual(fixture.store.filteredJobs.map(\.sourceURL), [
+            "https://youtube.test/watch?v=1",
+            "https://youtube.test/watch?v=2",
+            "https://youtube.test/watch?v=3",
+            "https://youtube.test/following"
+        ])
+
+        await analysis.succeed(
+            request: 1,
+            with: .video(.fixture(sourceURL: "https://youtube.test/following"))
+        )
+        await fixture.store.cancelActiveAndWaiting()
+    }
+
     func testCancellingWaitingBatchPlaceholderPreventsItsMetadataRequest() async throws {
         let analysis = ControlledAnalysis()
         let fixture = try StoreFixture(
