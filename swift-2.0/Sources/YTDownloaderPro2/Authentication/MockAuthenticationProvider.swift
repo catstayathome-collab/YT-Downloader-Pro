@@ -35,9 +35,9 @@ struct MockAuthenticationProvider: AuthenticationProvider {
     func restore(from envelope: StoredCredentialEnvelope) async throws -> AuthenticationSession {
         try Task.checkCancellation()
         guard envelope.summary.provider == kind,
-              !envelope.summary.accountID.isEmpty,
-              !envelope.summary.displayName.isEmpty,
-              !envelope.refreshCredential.isEmpty else {
+              hasOpaqueContent(envelope.summary.accountID),
+              hasOpaqueContent(envelope.summary.displayName),
+              hasOpaqueContent(envelope.refreshCredential) else {
             throw AuthenticationProviderError.invalidSession
         }
         guard envelope.summary.expiresAt > now() else {
@@ -52,5 +52,9 @@ struct MockAuthenticationProvider: AuthenticationProvider {
 
     func signOut(refreshCredential: String?) async {
         // Phase 1 has no provider or network state to revoke.
+    }
+
+    private func hasOpaqueContent(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

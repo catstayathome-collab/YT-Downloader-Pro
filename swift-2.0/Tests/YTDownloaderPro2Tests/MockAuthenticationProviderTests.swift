@@ -46,6 +46,51 @@ final class MockAuthenticationProviderTests: XCTestCase {
             try await provider.restore(from: wrongProvider)
         }
     }
+
+    func testRestoreRejectsWhitespaceOnlyOpaqueEnvelopeFields() async throws {
+        let now = now
+        let provider = MockAuthenticationProvider(kind: .google, now: { now })
+        let validSummary = AccountSummary(
+            provider: .google,
+            accountID: "opaque-account",
+            displayName: "Opaque Display Name",
+            planPreview: .pro,
+            expiresAt: now.addingTimeInterval(60)
+        )
+        let whitespaceOnly = " \t\n\r "
+        let malformedEnvelopes = [
+            StoredCredentialEnvelope(
+                summary: AccountSummary(
+                    provider: .google,
+                    accountID: whitespaceOnly,
+                    displayName: validSummary.displayName,
+                    planPreview: validSummary.planPreview,
+                    expiresAt: validSummary.expiresAt
+                ),
+                refreshCredential: "opaque-refresh"
+            ),
+            StoredCredentialEnvelope(
+                summary: AccountSummary(
+                    provider: .google,
+                    accountID: validSummary.accountID,
+                    displayName: whitespaceOnly,
+                    planPreview: validSummary.planPreview,
+                    expiresAt: validSummary.expiresAt
+                ),
+                refreshCredential: "opaque-refresh"
+            ),
+            StoredCredentialEnvelope(
+                summary: validSummary,
+                refreshCredential: whitespaceOnly
+            )
+        ]
+
+        for envelope in malformedEnvelopes {
+            await XCTAssertThrowsAuthenticationError(.invalidSession) {
+                try await provider.restore(from: envelope)
+            }
+        }
+    }
 }
 
 private func XCTAssertThrowsAuthenticationError<Value>(
