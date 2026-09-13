@@ -50,6 +50,10 @@ final class AccountSessionStore: ObservableObject {
         state = .signingIn(kind)
         authenticationCancellationIsAuthorized = true
         isAuthenticationCancellationAvailable = true
+        guard owns(operationID) else {
+            isAuthenticationCancellationAvailable = false
+            return
+        }
         recordDiagnostic(.signInStarted)
         guard let provider = providers.provider(for: kind) else {
             finishOperation(operationID, state: .failed(.providerUnavailable))
@@ -86,6 +90,10 @@ final class AccountSessionStore: ObservableObject {
         state = .restoring
         authenticationCancellationIsAuthorized = true
         isAuthenticationCancellationAvailable = true
+        guard owns(operationID) else {
+            isAuthenticationCancellationAvailable = false
+            return
+        }
         var restoringProvider: AuthenticationProviderKind?
 
         do {

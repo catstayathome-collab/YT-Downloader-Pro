@@ -320,6 +320,75 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(events, [.signInStarted, .signInCancelled])
     }
 
+    func testSynchronousCancellationSubscriberStopsSignInBeforeProviderStarts() async {
+        let session = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "cancelled-account",
+            refreshCredential: "cancelled-refresh"
+        )
+        let vault = ControlledCredentialVault()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(session)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        var didCancelFromTrueTransition = false
+        let cancellationObserver = store.$isAuthenticationCancellationAvailable
+            .dropFirst()
+            .sink { isAvailable in
+                guard isAvailable, !didCancelFromTrueTransition else { return }
+                didCancelFromTrueTransition = true
+                store.cancelAuthentication()
+            }
+
+        await store.signIn(with: .google)
+
+        let providerOperations = await provider.counter.operations
+        let vaultOperations = await vault.operations
+        let storedEnvelope = await vault.storedEnvelope
+        XCTAssertTrue(didCancelFromTrueTransition)
+        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+        XCTAssertEqual(providerOperations, [])
+        XCTAssertEqual(vaultOperations, [])
+        XCTAssertNil(storedEnvelope)
+        _ = cancellationObserver
+    }
+
+    func testSynchronousCancellationSubscriberStopsRestoreBeforeVaultLoad() async {
+        let originalEnvelope = StoredCredentialEnvelope.fixture(
+            provider: .google,
+            refreshCredential: "preserved-refresh"
+        )
+        let vault = ControlledCredentialVault(initial: originalEnvelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .success(.fixture(provider: .google))
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        var didCancelFromTrueTransition = false
+        let cancellationObserver = store.$isAuthenticationCancellationAvailable
+            .dropFirst()
+            .sink { isAvailable in
+                guard isAvailable, !didCancelFromTrueTransition else { return }
+                didCancelFromTrueTransition = true
+                store.cancelAuthentication()
+            }
+
+        await store.restoreSession()
+
+        let providerOperations = await provider.counter.operations
+        let vaultOperations = await vault.operations
+        let storedEnvelope = await vault.storedEnvelope
+        XCTAssertTrue(didCancelFromTrueTransition)
+        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+        XCTAssertEqual(providerOperations, [])
+        XCTAssertEqual(vaultOperations, [])
+        XCTAssertEqual(storedEnvelope, originalEnvelope)
+        _ = cancellationObserver
+    }
+
     func testRapidDuplicateSignInStartsOnlyOneProviderOperation() async {
         let provider = ControlledAuthenticationProvider(kind: .google)
         let store = AccountSessionStore.fixture(provider: provider)
