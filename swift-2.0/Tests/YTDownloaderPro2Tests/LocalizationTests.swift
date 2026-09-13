@@ -15,6 +15,14 @@ final class LocalizationTests: XCTestCase {
     func testVisibleKeyInventoryIsExplicitAndComplete() {
         let expected: Set<String> = [
             "app.settings",
+            "account.settings.title", "account.developmentMode", "account.signIn.prompt", "account.signInOrViewPlans",
+            "account.signIn.google", "account.signIn.apple", "account.free.noSignIn", "account.currentPlan",
+            "account.plan.free", "account.plan.testPro", "account.signingIn", "account.restoring",
+            "account.downloadsUnaffected", "account.reauthenticate", "account.freeStillAvailable", "account.unavailable",
+            "account.openSettingsRetry", "account.retry", "account.signOut", "account.signOut.preservesData",
+            "account.provider.google", "account.provider.apple", "account.error.providerUnavailable",
+            "account.error.invalidSession", "account.error.expiredSession", "account.error.storageUnavailable",
+            "account.error.removalFailed", "account.error.signInFailed",
             "common.addSelected", "common.addToQueue", "common.cancel", "common.choose", "common.done", "common.save",
             "confirmation.cancelActive.message", "confirmation.cancelActive.title", "confirmation.cancelDownload.button",
             "confirmation.cancelDownloads.button", "confirmation.cancelMerging.message", "confirmation.cancelMerging.title",
@@ -59,6 +67,47 @@ final class LocalizationTests: XCTestCase {
         ]
 
         XCTAssertEqual(Set(L10n.Key.allCases.map(\.rawValue)), expected)
+    }
+
+    func testAccountPresentationCatalogUsesTheSpecifiedTranslations() throws {
+        let expected: [String: [String: String]] = [
+            "account.settings.title": ["en": "Account & Plan", "zh-Hant": "帳號與方案", "ja": "アカウントとプラン"],
+            "account.developmentMode": ["en": "Development Test Mode: no connection to Google, Apple, or production services.", "zh-Hant": "開發測試模式：不會連線至 Google、Apple 或正式服務。", "ja": "開発テストモード：Google、Apple、正式サービスには接続しません。"],
+            "account.signIn.prompt": ["en": "Sign in", "zh-Hant": "登入帳號", "ja": "サインイン"],
+            "account.signInOrViewPlans": ["en": "Sign in or view plans", "zh-Hant": "登入或查看方案", "ja": "サインインまたはプランを確認"],
+            "account.signIn.google": ["en": "Sign in with Google", "zh-Hant": "使用 Google 登入", "ja": "Google でサインイン"],
+            "account.signIn.apple": ["en": "Sign in with Apple", "zh-Hant": "使用 Apple 登入", "ja": "Apple でサインイン"],
+            "account.free.noSignIn": ["en": "Free; no sign-in required", "zh-Hant": "免費版 · 免登入可用", "ja": "無料版・サインイン不要"],
+            "account.currentPlan": ["en": "Current plan", "zh-Hant": "目前方案", "ja": "現在のプラン"],
+            "account.plan.free": ["en": "Free", "zh-Hant": "免費版", "ja": "無料版"],
+            "account.plan.testPro": ["en": "Test Pro", "zh-Hant": "測試 Pro", "ja": "テスト Pro"],
+            "account.signingIn": ["en": "Signing in", "zh-Hant": "正在登入", "ja": "サインイン中"],
+            "account.restoring": ["en": "Restoring account", "zh-Hant": "正在還原帳號", "ja": "アカウントを復元中"],
+            "account.downloadsUnaffected": ["en": "Downloads are unaffected", "zh-Hant": "下載不受影響", "ja": "ダウンロードには影響しません"],
+            "account.reauthenticate": ["en": "Sign in again", "zh-Hant": "需要重新登入", "ja": "もう一度サインイン"],
+            "account.freeStillAvailable": ["en": "Free downloads remain available", "zh-Hant": "免費下載仍可使用", "ja": "無料ダウンロードは引き続き利用できます"],
+            "account.unavailable": ["en": "Account unavailable", "zh-Hant": "帳號暫時無法使用", "ja": "アカウントを利用できません"],
+            "account.openSettingsRetry": ["en": "Open Settings to retry", "zh-Hant": "開啟設定以重試", "ja": "設定を開いて再試行"],
+            "account.retry": ["en": "Retry", "zh-Hant": "重試", "ja": "再試行"],
+            "account.signOut": ["en": "Sign Out", "zh-Hant": "登出", "ja": "サインアウト"],
+            "account.signOut.preservesData": ["en": "Signing out keeps downloads, history, media, and settings.", "zh-Hant": "登出會保留下載、紀錄、媒體與設定。", "ja": "サインアウトしてもダウンロード、履歴、メディア、設定は保持されます。"],
+            "account.provider.google": ["en": "Google", "zh-Hant": "Google", "ja": "Google"],
+            "account.provider.apple": ["en": "Apple", "zh-Hant": "Apple", "ja": "Apple"],
+            "account.error.providerUnavailable": ["en": "This sign-in option is unavailable.", "zh-Hant": "此登入方式目前無法使用。", "ja": "このサインイン方法は利用できません。"],
+            "account.error.invalidSession": ["en": "The saved account session is invalid. Sign in again.", "zh-Hant": "儲存的帳號工作階段無效，請重新登入。", "ja": "保存されたアカウントセッションは無効です。もう一度サインインしてください。"],
+            "account.error.expiredSession": ["en": "The account session has expired. Sign in again.", "zh-Hant": "帳號工作階段已過期，請重新登入。", "ja": "アカウントセッションの有効期限が切れました。もう一度サインインしてください。"],
+            "account.error.storageUnavailable": ["en": "The account session could not be saved securely on this Mac.", "zh-Hant": "無法在這台 Mac 上安全儲存帳號工作階段。", "ja": "この Mac にアカウントセッションを安全に保存できませんでした。"],
+            "account.error.removalFailed": ["en": "The saved account session could not be removed. Try signing out again.", "zh-Hant": "無法移除儲存的帳號工作階段，請再次登出。", "ja": "保存されたアカウントセッションを削除できませんでした。もう一度サインアウトしてください。"],
+            "account.error.signInFailed": ["en": "Sign-in could not be completed. Try again.", "zh-Hant": "無法完成登入，請重試。", "ja": "サインインを完了できませんでした。もう一度お試しください。"]
+        ]
+
+        let catalog = try loadCatalog()
+        for (key, values) in expected {
+            let entry = try XCTUnwrap(catalog.strings[key], "Missing key: \(key)")
+            for locale in localeIdentifiers {
+                XCTAssertEqual(entry.localizations[locale]?.stringUnit?.value, values[locale], "Unexpected \(locale) value for \(key)")
+            }
+        }
     }
 
     func testCatalogContainsEveryVisibleAndFailureKeyInEveryLocale() throws {

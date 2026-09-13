@@ -24,6 +24,230 @@
         }
       }
     },
+    "account.settings.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Account & Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントとプラン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "帳號與方案" } }
+      }
+    },
+    "account.developmentMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Development Test Mode: no connection to Google, Apple, or production services." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開発テストモード：Google、Apple、正式サービスには接続しません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開發測試模式：不會連線至 Google、Apple 或正式服務。" } }
+      }
+    },
+    "account.signIn.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインイン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入帳號" } }
+      }
+    },
+    "account.signInOrViewPlans": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in or view plans" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインまたはプランを確認" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入或查看方案" } }
+      }
+    },
+    "account.signIn.google": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in with Google" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Google でサインイン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 Google 登入" } }
+      }
+    },
+    "account.signIn.apple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in with Apple" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Apple でサインイン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 Apple 登入" } }
+      }
+    },
+    "account.free.noSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free; no sign-in required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無料版・サインイン不要" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "免費版 · 免登入可用" } }
+      }
+    },
+    "account.currentPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のプラン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前方案" } }
+      }
+    },
+    "account.plan.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無料版" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "免費版" } }
+      }
+    },
+    "account.plan.testPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Test Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テスト Pro" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "測試 Pro" } }
+      }
+    },
+    "account.signingIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Signing in" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインイン中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在登入" } }
+      }
+    },
+    "account.restoring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restoring account" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントを復元中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在還原帳號" } }
+      }
+    },
+    "account.downloadsUnaffected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Downloads are unaffected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロードには影響しません" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載不受影響" } }
+      }
+    },
+    "account.reauthenticate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "もう一度サインイン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要重新登入" } }
+      }
+    },
+    "account.freeStillAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free downloads remain available" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無料ダウンロードは引き続き利用できます" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "免費下載仍可使用" } }
+      }
+    },
+    "account.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Account unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントを利用できません" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "帳號暫時無法使用" } }
+      }
+    },
+    "account.openSettingsRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Settings to retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定を開いて再試行" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟設定以重試" } }
+      }
+    },
+    "account.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重試" } }
+      }
+    },
+    "account.signOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign Out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインアウト" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登出" } }
+      }
+    },
+    "account.signOut.preservesData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Signing out keeps downloads, history, media, and settings." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインアウトしてもダウンロード、履歴、メディア、設定は保持されます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登出會保留下載、紀錄、媒體與設定。" } }
+      }
+    },
+    "account.provider.google": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Google" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Google" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Google" } }
+      }
+    },
+    "account.provider.apple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Apple" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Apple" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Apple" } }
+      }
+    },
+    "account.error.providerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This sign-in option is unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサインイン方法は利用できません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此登入方式目前無法使用。" } }
+      }
+    },
+    "account.error.invalidSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The saved account session is invalid. Sign in again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存されたアカウントセッションは無効です。もう一度サインインしてください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "儲存的帳號工作階段無效，請重新登入。" } }
+      }
+    },
+    "account.error.expiredSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The account session has expired. Sign in again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントセッションの有効期限が切れました。もう一度サインインしてください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "帳號工作階段已過期，請重新登入。" } }
+      }
+    },
+    "account.error.storageUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The account session could not be saved securely on this Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac にアカウントセッションを安全に保存できませんでした。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法在這台 Mac 上安全儲存帳號工作階段。" } }
+      }
+    },
+    "account.error.removalFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The saved account session could not be removed. Try signing out again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存されたアカウントセッションを削除できませんでした。もう一度サインアウトしてください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法移除儲存的帳號工作階段，請再次登出。" } }
+      }
+    },
+    "account.error.signInFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign-in could not be completed. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインを完了できませんでした。もう一度お試しください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法完成登入，請重試。" } }
+      }
+    },
     "common.addSelected": {
       "extractionState": "manual",
       "localizations": {
