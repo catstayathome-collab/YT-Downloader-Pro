@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import YTDownloaderPro2
@@ -451,6 +452,37 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(events, [.signInStarted])
     }
 
+    func testSynchronousCancellationSubscriberCannotClearSignInCommitOwnership() async {
+        let session = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "committed-account",
+            refreshCredential: "committed-refresh"
+        )
+        let vault = ControlledCredentialVault()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(session)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        var didAttemptReentrantCancellation = false
+        let cancellationObserver = store.$isAuthenticationCancellationAvailable
+            .dropFirst()
+            .sink { isAvailable in
+                guard !isAvailable, !didAttemptReentrantCancellation else { return }
+                didAttemptReentrantCancellation = true
+                store.cancelAuthentication()
+            }
+        await store.signIn(with: .google)
+
+        XCTAssertTrue(didAttemptReentrantCancellation)
+        let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .signedIn(session.summary))
+        XCTAssertEqual(storedEnvelope, session.storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock)])
+        _ = cancellationObserver
+    }
+
     func testInvalidRestoreCleanupFinishesBeforeNewSignInCanSave() async {
         let staleEnvelope = StoredCredentialEnvelope.fixture(
             provider: .google,
@@ -532,6 +564,50 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(storedEnvelope, staleEnvelope)
         XCTAssertEqual(operations, [.load(.mock), .delete(.mock)])
         XCTAssertEqual(events, [.storageUnavailable])
+    }
+
+    func testSynchronousCancellationSubscriberCannotDiscardInvalidRestoreCleanupFailure() async {
+        let staleEnvelope = StoredCredentialEnvelope.fixture(
+            provider: .google,
+            refreshCredential: "stale-refresh"
+        )
+        let vault = ControlledCredentialVault(
+            initial: staleEnvelope,
+            deleteError: .unexpectedStatus(-50)
+        )
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+        var didAttemptReentrantCancellation = false
+        let cancellationObserver = store.$isAuthenticationCancellationAvailable
+            .dropFirst()
+            .sink { isAvailable in
+                guard !isAvailable, !didAttemptReentrantCancellation else { return }
+                didAttemptReentrantCancellation = true
+                store.cancelAuthentication()
+            }
+        await store.restoreSession()
+
+        XCTAssertTrue(didAttemptReentrantCancellation)
+        guard store.state == .failed(.credentialRemovalFailed) else {
+            XCTFail("Expected cleanup failure, got \(store.state)")
+            return
+        }
+        await diagnostics.waitForEventCount(1)
+        let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
+        let events = await diagnostics.events
+        XCTAssertEqual(storedEnvelope, staleEnvelope)
+        XCTAssertEqual(operations, [.load(.mock), .delete(.mock)])
+        XCTAssertEqual(events, [.storageUnavailable])
+        _ = cancellationObserver
     }
 
     func testDiagnosticEventEncodingHasNoPayloadFields() throws {

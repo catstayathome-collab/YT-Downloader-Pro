@@ -17,6 +17,7 @@ final class AccountSessionStore: ObservableObject {
     private var nextOperationID: UInt64 = 0
     private var activeOperationID: UInt64?
     private var activePriorState: AccountSessionState?
+    private var authenticationCancellationIsAuthorized = false
     private var activeProviderOperation: CancellableAuthenticationProviderOperation?
     private var diagnosticsTask: Task<Void, Never>?
 
@@ -47,6 +48,7 @@ final class AccountSessionStore: ObservableObject {
         guard environment == .mock else { return }
         guard let (operationID, priorState) = beginOperation() else { return }
         state = .signingIn(kind)
+        authenticationCancellationIsAuthorized = true
         isAuthenticationCancellationAvailable = true
         recordDiagnostic(.signInStarted)
         guard let provider = providers.provider(for: kind) else {
@@ -82,6 +84,7 @@ final class AccountSessionStore: ObservableObject {
         }
         guard let (operationID, priorState) = beginOperation() else { return }
         state = .restoring
+        authenticationCancellationIsAuthorized = true
         isAuthenticationCancellationAvailable = true
         var restoringProvider: AuthenticationProviderKind?
 
@@ -129,9 +132,10 @@ final class AccountSessionStore: ObservableObject {
             (false, nil)
         }
         guard cancellation.isCancellable,
-              isAuthenticationCancellationAvailable,
+              authenticationCancellationIsAuthorized,
               activeOperationID != nil else { return }
         let priorState = activePriorState ?? (environment == .disabled ? .disabled : .signedOut)
+        authenticationCancellationIsAuthorized = false
         activeProviderOperation?.cancel()
         nextOperationID &+= 1
         activeOperationID = nil
@@ -181,6 +185,7 @@ final class AccountSessionStore: ObservableObject {
 
     private func finishOperation(_ id: UInt64, state newState: AccountSessionState) {
         guard owns(id) else { return }
+        authenticationCancellationIsAuthorized = false
         activeOperationID = nil
         activePriorState = nil
         activeProviderOperation = nil
@@ -191,8 +196,9 @@ final class AccountSessionStore: ObservableObject {
     private func beginCredentialCommit(_ operationID: UInt64) -> Bool {
         guard owns(operationID) else { return false }
         activeProviderOperation = nil
+        authenticationCancellationIsAuthorized = false
         isAuthenticationCancellationAvailable = false
-        return true
+        return owns(operationID)
     }
 
     private func finishSignIn(
