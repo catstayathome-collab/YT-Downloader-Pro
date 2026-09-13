@@ -108,7 +108,7 @@ final class AccountSessionStoreTests: XCTestCase {
     func testUnavailableProviderRequestDuringActiveSignInIsIgnored() async {
         let session = AuthenticationSession.fixture(provider: .google)
         let vault = RecordingCredentialVault()
-        let provider = PendingSignInAuthenticationProvider(kind: .google)
+        let provider = ControlledAuthenticationProvider(kind: .google)
         let store = AccountSessionStore(environment: .mock, vault: vault, providers: .init([provider]))
         let activeSignIn = Task { await store.signIn(with: .google) }
         await provider.waitUntilSignInStarts()
@@ -274,5 +274,284 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(operations, [.save(.mock), .delete(.mock)])
         XCTAssertEqual(savedEnvelope, session.storedEnvelope)
         XCTAssertEqual(providerOperations, [.signIn, .signOut("revoke-refresh")])
+    }
+
+    func testCancellationRestoresPriorStableStateEvenWhenProviderFinishesLater() async throws {
+        let provider = ControlledAuthenticationProvider(kind: .google)
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let store = AccountSessionStore.fixture(provider: provider, diagnostics: diagnostics)
+        let signIn = Task { await store.signIn(with: .google) }
+        await provider.waitUntilSignInStarts()
+
+        store.cancelAuthentication()
+        XCTAssertEqual(store.state, .signedOut)
+        await provider.finishSignIn(.success(.fixture(provider: .google)))
+        await signIn.value
+        await diagnostics.waitForEventCount(2)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertEqual(events, [.signInStarted, .signInCancelled])
+    }
+
+    func testRapidDuplicateSignInStartsOnlyOneProviderOperation() async {
+        let provider = ControlledAuthenticationProvider(kind: .google)
+        let store = AccountSessionStore.fixture(provider: provider)
+        let first = Task { await store.signIn(with: .google) }
+        await provider.waitUntilSignInStarts()
+
+        let duplicate = Task { await store.signIn(with: .google) }
+        await duplicate.value
+
+        let signInCallCount = await provider.signInCallCount
+        XCTAssertEqual(signInCallCount, 1)
+        await provider.finishSignIn(.failure(.cancelled))
+        await first.value
+    }
+
+    func testCancelledCredentialSaveCannotOverwriteNewerSignInEnvelope() async {
+        let staleSession = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "stale-account",
+            refreshCredential: "stale-refresh"
+        )
+        let freshSession = AuthenticationSession.fixture(
+            provider: .apple,
+            accountID: "fresh-account",
+            refreshCredential: "fresh-refresh"
+        )
+        let vault = ControlledCredentialVault(suspendNextSave: true)
+        let staleProvider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(staleSession)
+        )
+        let freshProvider = ControlledAuthenticationProvider(kind: .apple)
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([staleProvider, freshProvider])
+        )
+        let staleSignIn = Task { await store.signIn(with: .google) }
+        let staleSaveStarted = await vault.waitUntilSaveStarts()
+        XCTAssertTrue(staleSaveStarted)
+
+        store.cancelAuthentication()
+        XCTAssertEqual(store.state, .signedOut)
+        let freshSignIn = Task { await store.signIn(with: .apple) }
+        await freshProvider.waitUntilSignInStarts()
+        await freshProvider.finishSignIn(.success(freshSession))
+
+        let freshSaveStartedBeforeStaleSaveFinished = await vault.waitUntilSaveStarts(count: 2)
+        XCTAssertFalse(freshSaveStartedBeforeStaleSaveFinished)
+        await vault.finishSuspendedSave()
+        await staleSignIn.value
+        await freshSignIn.value
+
+        let storedEnvelope = await vault.storedEnvelope
+        XCTAssertEqual(store.state, .signedIn(freshSession.summary))
+        XCTAssertEqual(storedEnvelope, freshSession.storedEnvelope)
+    }
+
+    func testCancellationDuringCredentialSaveRemovesStaleEnvelopeWithoutAdoptingSession() async {
+        let staleSession = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "stale-account",
+            refreshCredential: "stale-refresh"
+        )
+        let vault = ControlledCredentialVault(suspendNextSave: true)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(staleSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        let signIn = Task { await store.signIn(with: .google) }
+        let saveStarted = await vault.waitUntilSaveStarts()
+        XCTAssertTrue(saveStarted)
+
+        store.cancelAuthentication()
+        XCTAssertEqual(store.state, .signedOut)
+        await vault.finishSuspendedSave()
+        await signIn.value
+
+        let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertNil(storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock), .delete(.mock)])
+    }
+
+    func testStaleInvalidRestoreCleanupCannotDeleteNewerSignInEnvelope() async {
+        let staleEnvelope = StoredCredentialEnvelope.fixture(
+            provider: .google,
+            refreshCredential: "stale-refresh"
+        )
+        let freshSession = AuthenticationSession.fixture(
+            provider: .apple,
+            accountID: "fresh-account",
+            refreshCredential: "fresh-refresh"
+        )
+        let vault = ControlledCredentialVault(initial: staleEnvelope, suspendNextDelete: true)
+        let staleProvider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .failure(.invalidSession)
+        )
+        let freshProvider = ControlledAuthenticationProvider(kind: .apple)
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([staleProvider, freshProvider])
+        )
+        let staleRestore = Task { await store.restoreSession() }
+        await vault.waitUntilDeleteStarts()
+
+        store.cancelAuthentication()
+        XCTAssertEqual(store.state, .signedOut)
+        let freshSignIn = Task { await store.signIn(with: .apple) }
+        await freshProvider.waitUntilSignInStarts()
+        await freshProvider.finishSignIn(.success(freshSession))
+
+        let freshSaveStartedBeforeStaleCleanupFinished = await vault.waitUntilSaveStarts()
+        XCTAssertFalse(freshSaveStartedBeforeStaleCleanupFinished)
+        await vault.finishSuspendedDelete()
+        await staleRestore.value
+        await freshSignIn.value
+
+        let storedEnvelope = await vault.storedEnvelope
+        XCTAssertEqual(store.state, .signedIn(freshSession.summary))
+        XCTAssertEqual(storedEnvelope, freshSession.storedEnvelope)
+    }
+
+    func testDiagnosticEventEncodingHasNoPayloadFields() throws {
+        for event in AuthenticationDiagnosticEvent.allCases {
+            let data = try JSONEncoder().encode(event)
+            let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+            XCTAssertFalse(text.contains("token"))
+            XCTAssertFalse(text.contains("account"))
+            XCTAssertFalse(text.contains("email"))
+            XCTAssertFalse(text.contains("@"))
+        }
+    }
+
+    func testSuccessfulSignInRecordsOnlyStartEvent() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(.fixture(provider: .google))
+        )
+        let store = AccountSessionStore.fixture(provider: provider, diagnostics: diagnostics)
+
+        await store.signIn(with: .google)
+        await diagnostics.waitForEventCount(1)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.signInStarted])
+    }
+
+    func testInvalidSignInRecordsStartedThenFailed() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, diagnostics: diagnostics)
+
+        await store.signIn(with: .google)
+        await diagnostics.waitForEventCount(2)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.signInStarted, .signInFailed])
+    }
+
+    func testSignInStorageFailureRecordsStartedThenStorageUnavailable() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let vault = RecordingCredentialVault(saveError: .unexpectedStatus(-50))
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(.fixture(provider: .google))
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+
+        await store.signIn(with: .google)
+        await diagnostics.waitForEventCount(2)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.signInStarted, .storageUnavailable])
+    }
+
+    func testSuccessfulRestorationRecordsSessionRestored() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = RecordingCredentialVault(initial: envelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .success(.fixture(provider: .apple))
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+
+        await store.restoreSession()
+        await diagnostics.waitForEventCount(1)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.sessionRestored])
+    }
+
+    func testExpiredRestorationRecordsSessionExpired() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = RecordingCredentialVault(initial: envelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .failure(.expiredSession)
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+
+        await store.restoreSession()
+        await diagnostics.waitForEventCount(1)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.sessionExpired])
+    }
+
+    func testSuccessfulSignOutRecordsCompletedAfterRestoration() async {
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = RecordingCredentialVault(initial: envelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .success(.fixture(provider: .apple))
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+
+        await store.restoreSession()
+        await store.signOut()
+        await diagnostics.waitForEventCount(2)
+
+        let events = await diagnostics.events
+        XCTAssertEqual(events, [.sessionRestored, .signOutCompleted])
     }
 }

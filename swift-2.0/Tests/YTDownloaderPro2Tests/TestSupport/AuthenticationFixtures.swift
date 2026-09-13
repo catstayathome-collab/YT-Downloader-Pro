@@ -106,7 +106,7 @@ struct ImmediateAuthenticationProvider: AuthenticationProvider {
     }
 }
 
-actor PendingSignInAuthenticationProvider: AuthenticationProvider {
+actor ControlledAuthenticationProvider: AuthenticationProvider {
     nonisolated let kind: AuthenticationProviderKind
     private(set) var signInCallCount = 0
     private var signInContinuation: CheckedContinuation<AuthenticationSession, Error>?
@@ -146,6 +146,102 @@ actor PendingSignInAuthenticationProvider: AuthenticationProvider {
     }
 }
 
+actor ControlledCredentialVault: CredentialVault {
+    private(set) var operations: [VaultOperation] = []
+    private(set) var storedEnvelope: StoredCredentialEnvelope?
+    private var suspendsNextSave: Bool
+    private var suspendsNextDelete: Bool
+    private var saveContinuation: CheckedContinuation<Void, Never>?
+    private var deleteContinuation: CheckedContinuation<Void, Never>?
+
+    init(
+        initial: StoredCredentialEnvelope? = nil,
+        suspendNextSave: Bool = false,
+        suspendNextDelete: Bool = false
+    ) {
+        storedEnvelope = initial
+        suspendsNextSave = suspendNextSave
+        suspendsNextDelete = suspendNextDelete
+    }
+
+    func load(environment: AuthEnvironment) async throws -> StoredCredentialEnvelope? {
+        operations.append(.load(environment))
+        return storedEnvelope
+    }
+
+    func save(_ envelope: StoredCredentialEnvelope, environment: AuthEnvironment) async throws {
+        operations.append(.save(environment))
+        if suspendsNextSave {
+            suspendsNextSave = false
+            await withCheckedContinuation { continuation in
+                saveContinuation = continuation
+            }
+        }
+        storedEnvelope = envelope
+    }
+
+    func delete(environment: AuthEnvironment) async throws {
+        operations.append(.delete(environment))
+        if suspendsNextDelete {
+            suspendsNextDelete = false
+            await withCheckedContinuation { continuation in
+                deleteContinuation = continuation
+            }
+        }
+        storedEnvelope = nil
+    }
+
+    func waitUntilSaveStarts(count: Int = 1, maximumYields: Int = 10_000) async -> Bool {
+        for _ in 0..<maximumYields {
+            let saveCount = operations.filter({ operation in
+                if case .save = operation { return true }
+                return false
+            }).count
+            if saveCount >= count { return true }
+            await Task.yield()
+        }
+        return operations.filter({ operation in
+            if case .save = operation { return true }
+            return false
+        }).count >= count
+    }
+
+    func waitUntilDeleteStarts() async {
+        while !operations.contains(where: { operation in
+            if case .delete = operation { return true }
+            return false
+        }) {
+            await Task.yield()
+        }
+    }
+
+    func finishSuspendedSave() {
+        let continuation = saveContinuation
+        saveContinuation = nil
+        continuation?.resume()
+    }
+
+    func finishSuspendedDelete() {
+        let continuation = deleteContinuation
+        deleteContinuation = nil
+        continuation?.resume()
+    }
+}
+
+actor RecordingAuthenticationDiagnostics: AuthenticationDiagnosticsRecording {
+    private(set) var events: [AuthenticationDiagnosticEvent] = []
+
+    func record(_ event: AuthenticationDiagnosticEvent) async {
+        events.append(event)
+    }
+
+    func waitForEventCount(_ count: Int) async {
+        while events.count < count {
+            await Task.yield()
+        }
+    }
+}
+
 extension AccountSummary {
     static func fixture(provider: AuthenticationProviderKind) -> AccountSummary {
         AccountSummary(
@@ -177,6 +273,22 @@ extension AuthenticationSession {
             ),
             accessToken: accessToken,
             refreshCredential: refreshCredential
+        )
+    }
+}
+
+extension AccountSessionStore {
+    static func fixture(
+        provider: any AuthenticationProvider,
+        vault: any CredentialVault = RecordingCredentialVault(),
+        diagnostics: any AuthenticationDiagnosticsRecording = RecordingAuthenticationDiagnostics()
+    ) -> AccountSessionStore {
+        AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([provider]),
+            now: { Date(timeIntervalSince1970: 1_000) },
+            diagnostics: diagnostics
         )
     }
 }
