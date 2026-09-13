@@ -7,6 +7,14 @@ enum VaultOperation: Equatable, Sendable {
     case delete(AuthEnvironment)
 }
 
+actor AuthenticationCompletionProbe {
+    private(set) var isComplete = false
+
+    func markComplete() {
+        isComplete = true
+    }
+}
+
 actor RecordingCredentialVault: CredentialVault {
     private(set) var operations: [VaultOperation] = []
     private(set) var savedEnvelope: StoredCredentialEnvelope?
@@ -110,6 +118,9 @@ actor ControlledAuthenticationProvider: AuthenticationProvider {
     nonisolated let kind: AuthenticationProviderKind
     private(set) var signInCallCount = 0
     private var signInContinuation: CheckedContinuation<AuthenticationSession, Error>?
+    private var signInStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var signInFinishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hasFinishedSignIn = false
 
     init(kind: AuthenticationProviderKind) {
         self.kind = kind
@@ -117,8 +128,17 @@ actor ControlledAuthenticationProvider: AuthenticationProvider {
 
     func signIn() async throws -> AuthenticationSession {
         signInCallCount += 1
+        defer {
+            hasFinishedSignIn = true
+            let waiters = signInFinishWaiters
+            signInFinishWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
         return try await withCheckedThrowingContinuation { continuation in
             signInContinuation = continuation
+            let waiters = signInStartWaiters
+            signInStartWaiters.removeAll()
+            waiters.forEach { $0.resume() }
         }
     }
 
@@ -129,9 +149,21 @@ actor ControlledAuthenticationProvider: AuthenticationProvider {
     func signOut(refreshCredential: String?) async {}
 
     func waitUntilSignInStarts() async {
-        while signInCallCount == 0 {
-            await Task.yield()
+        guard signInCallCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            signInStartWaiters.append(continuation)
         }
+    }
+
+    func waitUntilSignInFinishes() async {
+        guard !hasFinishedSignIn else { return }
+        await withCheckedContinuation { continuation in
+            signInFinishWaiters.append(continuation)
+        }
+    }
+
+    var hasPendingSignIn: Bool {
+        signInContinuation != nil
     }
 
     func finishSignIn(_ result: Result<AuthenticationSession, AuthenticationProviderError>) {
@@ -149,19 +181,26 @@ actor ControlledAuthenticationProvider: AuthenticationProvider {
 actor ControlledCredentialVault: CredentialVault {
     private(set) var operations: [VaultOperation] = []
     private(set) var storedEnvelope: StoredCredentialEnvelope?
-    private var suspendsNextSave: Bool
+    private var suspendsNextSaveAfterWrite: Bool
     private var suspendsNextDelete: Bool
+    private let deleteError: CredentialVaultError?
     private var saveContinuation: CheckedContinuation<Void, Never>?
     private var deleteContinuation: CheckedContinuation<Void, Never>?
+    private var saveWriteCount = 0
+    private var deleteStartCount = 0
+    private var saveWriteWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var deleteStartWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(
         initial: StoredCredentialEnvelope? = nil,
-        suspendNextSave: Bool = false,
-        suspendNextDelete: Bool = false
+        suspendNextSaveAfterWrite: Bool = false,
+        suspendNextDelete: Bool = false,
+        deleteError: CredentialVaultError? = nil
     ) {
         storedEnvelope = initial
-        suspendsNextSave = suspendNextSave
+        suspendsNextSaveAfterWrite = suspendNextSaveAfterWrite
         suspendsNextDelete = suspendNextDelete
+        self.deleteError = deleteError
     }
 
     func load(environment: AuthEnvironment) async throws -> StoredCredentialEnvelope? {
@@ -171,47 +210,40 @@ actor ControlledCredentialVault: CredentialVault {
 
     func save(_ envelope: StoredCredentialEnvelope, environment: AuthEnvironment) async throws {
         operations.append(.save(environment))
-        if suspendsNextSave {
-            suspendsNextSave = false
-            await withCheckedContinuation { continuation in
-                saveContinuation = continuation
-            }
-        }
         storedEnvelope = envelope
+        saveWriteCount += 1
+        resumeSatisfiedWaiters(&saveWriteWaiters, count: saveWriteCount)
+        if suspendsNextSaveAfterWrite {
+            suspendsNextSaveAfterWrite = false
+            await suspendSave()
+        }
     }
 
     func delete(environment: AuthEnvironment) async throws {
         operations.append(.delete(environment))
+        deleteStartCount += 1
+        resumeSatisfiedWaiters(&deleteStartWaiters, count: deleteStartCount)
         if suspendsNextDelete {
             suspendsNextDelete = false
             await withCheckedContinuation { continuation in
                 deleteContinuation = continuation
             }
         }
+        if let deleteError { throw deleteError }
         storedEnvelope = nil
     }
 
-    func waitUntilSaveStarts(count: Int = 1, maximumYields: Int = 10_000) async -> Bool {
-        for _ in 0..<maximumYields {
-            let saveCount = operations.filter({ operation in
-                if case .save = operation { return true }
-                return false
-            }).count
-            if saveCount >= count { return true }
-            await Task.yield()
+    func waitUntilSaveWrites(count: Int = 1) async {
+        guard saveWriteCount < count else { return }
+        await withCheckedContinuation { continuation in
+            saveWriteWaiters.append((count, continuation))
         }
-        return operations.filter({ operation in
-            if case .save = operation { return true }
-            return false
-        }).count >= count
     }
 
-    func waitUntilDeleteStarts() async {
-        while !operations.contains(where: { operation in
-            if case .delete = operation { return true }
-            return false
-        }) {
-            await Task.yield()
+    func waitUntilDeleteStarts(count: Int = 1) async {
+        guard deleteStartCount < count else { return }
+        await withCheckedContinuation { continuation in
+            deleteStartWaiters.append((count, continuation))
         }
     }
 
@@ -226,18 +258,38 @@ actor ControlledCredentialVault: CredentialVault {
         deleteContinuation = nil
         continuation?.resume()
     }
+
+    private func suspendSave() async {
+        await withCheckedContinuation { continuation in
+            saveContinuation = continuation
+        }
+    }
+
+    private func resumeSatisfiedWaiters(
+        _ waiters: inout [(count: Int, continuation: CheckedContinuation<Void, Never>)],
+        count: Int
+    ) {
+        let satisfied = waiters.filter { $0.count <= count }
+        waiters.removeAll { $0.count <= count }
+        satisfied.forEach { $0.continuation.resume() }
+    }
 }
 
 actor RecordingAuthenticationDiagnostics: AuthenticationDiagnosticsRecording {
     private(set) var events: [AuthenticationDiagnosticEvent] = []
+    private var eventWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func record(_ event: AuthenticationDiagnosticEvent) async {
         events.append(event)
+        let satisfied = eventWaiters.filter { $0.count <= events.count }
+        eventWaiters.removeAll { $0.count <= events.count }
+        satisfied.forEach { $0.continuation.resume() }
     }
 
     func waitForEventCount(_ count: Int) async {
-        while events.count < count {
-            await Task.yield()
+        guard events.count < count else { return }
+        await withCheckedContinuation { continuation in
+            eventWaiters.append((count, continuation))
         }
     }
 }

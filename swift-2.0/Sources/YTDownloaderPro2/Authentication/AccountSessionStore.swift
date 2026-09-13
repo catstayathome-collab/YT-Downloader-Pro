@@ -4,20 +4,20 @@ import Foundation
 @MainActor
 final class AccountSessionStore: ObservableObject {
     @Published private(set) var state: AccountSessionState
+    @Published private(set) var isAuthenticationCancellationAvailable = false
     let environment: AuthEnvironment
 
     private let vault: any CredentialVault
     private let providers: AuthenticationProviderRegistry
     private let now: @Sendable () -> Date
     private let diagnostics: any AuthenticationDiagnosticsRecording
-    private let credentialMutations: AuthenticationCredentialMutationSerializer
     private var accessToken: String?
     private var refreshCredential: String?
     private var currentSummary: AccountSummary?
     private var nextOperationID: UInt64 = 0
     private var activeOperationID: UInt64?
     private var activePriorState: AccountSessionState?
-    private var activeProviderTask: Task<AuthenticationSession, Error>?
+    private var activeProviderOperation: CancellableAuthenticationProviderOperation?
     private var diagnosticsTask: Task<Void, Never>?
 
     init(
@@ -32,10 +32,6 @@ final class AccountSessionStore: ObservableObject {
         self.providers = providers
         self.now = now
         self.diagnostics = diagnostics
-        self.credentialMutations = AuthenticationCredentialMutationSerializer(
-            vault: vault,
-            environment: environment
-        )
         self.state = environment == .disabled ? .disabled : .signedOut
     }
 
@@ -51,25 +47,25 @@ final class AccountSessionStore: ObservableObject {
         guard environment == .mock else { return }
         guard let (operationID, priorState) = beginOperation() else { return }
         state = .signingIn(kind)
+        isAuthenticationCancellationAvailable = true
         recordDiagnostic(.signInStarted)
         guard let provider = providers.provider(for: kind) else {
             finishOperation(operationID, state: .failed(.providerUnavailable))
             recordDiagnostic(.signInFailed)
             return
         }
-        let task = Task { try await provider.signIn() }
-        activeProviderTask = task
-        let result = await task.result
-        guard owns(operationID) else { return }
+        let providerOperation = CancellableAuthenticationProviderOperation {
+            try await provider.signIn()
+        }
+        activeProviderOperation = providerOperation
 
         do {
-            let session = try result.get()
+            let session = try await providerOperation.value()
+            guard owns(operationID) else { return }
             try validate(session, provider: kind)
-            let saved = try await credentialMutations.save(
-                session.storedEnvelope,
-                while: { [weak self] in self?.owns(operationID) == true }
-            )
-            guard saved, owns(operationID) else { return }
+            guard beginCredentialCommit(operationID) else { return }
+            try await saveCredential(session.storedEnvelope)
+            guard owns(operationID) else { return }
             accessToken = session.accessToken
             refreshCredential = session.refreshCredential
             currentSummary = session.summary
@@ -86,6 +82,7 @@ final class AccountSessionStore: ObservableObject {
         }
         guard let (operationID, priorState) = beginOperation() else { return }
         state = .restoring
+        isAuthenticationCancellationAvailable = true
         var restoringProvider: AuthenticationProviderKind?
 
         do {
@@ -100,9 +97,11 @@ final class AccountSessionStore: ObservableObject {
                 finishOperation(operationID, state: .requiresReauthentication(nil))
                 return
             }
-            let task = Task { try await provider.restore(from: envelope) }
-            activeProviderTask = task
-            let session = try await task.value
+            let providerOperation = CancellableAuthenticationProviderOperation {
+                try await provider.restore(from: envelope)
+            }
+            activeProviderOperation = providerOperation
+            let session = try await providerOperation.value()
             guard owns(operationID) else { return }
             try validate(session, provider: envelope.summary.provider)
             accessToken = session.accessToken
@@ -129,13 +128,16 @@ final class AccountSessionStore: ObservableObject {
         default:
             (false, nil)
         }
-        guard cancellation.isCancellable, activeOperationID != nil else { return }
+        guard cancellation.isCancellable,
+              isAuthenticationCancellationAvailable,
+              activeOperationID != nil else { return }
         let priorState = activePriorState ?? (environment == .disabled ? .disabled : .signedOut)
-        activeProviderTask?.cancel()
+        activeProviderOperation?.cancel()
         nextOperationID &+= 1
         activeOperationID = nil
         activePriorState = nil
-        activeProviderTask = nil
+        activeProviderOperation = nil
+        isAuthenticationCancellationAvailable = false
         state = priorState
         if let cancellationEvent = cancellation.event { recordDiagnostic(cancellationEvent) }
     }
@@ -150,11 +152,10 @@ final class AccountSessionStore: ObservableObject {
         accessToken = nil
         await providers.provider(for: summary.provider)?.signOut(refreshCredential: credential)
         guard owns(operationID) else { return }
+        guard beginCredentialCommit(operationID) else { return }
         do {
-            let deleted = try await credentialMutations.delete(
-                while: { [weak self] in self?.owns(operationID) == true }
-            )
-            guard deleted, owns(operationID) else { return }
+            try await deleteCredential()
+            guard owns(operationID) else { return }
             refreshCredential = nil
             currentSummary = nil
             finishOperation(operationID, state: .signedOut)
@@ -182,8 +183,16 @@ final class AccountSessionStore: ObservableObject {
         guard owns(id) else { return }
         activeOperationID = nil
         activePriorState = nil
-        activeProviderTask = nil
+        activeProviderOperation = nil
+        isAuthenticationCancellationAvailable = false
         state = newState
+    }
+
+    private func beginCredentialCommit(_ operationID: UInt64) -> Bool {
+        guard owns(operationID) else { return false }
+        activeProviderOperation = nil
+        isAuthenticationCancellationAvailable = false
+        return true
     }
 
     private func finishSignIn(
@@ -230,11 +239,10 @@ final class AccountSessionStore: ObservableObject {
     }
 
     private func removeInvalidCredential(_ operationID: UInt64) async {
+        guard beginCredentialCommit(operationID) else { return }
         do {
-            let deleted = try await credentialMutations.delete(
-                while: { [weak self] in self?.owns(operationID) == true }
-            )
-            guard deleted, owns(operationID) else { return }
+            try await deleteCredential()
+            guard owns(operationID) else { return }
             finishOperation(operationID, state: .requiresReauthentication(nil))
         } catch {
             guard owns(operationID) else { return }
@@ -250,6 +258,22 @@ final class AccountSessionStore: ObservableObject {
             if let precedingTask { await precedingTask.value }
             await diagnostics.record(event)
         }
+    }
+
+    private func saveCredential(_ envelope: StoredCredentialEnvelope) async throws {
+        let vault = vault
+        let environment = environment
+        try await Task.detached {
+            try await vault.save(envelope, environment: environment)
+        }.value
+    }
+
+    private func deleteCredential() async throws {
+        let vault = vault
+        let environment = environment
+        try await Task.detached {
+            try await vault.delete(environment: environment)
+        }.value
     }
 
     private func validate(
@@ -286,57 +310,42 @@ final class AccountSessionStore: ObservableObject {
     }
 }
 
-private actor AuthenticationCredentialMutationSerializer {
-    private let vault: any CredentialVault
-    private let environment: AuthEnvironment
-    private var mutationInProgress = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+private final class CancellableAuthenticationProviderOperation: Sendable {
+    private let stream: AsyncThrowingStream<AuthenticationSession, Error>
+    private let continuation: AsyncThrowingStream<AuthenticationSession, Error>.Continuation
+    private let providerTask: Task<Void, Never>
 
-    init(vault: any CredentialVault, environment: AuthEnvironment) {
-        self.vault = vault
-        self.environment = environment
-    }
-
-    func save(
-        _ envelope: StoredCredentialEnvelope,
-        while ownsOperation: @escaping @MainActor @Sendable () -> Bool
-    ) async throws -> Bool {
-        await acquire()
-        defer { release() }
-        guard await ownsOperation() else { return false }
-        try await vault.save(envelope, environment: environment)
-        guard await ownsOperation() else {
-            try await vault.delete(environment: environment)
-            return false
-        }
-        return true
-    }
-
-    func delete(
-        while ownsOperation: @escaping @MainActor @Sendable () -> Bool
-    ) async throws -> Bool {
-        await acquire()
-        defer { release() }
-        guard await ownsOperation() else { return false }
-        try await vault.delete(environment: environment)
-        return await ownsOperation()
-    }
-
-    private func acquire() async {
-        if !mutationInProgress {
-            mutationInProgress = true
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+    init(operation: @escaping @Sendable () async throws -> AuthenticationSession) {
+        let pair = AsyncThrowingStream<AuthenticationSession, Error>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        stream = pair.stream
+        continuation = pair.continuation
+        providerTask = Task.detached {
+            do {
+                let session = try await operation()
+                pair.continuation.yield(session)
+                pair.continuation.finish()
+            } catch {
+                pair.continuation.finish(throwing: error)
+            }
         }
     }
 
-    private func release() {
-        guard !waiters.isEmpty else {
-            mutationInProgress = false
-            return
+    func value() async throws -> AuthenticationSession {
+        try await withTaskCancellationHandler {
+            var iterator = stream.makeAsyncIterator()
+            guard let session = try await iterator.next() else {
+                throw CancellationError()
+            }
+            return session
+        } onCancel: {
+            cancel()
         }
-        waiters.removeFirst().resume()
+    }
+
+    func cancel() {
+        providerTask.cancel()
+        continuation.finish(throwing: CancellationError())
     }
 }

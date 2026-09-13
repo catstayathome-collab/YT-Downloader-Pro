@@ -279,18 +279,43 @@ final class AccountSessionStoreTests: XCTestCase {
     func testCancellationRestoresPriorStableStateEvenWhenProviderFinishesLater() async throws {
         let provider = ControlledAuthenticationProvider(kind: .google)
         let diagnostics = RecordingAuthenticationDiagnostics()
-        let store = AccountSessionStore.fixture(provider: provider, diagnostics: diagnostics)
-        let signIn = Task { await store.signIn(with: .google) }
+        var store: AccountSessionStore? = AccountSessionStore.fixture(
+            provider: provider,
+            diagnostics: diagnostics
+        )
+        weak let weakStore = store
+        let operationReturned = expectation(description: "sign-in operation returned")
+        let completion = AuthenticationCompletionProbe()
+        let signIn = Task { [weak store] in
+            await store?.signIn(with: .google)
+            await completion.markComplete()
+            operationReturned.fulfill()
+        }
         await provider.waitUntilSignInStarts()
+        XCTAssertEqual(store?.isAuthenticationCancellationAvailable, true)
 
-        store.cancelAuthentication()
-        XCTAssertEqual(store.state, .signedOut)
+        store?.cancelAuthentication()
+        XCTAssertEqual(store?.state, .signedOut)
+        XCTAssertEqual(store?.isAuthenticationCancellationAvailable, false)
+        await fulfillment(of: [operationReturned], timeout: 1.0)
+        let returnedBeforeProvider = await completion.isComplete
+        let providerIsStillPending = await provider.hasPendingSignIn
+        XCTAssertTrue(returnedBeforeProvider)
+        XCTAssertTrue(providerIsStillPending)
+        if returnedBeforeProvider {
+            await signIn.value
+            store = nil
+            XCTAssertNil(weakStore)
+        }
+
         await provider.finishSignIn(.success(.fixture(provider: .google)))
+        await provider.waitUntilSignInFinishes()
         await signIn.value
         await diagnostics.waitForEventCount(2)
 
         let events = await diagnostics.events
-        XCTAssertEqual(store.state, .signedOut)
+        store = nil
+        XCTAssertNil(weakStore)
         XCTAssertEqual(events, [.signInStarted, .signInCancelled])
     }
 
@@ -309,7 +334,7 @@ final class AccountSessionStoreTests: XCTestCase {
         await first.value
     }
 
-    func testCancelledCredentialSaveCannotOverwriteNewerSignInEnvelope() async {
+    func testCancelledProviderCompletionCannotOverwriteNewerSignInEnvelope() async {
         let staleSession = AuthenticationSession.fixture(
             provider: .google,
             accountID: "stale-account",
@@ -320,11 +345,8 @@ final class AccountSessionStoreTests: XCTestCase {
             accountID: "fresh-account",
             refreshCredential: "fresh-refresh"
         )
-        let vault = ControlledCredentialVault(suspendNextSave: true)
-        let staleProvider = ImmediateAuthenticationProvider(
-            kind: .google,
-            signInResult: .success(staleSession)
-        )
+        let vault = ControlledCredentialVault()
+        let staleProvider = ControlledAuthenticationProvider(kind: .google)
         let freshProvider = ControlledAuthenticationProvider(kind: .apple)
         let store = AccountSessionStore(
             environment: .mock,
@@ -332,55 +354,104 @@ final class AccountSessionStoreTests: XCTestCase {
             providers: .init([staleProvider, freshProvider])
         )
         let staleSignIn = Task { await store.signIn(with: .google) }
-        let staleSaveStarted = await vault.waitUntilSaveStarts()
-        XCTAssertTrue(staleSaveStarted)
+        await staleProvider.waitUntilSignInStarts()
 
         store.cancelAuthentication()
         XCTAssertEqual(store.state, .signedOut)
         let freshSignIn = Task { await store.signIn(with: .apple) }
         await freshProvider.waitUntilSignInStarts()
         await freshProvider.finishSignIn(.success(freshSession))
-
-        let freshSaveStartedBeforeStaleSaveFinished = await vault.waitUntilSaveStarts(count: 2)
-        XCTAssertFalse(freshSaveStartedBeforeStaleSaveFinished)
-        await vault.finishSuspendedSave()
-        await staleSignIn.value
         await freshSignIn.value
+        await staleProvider.finishSignIn(.success(staleSession))
+        await staleProvider.waitUntilSignInFinishes()
+        await staleSignIn.value
 
         let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
         XCTAssertEqual(store.state, .signedIn(freshSession.summary))
         XCTAssertEqual(storedEnvelope, freshSession.storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock)])
     }
 
-    func testCancellationDuringCredentialSaveRemovesStaleEnvelopeWithoutAdoptingSession() async {
-        let staleSession = AuthenticationSession.fixture(
+    func testCancellationAfterCredentialWriteCannotInterruptCommitOrStartDuplicate() async {
+        let session = AuthenticationSession.fixture(
             provider: .google,
-            accountID: "stale-account",
-            refreshCredential: "stale-refresh"
+            accountID: "committed-account",
+            refreshCredential: "committed-refresh"
         )
-        let vault = ControlledCredentialVault(suspendNextSave: true)
+        let vault = ControlledCredentialVault(suspendNextSaveAfterWrite: true)
         let provider = ImmediateAuthenticationProvider(
             kind: .google,
-            signInResult: .success(staleSession)
+            signInResult: .success(session)
         )
-        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        let duplicateProvider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            signInResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([provider, duplicateProvider])
+        )
         let signIn = Task { await store.signIn(with: .google) }
-        let saveStarted = await vault.waitUntilSaveStarts()
-        XCTAssertTrue(saveStarted)
+        await vault.waitUntilSaveWrites()
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
 
         store.cancelAuthentication()
-        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertEqual(store.state, .signingIn(.google))
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+        await store.signIn(with: .apple)
+        let duplicateOperations = await duplicateProvider.counter.operations
+        XCTAssertEqual(duplicateOperations, [])
+
         await vault.finishSuspendedSave()
         await signIn.value
 
         let storedEnvelope = await vault.storedEnvelope
         let operations = await vault.operations
-        XCTAssertEqual(store.state, .signedOut)
-        XCTAssertNil(storedEnvelope)
-        XCTAssertEqual(operations, [.save(.mock), .delete(.mock)])
+        XCTAssertEqual(store.state, .signedIn(session.summary))
+        XCTAssertEqual(storedEnvelope, session.storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock)])
     }
 
-    func testStaleInvalidRestoreCleanupCannotDeleteNewerSignInEnvelope() async {
+    func testCancellationAfterCredentialWriteCannotEnterFailingCompensationPath() async {
+        let session = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "committed-account",
+            refreshCredential: "committed-refresh"
+        )
+        let vault = ControlledCredentialVault(
+            suspendNextSaveAfterWrite: true,
+            deleteError: .unexpectedStatus(-50)
+        )
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(session)
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+        let signIn = Task { await store.signIn(with: .google) }
+        await vault.waitUntilSaveWrites()
+
+        store.cancelAuthentication()
+        await vault.finishSuspendedSave()
+        await signIn.value
+        await diagnostics.waitForEventCount(1)
+
+        let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
+        let events = await diagnostics.events
+        XCTAssertEqual(store.state, .signedIn(session.summary))
+        XCTAssertEqual(storedEnvelope, session.storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock)])
+        XCTAssertEqual(events, [.signInStarted])
+    }
+
+    func testInvalidRestoreCleanupFinishesBeforeNewSignInCanSave() async {
         let staleEnvelope = StoredCredentialEnvelope.fixture(
             provider: .google,
             refreshCredential: "stale-refresh"
@@ -395,7 +466,10 @@ final class AccountSessionStoreTests: XCTestCase {
             kind: .google,
             restoreResult: .failure(.invalidSession)
         )
-        let freshProvider = ControlledAuthenticationProvider(kind: .apple)
+        let freshProvider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            signInResult: .success(freshSession)
+        )
         let store = AccountSessionStore(
             environment: .mock,
             vault: vault,
@@ -403,22 +477,61 @@ final class AccountSessionStoreTests: XCTestCase {
         )
         let staleRestore = Task { await store.restoreSession() }
         await vault.waitUntilDeleteStarts()
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
 
         store.cancelAuthentication()
-        XCTAssertEqual(store.state, .signedOut)
-        let freshSignIn = Task { await store.signIn(with: .apple) }
-        await freshProvider.waitUntilSignInStarts()
-        await freshProvider.finishSignIn(.success(freshSession))
-
-        let freshSaveStartedBeforeStaleCleanupFinished = await vault.waitUntilSaveStarts()
-        XCTAssertFalse(freshSaveStartedBeforeStaleCleanupFinished)
+        XCTAssertEqual(store.state, .restoring)
         await vault.finishSuspendedDelete()
         await staleRestore.value
-        await freshSignIn.value
+        await store.signIn(with: .apple)
 
         let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
         XCTAssertEqual(store.state, .signedIn(freshSession.summary))
         XCTAssertEqual(storedEnvelope, freshSession.storedEnvelope)
+        XCTAssertEqual(operations, [.load(.mock), .delete(.mock), .save(.mock)])
+    }
+
+    func testInvalidRestoreCleanupFailureAfterCancellationAttemptPublishesSafeFailure() async {
+        let staleEnvelope = StoredCredentialEnvelope.fixture(
+            provider: .google,
+            refreshCredential: "stale-refresh"
+        )
+        let vault = ControlledCredentialVault(
+            initial: staleEnvelope,
+            suspendNextDelete: true,
+            deleteError: .unexpectedStatus(-50)
+        )
+        let diagnostics = RecordingAuthenticationDiagnostics()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(
+            provider: provider,
+            vault: vault,
+            diagnostics: diagnostics
+        )
+        let restoration = Task { await store.restoreSession() }
+        await vault.waitUntilDeleteStarts()
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+
+        store.cancelAuthentication()
+        XCTAssertEqual(store.state, .restoring)
+        await vault.finishSuspendedDelete()
+        await restoration.value
+
+        guard store.state == .failed(.credentialRemovalFailed) else {
+            XCTFail("Expected cleanup failure, got \(store.state)")
+            return
+        }
+        await diagnostics.waitForEventCount(1)
+        let storedEnvelope = await vault.storedEnvelope
+        let operations = await vault.operations
+        let events = await diagnostics.events
+        XCTAssertEqual(storedEnvelope, staleEnvelope)
+        XCTAssertEqual(operations, [.load(.mock), .delete(.mock)])
+        XCTAssertEqual(events, [.storageUnavailable])
     }
 
     func testDiagnosticEventEncodingHasNoPayloadFields() throws {
