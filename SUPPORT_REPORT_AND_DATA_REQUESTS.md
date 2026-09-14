@@ -47,6 +47,9 @@ backend, cloud history sync, payment processing, or any external submission.
 Current local foundation:
 
 - `SupportReportDraft` builds a macOS Swift 2.x preview payload for user review.
+- `SupportReportPreviewPresentation` exposes the local-only presentation contract
+  for optional support fields, paid-priority bypass routing, and disabled
+  external submission.
 - The default preview includes typed environment and failure context, but leaves
   optional source URL, title, format, screenshot, contact, diagnostic-export,
   and media-file fields disabled.
@@ -102,6 +105,8 @@ Current local foundation:
 - `LocalDataExportDraft` builds a macOS Swift 2.x preview payload for a local
   export manifest, selected queue/history records, sanitized settings,
   thumbnail cache references, and bounded diagnostic excerpts.
+- `LocalExportPreviewPresentation` exposes local-preview-only counts for UI
+  review without a file writer, upload, email, or backend action.
 - The default export preview scrubs retained job media URL credentials and
   removes output media paths, browser-cookie mode, security-scoped bookmark
   data, and output-folder display paths before encoding.
@@ -135,6 +140,8 @@ Current local foundation:
 
 - `LocalDeletionDraft` builds a macOS Swift 2.x preview payload for local
   deletion actions before UI or filesystem execution.
+- `LocalDeletionPreviewPresentation` exposes the side-effect-free confirmation
+  state for deletion UI and keeps history cleanup separate from media deletion.
 - History previews list only the local job record identifiers and thumbnail
   cache file names selected by the action. They do not include media titles,
   output paths, source URLs, or downloaded media file paths.
