@@ -188,6 +188,9 @@ payment-dispute, security, abuse-prevention, or accounting obligations.
 Preserved records need purpose, access control, retention period, and audit
 coverage.
 
+Credential rotation, restore testing, incident escalation, cancellation/refund
+operations, and shutdown sequencing are governed by `OPERATIONS_RUNBOOK.md`.
+
 ## 7. Verification Checklist
 
 Before paid launch or support submission is enabled:

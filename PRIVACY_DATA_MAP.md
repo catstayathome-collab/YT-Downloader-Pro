@@ -332,7 +332,7 @@ Minimum pre-launch controls:
 - Webhook signature verification, replay protection, and idempotency.
 - Dependency and secret scanning, protected production deployment, and rollback.
 - Tested backup restoration, account deletion, incident response, and key
-  rotation.
+  rotation, using the drill evidence defined in `OPERATIONS_RUNBOOK.md`.
 - Sanitized support exports and adversarial redaction tests.
 
 Production data must never be copied into development fixtures. Tests use

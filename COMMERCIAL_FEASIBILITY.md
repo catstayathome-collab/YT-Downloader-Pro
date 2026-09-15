@@ -288,6 +288,8 @@ This decision is implemented by the following reviewable documents:
   implemented controls, and blocked launch gates.
 - `SUPPORT_REPORT_AND_DATA_REQUESTS.md`: user-reviewed support report payloads,
   local export and deletion rules, and future backend data-request gates.
+- `OPERATIONS_RUNBOOK.md`: credential rotation, backup/restore, incident
+  response, cancellation/refund handling, and shutdown drills.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and
