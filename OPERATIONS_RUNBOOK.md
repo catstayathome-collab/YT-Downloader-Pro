@@ -138,7 +138,8 @@ Required drills:
 
 Cancellation and refund policy must be approved by counsel, accountant, ECPay,
 and the owner before paid launch. Until then, this section is an engineering
-workflow target, not a public promise.
+workflow target, not a public promise. Public-facing refund and cancellation
+draft requirements are tracked in `PUBLIC_POLICY_DRAFTS.md`.
 
 Cancellation rules:
 

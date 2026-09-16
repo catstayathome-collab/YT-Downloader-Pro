@@ -12,7 +12,8 @@
 
 This is an engineering data inventory, not a final Privacy Policy. Legal counsel
 must review the final data flows, vendors, notices, retention periods, and user
-rights before paid launch.
+rights before paid launch. Public policy drafting requirements are tracked in
+`PUBLIC_POLICY_DRAFTS.md`.
 
 ## 1. Non-Negotiable Privacy Boundary
 

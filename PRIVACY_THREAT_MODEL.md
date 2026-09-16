@@ -107,7 +107,8 @@ Before a paid launch decision, keep current passing evidence for:
 - Release-specific dependency and license inventory.
 - A privacy review covering deletion/export, support reports, optional sync,
   backups, credential rotation, incident response, cancellation, refunds, and
-  shutdown, with operational drills defined in `OPERATIONS_RUNBOOK.md`.
+  shutdown, with operational drills defined in `OPERATIONS_RUNBOOK.md` and
+  public policy drafting gates defined in `PUBLIC_POLICY_DRAFTS.md`.
 - `SUPPORT_REPORT_AND_DATA_REQUESTS.md` stays current with the implemented
   support-preview, local export, and local deletion behavior.
 

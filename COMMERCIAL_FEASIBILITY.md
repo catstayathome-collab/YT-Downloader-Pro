@@ -290,6 +290,8 @@ This decision is implemented by the following reviewable documents:
   local export and deletion rules, and future backend data-request gates.
 - `OPERATIONS_RUNBOOK.md`: credential rotation, backup/restore, incident
   response, cancellation/refund handling, and shutdown drills.
+- `PUBLIC_POLICY_DRAFTS.md`: Terms, Acceptable Use, Privacy Policy, refund,
+  cancellation, complaint, and public-claim draft requirements.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and

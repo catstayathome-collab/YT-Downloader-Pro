@@ -199,7 +199,9 @@ deflection without tracking users' media activity.
   `OPERATIONS_RUNBOOK.md`.
 
 The detailed field inventory and retention decisions remain governed by
-`PRIVACY_DATA_MAP.md`.
+`PRIVACY_DATA_MAP.md`. Public Terms, Acceptable Use, Privacy Policy, refund,
+cancellation, complaint, and marketing-claim drafting gates are governed by
+`PUBLIC_POLICY_DRAFTS.md`.
 
 ## 8. Public Issue Tracker Boundary
 
