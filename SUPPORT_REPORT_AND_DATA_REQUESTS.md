@@ -192,6 +192,8 @@ Credential rotation, restore testing, incident escalation, cancellation/refund
 operations, and shutdown sequencing are governed by `OPERATIONS_RUNBOOK.md`.
 Public Terms, Acceptable Use, Privacy Policy, refund, cancellation, complaint,
 and support-scope drafting gates are governed by `PUBLIC_POLICY_DRAFTS.md`.
+Accounting review questions for invoices, refunds, chargebacks, retention, and
+seller-registration evidence are governed by `ACCOUNTING_REVIEW_BRIEF.md`.
 
 ## 7. Verification Checklist
 

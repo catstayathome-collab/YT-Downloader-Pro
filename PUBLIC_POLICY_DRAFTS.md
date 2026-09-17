@@ -161,6 +161,10 @@ Before publication, maintain an internal register with:
 | Website check | Final published copy matches approved versions |
 | Support route check | Intake categories, privacy warning, and escalation routing verified |
 
+`ACCOUNTING_REVIEW_BRIEF.md` tracks the accountant-facing questions and the
+restricted evidence record for tax, invoice, seller-registration, refund,
+retention, and entity guidance.
+
 The evidence register must not include secret values, full payment data, media
 URLs, download titles, local paths, cookies, raw diagnostics, or downloaded
 files.
