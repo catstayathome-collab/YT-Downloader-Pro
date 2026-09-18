@@ -99,22 +99,6 @@ that Google, Apple, real accounts, production authentication, or external
 submission is implemented. The full operating contract and scoped Keychain
 cleanup details are in `AUTHENTICATION.md`.
 
-The normal suite keeps credentials in `InMemoryCredentialVault`. Run the
-disposable Keychain integration separately from an interactive login session:
-
-```bash
-YTDP_RUN_KEYCHAIN_INTEGRATION_TESTS=1 \
-CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache" \
-swift test --package-path swift-2.0 --disable-sandbox \
-  --filter KeychainCredentialVaultTests \
-  -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
-```
-
-The test creates a random service namespace and removes it during teardown. A
-`-34018` result means the host requested a restricted Data Protection Keychain
-or access-group entitlement without an authorized signature; do not bypass that
-failure with a fabricated Team ID or ad-hoc restricted entitlements.
-
 Strict macOS 13 arm64 release compile:
 
 ```bash

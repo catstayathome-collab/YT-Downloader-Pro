@@ -91,26 +91,14 @@ environment. Saving replaces that single envelope rather than creating a second
 record. The envelope contains the synthetic account summary and opaque mock
 refresh credential; the short-lived access token stays in memory and is not
 encoded into the envelope. The record uses
-`kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and is not synchronizable. The
-current local skeleton intentionally uses the standard login Keychain and does
-not request `kSecUseDataProtectionKeychain` or a custom access group. This keeps
-the internal ad-hoc test app and SwiftPM test host functional without restricted
-entitlements while preserving device-only, when-unlocked storage.
-
-Do not add `kSecUseDataProtectionKeychain`, `keychain-access-groups`, or
-`com.apple.application-identifier` as an isolated code change. Those restricted
-claims require a separately reviewed signing and provisioning design, build and
-bundle-verifier coverage, and an integration run under the correctly entitled
-Developer ID host. An ad-hoc signature containing those claims is rejected by
-macOS before launch.
+`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, is not synchronizable, and uses
+the data-protection Keychain.
 
 The focused Keychain integration test is opt-in through
 `YTDP_RUN_KEYCHAIN_INTEGRATION_TESTS=1`. It generates a disposable service
 namespace of the form `com.catstayathome.YTDownloaderPro.tests.<UUID>` and its
 teardown deletes only that test namespace's `.mock` and `.disabled` records.
-It must never use the live service prefix or clean up user records. Run this
-opt-in suite from an interactive login session; the normal in-memory suite does
-not touch the developer's Keychain.
+It must never use the live service prefix or clean up user records.
 
 To clear only the local mock authentication record, use an authenticated test
 or a Keychain-aware maintenance path that deletes the generic password with:
@@ -174,11 +162,6 @@ The store does not adopt a non-restorable session when the vault save fails.
 It reports the localized storage error and keeps downloads independent. Check
 the local Keychain availability and retry; do not work around this by storing
 credentials in preferences, files, diagnostics, or a network service.
-
-If the underlying status is `errSecMissingEntitlement (-34018)`, first confirm
-that no build or code path has opted into the Data Protection Keychain or a
-custom access group without an authorized signing profile. Do not solve this by
-putting restricted entitlements on an ad-hoc test build.
 
 ### Clear Only Mock Authentication
 
