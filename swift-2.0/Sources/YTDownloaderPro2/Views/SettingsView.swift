@@ -2,10 +2,20 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
+    @EnvironmentObject private var accountSessionStore: AccountSessionStore
     @Environment(\.locale) private var locale
 
     var body: some View {
         Form {
+            let accountPresentation = AccountSettingsPresentation.make(
+                environment: accountSessionStore.environment,
+                state: accountSessionStore.state,
+                locale: locale
+            )
+            if accountPresentation.isVisible {
+                AccountSettingsSection()
+            }
+
             Section(L10n.string(.settingsDownloads, locale: locale)) {
                 Stepper(
                     L10n.string(

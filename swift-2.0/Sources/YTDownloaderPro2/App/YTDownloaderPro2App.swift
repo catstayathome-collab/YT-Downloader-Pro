@@ -11,6 +11,7 @@ struct YTDownloaderPro2App: App {
                 DownloadCenterView()
             }
                 .environmentObject(appLifecycle.store)
+                .environmentObject(appLifecycle.accountSessionStore)
                 .frame(minWidth: 760, minHeight: 540)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
@@ -20,6 +21,7 @@ struct YTDownloaderPro2App: App {
                 SettingsView()
             }
                 .environmentObject(appLifecycle.store)
+                .environmentObject(appLifecycle.accountSessionStore)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
     }
@@ -53,25 +55,38 @@ enum TerminationSafetyPolicy {
 @MainActor
 final class AppLifecycle: NSObject, NSApplicationDelegate {
     let store: DownloadStore
+    let accountSessionStore: AccountSessionStore
     private var terminationTask: Task<Void, Never>?
 
     override convenience init() {
-        self.init(store: DownloadStore.live())
+        self.init(store: DownloadStore.live(), accountSessionStore: .live())
     }
 
-    init(store: DownloadStore) {
+    init(store: DownloadStore, accountSessionStore: AccountSessionStore? = nil) {
         self.store = store
+        self.accountSessionStore = accountSessionStore ?? AccountSessionStore(
+            environment: .disabled,
+            vault: InMemoryCredentialVault(),
+            providers: .init([])
+        )
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .aqua)
         startAutomaticUpdateCheck()
+        startAuthenticationRestoration()
     }
 
     func startAutomaticUpdateCheck() {
         Task { @MainActor [store] in
             await store.checkForUpdates(manual: false)
+        }
+    }
+
+    func startAuthenticationRestoration() {
+        Task { @MainActor [accountSessionStore] in
+            await accountSessionStore.restoreSession()
         }
     }
 

@@ -1607,6 +1607,32 @@ final class DownloadStoreTests: XCTestCase {
         try await fixture.store.prepareToQuit()
     }
 
+    func testAppLifecycleOwnsBothStoresAndStartsMockRestoration() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanUp() }
+        let envelope = StoredCredentialEnvelope.fixture(provider: .google, refreshCredential: "restore")
+        let vault = RecordingCredentialVault(initial: envelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .success(.fixture(provider: .google))
+        )
+        let accountStore = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([provider])
+        )
+        let lifecycle = AppLifecycle(store: fixture.store, accountSessionStore: accountStore)
+
+        lifecycle.startAuthenticationRestoration()
+        try await waitUntil("mock session restoration") {
+            if case .signedIn = accountStore.state { return true }
+            return false
+        }
+
+        XCTAssertTrue(lifecycle.store === fixture.store)
+        XCTAssertTrue(lifecycle.accountSessionStore === accountStore)
+    }
+
     func testQuitStopsRecordMutations() async throws {
         let active = DownloadJob.fixture()
         let completed = DownloadJob.fixture(status: .completed)

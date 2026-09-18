@@ -2,6 +2,12 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
+    func testAccountEntryIsBottomAnchoredAndNeverPartOfDownloadSelection() {
+        XCTAssertTrue(AccountSidebarLayout.isBottomAnchored)
+        XCTAssertTrue(AccountSidebarLayout.isOutsideDownloadListSelection)
+        XCTAssertEqual(AccountSidebarLayout.minimumHeight, 56)
+    }
+
     func testURLInputPresentationReplacesLineBreaksWithoutDiscardingLinks() {
         let input = "https://youtu.be/one\r\nhttps://youtu.be/two\nhttps://youtu.be/three"
 

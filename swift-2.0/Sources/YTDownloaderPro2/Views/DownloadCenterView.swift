@@ -318,6 +318,7 @@ private enum DownloadOptionsSheet: Identifiable {
 
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
+    @EnvironmentObject private var accountSessionStore: AccountSessionStore
     @Environment(\.locale) private var locale
 
     @State private var url = ""
@@ -481,26 +482,38 @@ struct DownloadCenterView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $store.sidebarSection) {
-            Section(L10n.string(.downloadCenterTitle, locale: locale)) {
-                ForEach(DownloadStatus.SidebarSection.allCases, id: \.self) { section in
-                    Label {
-                        HStack {
-                            Text(sidebarTitle(for: section, locale: locale))
-                            Spacer(minLength: 8)
-                            Text("\(count(for: section))")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+        VStack(spacing: 0) {
+            List(selection: $store.sidebarSection) {
+                Section(L10n.string(.downloadCenterTitle, locale: locale)) {
+                    ForEach(DownloadStatus.SidebarSection.allCases, id: \.self) { section in
+                        Label {
+                            HStack {
+                                Text(sidebarTitle(for: section, locale: locale))
+                                Spacer(minLength: 8)
+                                Text("\(count(for: section))")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        } icon: {
+                            Image(systemName: sidebarSymbol(for: section))
                         }
-                    } icon: {
-                        Image(systemName: sidebarSymbol(for: section))
+                        .tag(section)
                     }
-                    .tag(section)
                 }
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+
+            let presentation = AccountSidebarPresentation.make(
+                environment: accountSessionStore.environment,
+                state: accountSessionStore.state,
+                locale: locale
+            )
+            if presentation.isVisible {
+                Divider()
+                AccountSidebarView(presentation: presentation)
+            }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         .background(DownloadCenterAppearance.palette.sidebarBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .navigationTitle(L10n.string(.downloadCenterTitle, locale: locale))
