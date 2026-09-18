@@ -7,7 +7,8 @@ and the license texts needed to review the exact bundled helper set. This proces
 reduces accidental omissions; it does not decide whether a commercial product
 is legally permitted. A qualified lawyer must review the final distribution
 model, source-delivery method, notices, and any copyleft obligations before a
-paid release is enabled.
+paid release is enabled. `LICENSE_REVIEW_BRIEF.md` tracks the counsel-facing
+questions and restricted evidence record for that review.
 
 ## Canonical Inputs
 

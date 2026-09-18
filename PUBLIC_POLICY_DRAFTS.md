@@ -165,6 +165,10 @@ Before publication, maintain an internal register with:
 restricted evidence record for tax, invoice, seller-registration, refund,
 retention, and entity guidance.
 
+`LICENSE_REVIEW_BRIEF.md` tracks the counsel-facing questions and restricted
+evidence record for helper-bundle obligations, SBOM evidence, notices, public
+source-availability language, and release-specific source-delivery duties.
+
 The evidence register must not include secret values, full payment data, media
 URLs, download titles, local paths, cookies, raw diagnostics, or downloaded
 files.

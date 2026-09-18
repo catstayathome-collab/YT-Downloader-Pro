@@ -105,6 +105,8 @@ Before a paid launch decision, keep current passing evidence for:
 - Manual installed-app checks on clean supported Macs after Developer ID
   signing, notarization, stapling, and release packaging.
 - Release-specific dependency and license inventory.
+- Written license review for the exact helper bundle, SBOM, notices, and
+  source-delivery plan, tracked in `LICENSE_REVIEW_BRIEF.md`.
 - A privacy review covering deletion/export, support reports, optional sync,
   backups, credential rotation, incident response, cancellation, refunds, and
   shutdown, with operational drills defined in `OPERATIONS_RUNBOOK.md` and

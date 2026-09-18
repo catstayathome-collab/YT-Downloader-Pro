@@ -285,6 +285,8 @@ This decision is implemented by the following reviewable documents:
 - `LEGAL_REVIEW_BRIEF.md`: facts and questions for qualified Taiwan counsel.
 - `ACCOUNTING_REVIEW_BRIEF.md`: tax, invoice, seller-registration, refund,
   retention, and entity questions for a qualified Taiwan accountant.
+- `LICENSE_REVIEW_BRIEF.md`: helper-bundle, SBOM, notices, source-delivery,
+  and release-specific license questions for qualified counsel.
 - `PRIVACY_DATA_MAP.md`: current and proposed data inventory and boundaries.
 - `PRIVACY_THREAT_MODEL.md`: macOS Swift 2.x privacy assets, trust boundaries,
   implemented controls, and blocked launch gates.

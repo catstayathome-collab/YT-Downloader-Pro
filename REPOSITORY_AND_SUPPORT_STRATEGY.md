@@ -201,7 +201,8 @@ deflection without tracking users' media activity.
 The detailed field inventory and retention decisions remain governed by
 `PRIVACY_DATA_MAP.md`. Public Terms, Acceptable Use, Privacy Policy, refund,
 cancellation, complaint, and marketing-claim drafting gates are governed by
-`PUBLIC_POLICY_DRAFTS.md`.
+`PUBLIC_POLICY_DRAFTS.md`. Helper-bundle, SBOM, notice, and source-delivery
+review gates are governed by `LICENSE_REVIEW_BRIEF.md`.
 
 ## 8. Public Issue Tracker Boundary
 
