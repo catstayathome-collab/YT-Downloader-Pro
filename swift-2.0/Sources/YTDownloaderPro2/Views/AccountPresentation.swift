@@ -83,7 +83,7 @@ struct AccountSettingsPresentation: Equatable {
         case operation(title: String)
         case signedIn(AccountSummary)
         case reauthentication(AuthenticationProviderKind?)
-        case failure(message: String, retriesSignOut: Bool)
+        case failure(message: String, retriesCredentialRemoval: Bool)
     }
 
     let isVisible: Bool
@@ -123,7 +123,7 @@ struct AccountSettingsPresentation: Equatable {
                 developmentNotice: notice,
                 content: .failure(
                     message: L10n.string(error.localizationKey, locale: locale),
-                    retriesSignOut: error == .credentialRemovalFailed
+                    retriesCredentialRemoval: error == .credentialRemovalFailed
                 )
             )
         case .signingOut:

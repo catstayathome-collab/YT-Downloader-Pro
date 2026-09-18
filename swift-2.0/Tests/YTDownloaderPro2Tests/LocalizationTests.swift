@@ -97,7 +97,7 @@ final class LocalizationTests: XCTestCase {
             "account.error.invalidSession": ["en": "The saved account session is invalid. Sign in again.", "zh-Hant": "儲存的帳號工作階段無效，請重新登入。", "ja": "保存されたアカウントセッションは無効です。もう一度サインインしてください。"],
             "account.error.expiredSession": ["en": "The account session has expired. Sign in again.", "zh-Hant": "帳號工作階段已過期，請重新登入。", "ja": "アカウントセッションの有効期限が切れました。もう一度サインインしてください。"],
             "account.error.storageUnavailable": ["en": "The account session could not be saved securely on this Mac.", "zh-Hant": "無法在這台 Mac 上安全儲存帳號工作階段。", "ja": "この Mac にアカウントセッションを安全に保存できませんでした。"],
-            "account.error.removalFailed": ["en": "The saved account session could not be removed. Try signing out again.", "zh-Hant": "無法移除儲存的帳號工作階段，請再次登出。", "ja": "保存されたアカウントセッションを削除できませんでした。もう一度サインアウトしてください。"],
+            "account.error.removalFailed": ["en": "The saved account session could not be removed. Try the cleanup again.", "zh-Hant": "無法移除儲存的帳號工作階段，請再次嘗試清除。", "ja": "保存されたアカウントセッションを削除できませんでした。削除をもう一度お試しください。"],
             "account.error.signInFailed": ["en": "Sign-in could not be completed. Try again.", "zh-Hant": "無法完成登入，請重試。", "ja": "サインインを完了できませんでした。もう一度お試しください。"]
         ]
 

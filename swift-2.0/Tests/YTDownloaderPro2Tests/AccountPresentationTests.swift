@@ -209,20 +209,20 @@ final class AccountPresentationTests: XCTestCase {
         }
     }
 
-    func testSettingsUsesLocalizedTypedErrorsAndOnlyRetriesSignOutForRemovalFailure() {
+    func testSettingsUsesLocalizedTypedErrorsAndOnlyRetriesCredentialRemovalForRemovalFailure() {
         let locale = Locale(identifier: "ja")
         let expected: [(AuthPresentationError, String, Bool)] = [
             (.providerUnavailable, "このサインイン方法は利用できません。", false),
             (.invalidSession, "保存されたアカウントセッションは無効です。もう一度サインインしてください。", false),
             (.expiredSession, "アカウントセッションの有効期限が切れました。もう一度サインインしてください。", false),
             (.credentialStorageUnavailable, "この Mac にアカウントセッションを安全に保存できませんでした。", false),
-            (.credentialRemovalFailed, "保存されたアカウントセッションを削除できませんでした。もう一度サインアウトしてください。", true),
+            (.credentialRemovalFailed, "保存されたアカウントセッションを削除できませんでした。削除をもう一度お試しください。", true),
             (.signInFailed, "サインインを完了できませんでした。もう一度お試しください。", false)
         ]
 
-        for (error, message, retriesSignOut) in expected {
+        for (error, message, retriesCredentialRemoval) in expected {
             let value = AccountSettingsPresentation.make(environment: .mock, state: .failed(error), locale: locale)
-            XCTAssertEqual(value.content, .failure(message: message, retriesSignOut: retriesSignOut))
+            XCTAssertEqual(value.content, .failure(message: message, retriesCredentialRemoval: retriesCredentialRemoval))
         }
     }
 

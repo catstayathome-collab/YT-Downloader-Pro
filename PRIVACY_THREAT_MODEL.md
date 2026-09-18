@@ -84,7 +84,7 @@ provider candidates only.
 | Mock Keychain envelope is read by the wrong environment or duplicated | The vault appends the environment namespace, uses one `active-session` envelope, and uses device-only Keychain accessibility | Implemented and tested |
 | Mock credentials or complete identities leak into authentication diagnostics | Diagnostics accept a finite event enum only; credentials, account IDs, emails, Keychain data, and raw provider errors are prohibited | Implemented and tested |
 | An environment typo exposes account controls or a real-provider surface | Only exact lowercase `YTDP_AUTH_MODE=mock` enables the mock skeleton; every other value is disabled | Implemented and tested |
-| A cancelled or stale authentication operation overwrites newer state | Store operation ownership invalidates cancelled work and restores the prior stable state; download lifecycle remains independent | Implemented and tested |
+| A cancelled or stale authentication operation overwrites newer state | Store operation ownership invalidates cancelled work and restores the prior stable state. Download lifecycle is not owned by authentication. | Store serialization is implemented and tested; active-download independence has manual smoke evidence only |
 
 ## 5. Required Privacy Invariants
 

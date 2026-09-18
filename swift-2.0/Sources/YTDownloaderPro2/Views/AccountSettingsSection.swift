@@ -26,8 +26,8 @@ enum AccountSettingsFocusPolicy {
             [.signOut]
         case let .reauthentication(provider):
             provider == nil ? [.google, .apple] : [.retry]
-        case let .failure(_, retriesSignOut):
-            retriesSignOut ? [.retry] : [.google, .apple]
+        case let .failure(_, retriesCredentialRemoval):
+            retriesCredentialRemoval ? [.retry] : [.google, .apple]
         }
     }
 
@@ -44,8 +44,8 @@ enum AccountSettingsFocusPolicy {
             .signOut
         case let .reauthentication(provider):
             provider == nil ? providerControl(for: initiator) : .retry
-        case let .failure(_, retriesSignOut):
-            retriesSignOut ? .retry : providerControl(for: initiator)
+        case let .failure(_, retriesCredentialRemoval):
+            retriesCredentialRemoval ? .retry : providerControl(for: initiator)
         }
 
         guard let destination,
@@ -173,15 +173,15 @@ struct AccountSettingsSection: View {
                 providerButtons(disabled: false)
             }
 
-        case let .failure(message, retriesSignOut):
+        case let .failure(message, retriesCredentialRemoval):
             Label(message, systemImage: "exclamationmark.circle")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(L10n.string(.accountFreeStillAvailable, locale: locale))
                 .foregroundStyle(.secondary)
-            if retriesSignOut {
+            if retriesCredentialRemoval {
                 Button {
-                    beginSignOut(returningTo: .retry, provider: lastProvider)
+                    beginCredentialRemovalRetry(returningTo: .retry)
                 } label: {
                     Label(L10n.string(.accountRetry, locale: locale), systemImage: "arrow.clockwise")
                 }
@@ -242,6 +242,11 @@ struct AccountSettingsSection: View {
         lastProvider = provider ?? lastProvider
         operationFocusInitiator = .init(control: control, provider: provider ?? lastProvider)
         Task { await accountSessionStore.signOut() }
+    }
+
+    private func beginCredentialRemovalRetry(returningTo control: AccountSettingsFocusControl) {
+        operationFocusInitiator = .init(control: control, provider: lastProvider)
+        Task { await accountSessionStore.retryCredentialRemoval() }
     }
 
     private func restoreFocus(after state: AccountSessionState) {

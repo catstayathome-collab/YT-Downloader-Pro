@@ -20,6 +20,21 @@ final class AccountSessionStore: ObservableObject {
     private var authenticationCancellationIsAuthorized = false
     private var activeProviderOperation: CancellableAuthenticationProviderOperation?
     private var diagnosticsTask: Task<Void, Never>?
+    private var credentialRemovalRecovery: CredentialRemovalRecovery?
+
+    private enum CredentialRemovalRecovery {
+        case signedOut
+        case requiresReauthentication
+
+        var inProgressState: AccountSessionState {
+            switch self {
+            case .signedOut:
+                .signingOut
+            case .requiresReauthentication:
+                .restoring
+            }
+        }
+    }
 
     init(
         environment: AuthEnvironment,
@@ -174,8 +189,25 @@ final class AccountSessionStore: ObservableObject {
             recordDiagnostic(.signOutCompleted)
         } catch {
             guard owns(operationID) else { return }
-            finishOperation(operationID, state: .failed(.credentialRemovalFailed))
-            recordDiagnostic(.storageUnavailable)
+            finishCredentialRemovalFailure(operationID, recovery: .signedOut)
+        }
+    }
+
+    func retryCredentialRemoval() async {
+        guard environment == .mock,
+              activeOperationID == nil,
+              state == .failed(.credentialRemovalFailed),
+              let recovery = credentialRemovalRecovery,
+              let (operationID, _) = beginOperation() else { return }
+        state = recovery.inProgressState
+        guard beginCredentialCommit(operationID) else { return }
+        do {
+            try await deleteCredential()
+            guard owns(operationID) else { return }
+            finishCredentialRemoval(operationID, recovery: recovery)
+        } catch {
+            guard owns(operationID) else { return }
+            finishCredentialRemovalFailure(operationID, recovery: recovery)
         }
     }
 
@@ -257,12 +289,38 @@ final class AccountSessionStore: ObservableObject {
         do {
             try await deleteCredential()
             guard owns(operationID) else { return }
-            finishOperation(operationID, state: .requiresReauthentication(nil))
+            finishCredentialRemoval(operationID, recovery: .requiresReauthentication)
         } catch {
             guard owns(operationID) else { return }
-            finishOperation(operationID, state: .failed(.credentialRemovalFailed))
-            recordDiagnostic(.storageUnavailable)
+            finishCredentialRemovalFailure(operationID, recovery: .requiresReauthentication)
         }
+    }
+
+    private func finishCredentialRemoval(
+        _ operationID: UInt64,
+        recovery: CredentialRemovalRecovery
+    ) {
+        guard owns(operationID) else { return }
+        credentialRemovalRecovery = nil
+        switch recovery {
+        case .signedOut:
+            refreshCredential = nil
+            currentSummary = nil
+            finishOperation(operationID, state: .signedOut)
+            recordDiagnostic(.signOutCompleted)
+        case .requiresReauthentication:
+            finishOperation(operationID, state: .requiresReauthentication(nil))
+        }
+    }
+
+    private func finishCredentialRemovalFailure(
+        _ operationID: UInt64,
+        recovery: CredentialRemovalRecovery
+    ) {
+        guard owns(operationID) else { return }
+        credentialRemovalRecovery = recovery
+        finishOperation(operationID, state: .failed(.credentialRemovalFailed))
+        recordDiagnostic(.storageUnavailable)
     }
 
     private func recordDiagnostic(_ event: AuthenticationDiagnosticEvent) {

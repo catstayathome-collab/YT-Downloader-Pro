@@ -32,7 +32,7 @@ final class DownloadCenterViewTests: XCTestCase {
                 .init(
                     isVisible: true,
                     developmentNotice: "",
-                    content: .failure(message: "removal", retriesSignOut: true)
+                    content: .failure(message: "removal", retriesCredentialRemoval: true)
                 ),
                 appleSignOut,
                 .retry
@@ -41,7 +41,7 @@ final class DownloadCenterViewTests: XCTestCase {
                 .init(
                     isVisible: true,
                     developmentNotice: "",
-                    content: .failure(message: "ordinary", retriesSignOut: false)
+                    content: .failure(message: "ordinary", retriesCredentialRemoval: false)
                 ),
                 appleRetry,
                 .apple

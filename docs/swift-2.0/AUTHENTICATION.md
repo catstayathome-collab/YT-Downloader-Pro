@@ -22,12 +22,13 @@ or media behavior.
 | --- | --- | --- |
 | `AuthEnvironment` | Resolves the local mode once from `YTDP_AUTH_MODE`. | Staging or production modes. |
 | `AccountSessionStore` | Owns observable mock session state, serializes operations, validates local sessions, and owns in-memory access material. | Downloads, settings, feature policy, entitlements, billing, or backend calls. |
+| `AccountSummary` | Carries synthetic provider, account identifier, display, plan, and expiry presentation data to SwiftUI. It exposes no access token or refresh credential. | Credential storage or provider revocation. |
 | `AuthenticationProvider` | Defines the provider-neutral mock sign-in, restoration, and local sign-out boundary. | Provider SDKs, browser callbacks, OAuth, or network I/O. |
 | `MockAuthenticationProvider` | Produces synthetic Google or Apple-labelled sessions and validates their local restoration envelope. | Google or Apple identity authentication. |
 | `CredentialVault` | Saves, loads, and deletes one opaque restoration envelope for an authentication environment. | Credential enumeration, cloud sync, or unrelated Keychain access. |
 | `KeychainCredentialVault` | Persists the active local restoration envelope in macOS Keychain. | iCloud Keychain sync, production credentials, or provider revocation. |
 | `InMemoryCredentialVault` | Provides deterministic non-Keychain storage for normal tests. | Persistent app storage. |
-| `AuthenticationDiagnostics` | Records a finite set of payload-free local diagnostic categories. | Analytics, raw error capture, or external reporting. |
+| `AuthenticationDiagnosticEvent`, `AuthenticationDiagnosticsRecording`, and `SystemAuthenticationDiagnosticsRecorder` | Record a finite set of payload-free local diagnostic categories. | Analytics, raw error capture, or external reporting. |
 | `AccountSidebarView` and `AccountSettingsSection` | Render mock-only account presentation and safe state-specific controls. | Account recovery, purchase, entitlement, or real provider UI. |
 | `AppLifecycle` | Starts asynchronous mock-session restoration after application launch. | Blocking launch, download ownership, or authentication-driven download cancellation. |
 
@@ -37,17 +38,25 @@ or media behavior.
 | --- | --- |
 | `disabled` | Used when the environment is not exact mock mode. Account UI is absent; restoration performs no vault read and remains disabled. |
 | `signedOut` | Mock mode's stable, accountless state. A provider selection begins `signingIn`; empty restoration returns here; successful sign-out returns here. |
-| `restoring` | Entered by application lifecycle restoration in mock mode. A valid envelope becomes `signedIn`; an expired one requires reauthentication; malformed data is removed from the current mock record; cancellation restores the prior stable state. |
-| `signingIn(provider)` | Entered for one selected mock provider. A validated session that is saved successfully becomes `signedIn`; cancellation restores the prior stable state; failures become a localized recoverable failure. |
+| `restoring` | Entered by application lifecycle restoration in mock mode and reused while retrying invalid-restoration cleanup. A valid envelope becomes `signedIn`; an expired one requires reauthentication; malformed or invalid material is deleted from the current mock record. Once deletion begins, it is non-cancellable even while this state remains visible; cancellation before that boundary restores the prior stable state. |
+| `signingIn(provider)` | Entered for one selected mock provider. A validated session that is saved successfully becomes `signedIn`. Once credential saving begins, it is non-cancellable even while this state remains visible; cancellation before that boundary restores the prior stable state. Failures become a localized recoverable failure. |
 | `signedIn(summary)` | Contains only the synthetic presentation summary. Sign-out enters `signingOut`; an expired or invalid restoration requires reauthentication. |
 | `requiresReauthentication(provider?)` | Signals expired or rejected stored material. A known provider can retry it; an unknown provider presents both local mock choices. Free downloads remain available. |
-| `failed(error)` | A recoverable presentation error. Storage removal failure retries sign-out; other failures present local mock sign-in choices. |
-| `signingOut` | Clears in-memory access material, asks the mock provider to discard local state, and deletes only the current environment envelope. Success becomes `signedOut`; deletion failure becomes `failed(credentialRemovalFailed)`. |
+| `failed(error)` | A recoverable presentation error. `credentialRemovalFailed` retries the store-owned credential cleanup operation, preserving whether the failure followed invalid restoration or sign-out; other failures present local mock sign-in choices. |
+| `signingOut` | Clears in-memory access material, asks the mock provider to discard local state, and deletes only the current environment envelope. Once deletion begins, it is non-cancellable while this state remains visible. Success becomes `signedOut`; deletion failure becomes `failed(credentialRemovalFailed)`. |
 
 Only one mutating authentication operation may own the store at a time. A newer
 cancellation invalidates the active operation, so a stale asynchronous provider
 result cannot overwrite the restored prior state. Download execution is outside
 this serialization and continues independently.
+
+Credential save and deletion are commit/cleanup boundaries. They retain the
+visible `signingIn`, `restoring`, or `signingOut` state while the vault call is
+in flight, but disable cancellation and keep exclusive operation ownership
+until its result is committed. A failed invalid-restoration cleanup retries the
+same scoped deletion and then reaches `requiresReauthentication(nil)` on
+success. A failed sign-out deletion retries deletion only, without a second
+provider sign-out, and then reaches `signedOut` on success.
 
 ## Local Mock Mode
 

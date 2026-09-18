@@ -22,17 +22,20 @@ actor RecordingCredentialVault: CredentialVault {
     private let loadError: CredentialVaultError?
     private let saveError: CredentialVaultError?
     private let deleteError: CredentialVaultError?
+    private var remainingDeleteErrors: [CredentialVaultError?]
 
     init(
         initial: StoredCredentialEnvelope? = nil,
         loadError: CredentialVaultError? = nil,
         saveError: CredentialVaultError? = nil,
-        deleteError: CredentialVaultError? = nil
+        deleteError: CredentialVaultError? = nil,
+        deleteErrors: [CredentialVaultError?] = []
     ) {
         storedEnvelope = initial
         self.loadError = loadError
         self.saveError = saveError
         self.deleteError = deleteError
+        remainingDeleteErrors = deleteErrors
     }
 
     func load(environment: AuthEnvironment) async throws -> StoredCredentialEnvelope? {
@@ -50,6 +53,9 @@ actor RecordingCredentialVault: CredentialVault {
 
     func delete(environment: AuthEnvironment) async throws {
         operations.append(.delete(environment))
+        if !remainingDeleteErrors.isEmpty {
+            if let error = remainingDeleteErrors.removeFirst() { throw error }
+        }
         if let deleteError { throw deleteError }
         storedEnvelope = nil
     }

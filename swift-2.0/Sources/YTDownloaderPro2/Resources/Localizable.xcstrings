@@ -235,9 +235,9 @@
     "account.error.removalFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The saved account session could not be removed. Try signing out again." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "保存されたアカウントセッションを削除できませんでした。もう一度サインアウトしてください。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法移除儲存的帳號工作階段，請再次登出。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "The saved account session could not be removed. Try the cleanup again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存されたアカウントセッションを削除できませんでした。削除をもう一度お試しください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法移除儲存的帳號工作階段，請再次嘗試清除。" } }
       }
     },
     "account.error.signInFailed": {

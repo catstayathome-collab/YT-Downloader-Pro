@@ -23,9 +23,10 @@ Keychain restoration, and presentation-only mock plan labels behind the exact
 account, backend, billing, subscription state, entitlement delivery, paid
 feature enforcement, or external submission.
 
-Apple is a future identity-provider candidate alongside Google. Neither Apple
-nor Google sign-in is implemented. Every flow and service described below is a
-proposed real account, billing, and entitlement architecture and remains
+Apple is a future identity-provider candidate alongside Google. Neither real
+Sign in with Apple nor real Google sign-in is implemented; the current labels
+refer only to the local mock providers. Every flow and service described below
+is a proposed real account, billing, and entitlement architecture and remains
 subject to separate approved specifications, plans, provider and commercial
 gates, and external-account approvals.
 
