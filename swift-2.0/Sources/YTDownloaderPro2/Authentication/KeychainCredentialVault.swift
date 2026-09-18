@@ -72,8 +72,7 @@ struct KeychainCredentialVault: CredentialVault {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "\(servicePrefix).\(environment.storageNamespace)",
             kSecAttrAccount as String: "active-session",
-            kSecAttrSynchronizable as String: false,
-            kSecUseDataProtectionKeychain as String: true
+            kSecAttrSynchronizable as String: false
         ]
     }
 }

@@ -28,7 +28,17 @@ internal candidate:
 ```
 
 `--unsigned-test` means no Developer ID identity is used. The app is still
-ad-hoc signed so nested code and bundle integrity can be tested.
+ad-hoc signed so nested code and bundle integrity can be tested. The current
+authentication skeleton uses the standard login Keychain with
+`kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and no custom access group, so
+this internal host does not require restricted Keychain entitlements.
+
+Do not add `kSecUseDataProtectionKeychain`, `keychain-access-groups`, or
+`com.apple.application-identifier` to the ad-hoc path. macOS rejects an ad-hoc
+binary containing those restricted claims before launch. A future move to the
+Data Protection Keychain requires an approved signing/provisioning design,
+authorized Developer ID profile, bundle-verifier changes, and signed-host
+Keychain integration evidence before it can replace this contract.
 
 Outputs:
 
