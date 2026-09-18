@@ -248,6 +248,110 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(providerOperations, [.restore(envelope)])
     }
 
+    func testDuplicateCredentialRemovalRetriesSerializeOneSuspendedDeletion() async {
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = ControlledCredentialVault(
+            initial: envelope,
+            suspendDeleteCounts: [2],
+            deleteErrors: [.unexpectedStatus(-50), nil]
+        )
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        await store.restoreSession()
+
+        let firstRetry = Task { await store.retryCredentialRemoval() }
+        await vault.waitUntilDeleteStarts(count: 2)
+        await store.retryCredentialRemoval()
+
+        let operationsWhileSuspended = await vault.operations
+        XCTAssertEqual(store.state, .restoring)
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+        XCTAssertEqual(operationsWhileSuspended, [.load(.mock), .delete(.mock), .delete(.mock)])
+
+        await vault.finishSuspendedDelete()
+        await firstRetry.value
+
+        let finalOperations = await vault.operations
+        XCTAssertEqual(store.state, .requiresReauthentication(nil))
+        XCTAssertEqual(finalOperations, [.load(.mock), .delete(.mock), .delete(.mock)])
+    }
+
+    func testCancellationDuringSuspendedCredentialRemovalRetryCannotAlterOutcome() async {
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = ControlledCredentialVault(
+            initial: envelope,
+            suspendDeleteCounts: [2],
+            deleteErrors: [.unexpectedStatus(-50), nil]
+        )
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        await store.restoreSession()
+
+        let retry = Task { await store.retryCredentialRemoval() }
+        await vault.waitUntilDeleteStarts(count: 2)
+        store.cancelAuthentication()
+
+        XCTAssertEqual(store.state, .restoring)
+        XCTAssertFalse(store.isAuthenticationCancellationAvailable)
+        await vault.finishSuspendedDelete()
+        await retry.value
+
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .requiresReauthentication(nil))
+        XCTAssertEqual(operations, [.load(.mock), .delete(.mock), .delete(.mock)])
+    }
+
+    func testRepeatedCredentialRemovalFailureRemainsRetryableUntilSuccess() async {
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .apple,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = RecordingCredentialVault(
+            initial: envelope,
+            deleteErrors: [.unexpectedStatus(-50), .unexpectedStatus(-50), nil]
+        )
+        let provider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+
+        await store.restoreSession()
+        await store.retryCredentialRemoval()
+        XCTAssertEqual(store.state, .failed(.credentialRemovalFailed))
+        await store.retryCredentialRemoval()
+
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .requiresReauthentication(nil))
+        XCTAssertEqual(
+            operations,
+            [.load(.mock), .delete(.mock), .delete(.mock), .delete(.mock)]
+        )
+    }
+
+    func testDisabledCredentialRemovalRetryIsNoOp() async {
+        let vault = RecordingCredentialVault()
+        let store = AccountSessionStore(environment: .disabled, vault: vault, providers: .init([]))
+
+        await store.retryCredentialRemoval()
+
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .disabled)
+        XCTAssertEqual(operations, [])
+    }
+
     func testMalformedRestoreCleanupFailurePublishesCredentialRemovalFailure() async {
         let vault = RecordingCredentialVault(
             loadError: .malformedRecord,
@@ -315,6 +419,69 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(store.state, .signedOut)
         XCTAssertEqual(operations, [.save(.mock), .delete(.mock), .delete(.mock)])
         XCTAssertEqual(providerOperations, [.signIn, .signOut("revoke-refresh")])
+    }
+
+    func testSuccessfulSignOutCleanupRetryClearsAccountBeforeSubsequentOperations() async {
+        let firstSession = AuthenticationSession.fixture(
+            provider: .google,
+            refreshCredential: "first-refresh"
+        )
+        let nextSession = AuthenticationSession.fixture(
+            provider: .apple,
+            refreshCredential: "next-refresh"
+        )
+        let vault = RecordingCredentialVault(deleteErrors: [.unexpectedStatus(-50), nil, nil])
+        let firstProvider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(firstSession)
+        )
+        let nextProvider = ImmediateAuthenticationProvider(
+            kind: .apple,
+            signInResult: .success(nextSession)
+        )
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([firstProvider, nextProvider])
+        )
+
+        await store.signIn(with: .google)
+        await store.signOut()
+        await store.retryCredentialRemoval()
+        await store.signOut()
+        await store.signIn(with: .apple)
+        await store.signOut()
+
+        let operations = await vault.operations
+        let firstProviderOperations = await firstProvider.counter.operations
+        let nextProviderOperations = await nextProvider.counter.operations
+        XCTAssertEqual(store.state, .signedOut)
+        XCTAssertEqual(
+            operations,
+            [.save(.mock), .delete(.mock), .delete(.mock), .save(.mock), .delete(.mock)]
+        )
+        XCTAssertEqual(firstProviderOperations, [.signIn, .signOut("first-refresh")])
+        XCTAssertEqual(nextProviderOperations, [.signIn, .signOut("next-refresh")])
+    }
+
+    func testRestoreRequestWhileSignedInIsIgnoredWithoutVaultAccess() async {
+        let session = AuthenticationSession.fixture(provider: .google)
+        let vault = RecordingCredentialVault()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(session),
+            restoreResult: .failure(.invalidSession)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        await store.signIn(with: .google)
+
+        await store.restoreSession()
+
+        let operations = await vault.operations
+        let providerOperations = await provider.counter.operations
+        XCTAssertEqual(store.state, .signedIn(session.summary))
+        XCTAssertEqual(operations, [.save(.mock)])
+        XCTAssertEqual(providerOperations, [.signIn])
     }
 
     func testCancellationRestoresPriorStableStateEvenWhenProviderFinishesLater() async throws {

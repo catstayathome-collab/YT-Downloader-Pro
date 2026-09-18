@@ -188,8 +188,9 @@ actor ControlledCredentialVault: CredentialVault {
     private(set) var operations: [VaultOperation] = []
     private(set) var storedEnvelope: StoredCredentialEnvelope?
     private var suspendsNextSaveAfterWrite: Bool
-    private var suspendsNextDelete: Bool
+    private var suspendedDeleteCounts: Set<Int>
     private let deleteError: CredentialVaultError?
+    private var remainingDeleteErrors: [CredentialVaultError?]
     private var saveContinuation: CheckedContinuation<Void, Never>?
     private var deleteContinuation: CheckedContinuation<Void, Never>?
     private var saveWriteCount = 0
@@ -201,12 +202,16 @@ actor ControlledCredentialVault: CredentialVault {
         initial: StoredCredentialEnvelope? = nil,
         suspendNextSaveAfterWrite: Bool = false,
         suspendNextDelete: Bool = false,
-        deleteError: CredentialVaultError? = nil
+        deleteError: CredentialVaultError? = nil,
+        suspendDeleteCounts: Set<Int> = [],
+        deleteErrors: [CredentialVaultError?] = []
     ) {
         storedEnvelope = initial
         suspendsNextSaveAfterWrite = suspendNextSaveAfterWrite
-        suspendsNextDelete = suspendNextDelete
+        suspendedDeleteCounts = suspendDeleteCounts
+        if suspendNextDelete { suspendedDeleteCounts.insert(1) }
         self.deleteError = deleteError
+        remainingDeleteErrors = deleteErrors
     }
 
     func load(environment: AuthEnvironment) async throws -> StoredCredentialEnvelope? {
@@ -229,11 +234,13 @@ actor ControlledCredentialVault: CredentialVault {
         operations.append(.delete(environment))
         deleteStartCount += 1
         resumeSatisfiedWaiters(&deleteStartWaiters, count: deleteStartCount)
-        if suspendsNextDelete {
-            suspendsNextDelete = false
+        if suspendedDeleteCounts.remove(deleteStartCount) != nil {
             await withCheckedContinuation { continuation in
                 deleteContinuation = continuation
             }
+        }
+        if !remainingDeleteErrors.isEmpty {
+            if let error = remainingDeleteErrors.removeFirst() { throw error }
         }
         if let deleteError { throw deleteError }
         storedEnvelope = nil

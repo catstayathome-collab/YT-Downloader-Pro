@@ -43,7 +43,7 @@ or media behavior.
 | `signedIn(summary)` | Contains only the synthetic presentation summary. Sign-out enters `signingOut`; an expired or invalid restoration requires reauthentication. |
 | `requiresReauthentication(provider?)` | Signals expired or rejected stored material. A known provider can retry it; an unknown provider presents both local mock choices. Free downloads remain available. |
 | `failed(error)` | A recoverable presentation error. `credentialRemovalFailed` retries the store-owned credential cleanup operation, preserving whether the failure followed invalid restoration or sign-out; other failures present local mock sign-in choices. |
-| `signingOut` | Clears in-memory access material, asks the mock provider to discard local state, and deletes only the current environment envelope. Once deletion begins, it is non-cancellable while this state remains visible. Success becomes `signedOut`; deletion failure becomes `failed(credentialRemovalFailed)`. |
+| `signingOut` | Clears the in-memory access token before asking the mock provider to discard local state, but retains the summary and refresh credential until deletion of the current environment envelope succeeds. Once deletion begins, it is non-cancellable while this state remains visible. Success clears the retained summary and refresh credential and becomes `signedOut`; deletion failure becomes `failed(credentialRemovalFailed)`. |
 
 Only one mutating authentication operation may own the store at a time. A newer
 cancellation invalidates the active operation, so a stale asynchronous provider
@@ -72,9 +72,11 @@ other than lowercase `mock`, including `MOCK`, an empty value, and
 controls and the app does not load a credential envelope.
 
 The app lifecycle starts `restoreSession()` after launch. In mock mode the
-account UI can show restoring progress and offer cancellation while restoration
-or sign-in is active. Cancelling returns to the prior stable state; it does not
-cancel, pause, mutate, or delete active downloads.
+account UI can show restoring or sign-in progress and offers cancellation only
+before credential saving or deletion reaches its commit/cleanup boundary.
+Invalid-restoration cleanup and its retry reuse restoring progress but are
+non-cancellable. An accepted cancellation returns to the prior stable state; it
+does not cancel, pause, mutate, or delete active downloads.
 
 ## Keychain Contract
 
