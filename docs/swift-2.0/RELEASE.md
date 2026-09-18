@@ -146,6 +146,7 @@ List identities and set the exact Application identity:
 security find-identity -v -p codesigning
 IDENTITY='Developer ID Application: Example Name (TEAMID)'
 TEAM_ID='TEAMID1234'
+PROFILE='/absolute/path/to/YT-Downloader-Pro-Developer-ID.provisionprofile'
 ```
 
 Build with hardened runtime and secure timestamps:
@@ -156,19 +157,30 @@ Build with hardened runtime and secure timestamps:
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --signing-identity "$IDENTITY" \
-  --team-id "$TEAM_ID"
+  --team-id "$TEAM_ID" \
+  --provisioning-profile "$PROFILE"
 ```
 
-The script signs each helper with `--options runtime --timestamp`, generates the
-SBOM, then signs the outer app with the same options. The verifier checks every
-helper and the app for a `Developer ID Application` authority and the exact Team
-ID before it executes helper code. Do not use `codesign --deep` to create a
-release signature; `--deep` is a verification option here.
+The profile must authorize the exact application identifier
+`TEAMID.com.tachouweng.ytdownloaderpro2` and the matching default Keychain
+access group. The profile allowlist may express that authorization as the exact
+identifier or as a same-Team trailing wildcard such as `TEAMID.*`; the app's
+signed entitlements are always emitted as exact identifiers. The script
+validates the profile before compiling, emits only the three required
+authentication entitlements, embeds the profile, signs each helper with
+`--options runtime --timestamp`, generates the SBOM, then signs the outer app
+with the generated entitlements. The verifier checks every helper and the app
+for a `Developer ID Application` authority and the exact Team ID, then
+cross-checks the signed entitlements against the embedded profile before it
+executes helper code. Do not use `codesign --deep` to create a release
+signature; `--deep` is a verification option here.
 
 Inspect and assess the candidate:
 
 ```bash
 codesign -dv --verbose=4 'dist/YT Downloader Pro 2.app'
+codesign -d --entitlements :- 'dist/YT Downloader Pro 2.app'
+security cms -D -i 'dist/YT Downloader Pro 2.app/Contents/embedded.provisionprofile'
 codesign --verify --deep --strict --verbose=2 'dist/YT Downloader Pro 2.app'
 spctl --assess --type execute --verbose=4 'dist/YT Downloader Pro 2.app'
 ```

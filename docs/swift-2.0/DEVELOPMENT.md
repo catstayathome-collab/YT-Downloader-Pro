@@ -99,6 +99,14 @@ that Google, Apple, real accounts, production authentication, or external
 submission is implemented. The full operating contract and scoped Keychain
 cleanup details are in `AUTHENTICATION.md`.
 
+The Keychain implementation deliberately uses the data-protection Keychain.
+The opt-in live Keychain test therefore needs a host signed with the same
+authorized application identifier and Keychain access group as the app. A
+plain `swift test` process and an ad-hoc internal app have no such restricted
+entitlement; `errSecMissingEntitlement` is expected there. Use the ordinary
+in-memory vault tests for deterministic local development, and reserve live
+save/restore/delete evidence for the provisioned Developer ID test host.
+
 Strict macOS 13 arm64 release compile:
 
 ```bash
@@ -139,7 +147,8 @@ Build the internal app only after focused tests are green:
 
 This command runs the strict Swift suite again, release-builds for
 `arm64-apple-macosx13.0`, assembles and ad-hoc signs the app, runs every helper,
-writes `dist/swift-2.0-bundle-report.json`, and creates the internal ZIP.
+writes `dist/swift-2.0-bundle-report.json`, and creates the internal ZIP. It
+does not embed a provisioning profile or claim Keychain persistence.
 
 ## Localization Build
 

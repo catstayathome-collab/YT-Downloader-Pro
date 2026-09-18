@@ -15,6 +15,9 @@ VERSION=""
 ARCHITECTURE_ARGUMENT="arm64"
 SIGNING_IDENTITY=""
 TEAM_ID=""
+PROVISIONING_PROFILE=""
+AUTH_ENTITLEMENTS=""
+SIGNING_TEMP_DIR=""
 SBOM_CREATED=""
 BUILD_KIND=""
 HELPERS=(yt-dlp_macos ffmpeg ffprobe qjs)
@@ -30,6 +33,8 @@ Options:
   --unsigned-test            ad-hoc sign an internal-test app and ZIP
   --signing-identity NAME    sign with a Developer ID Application identity
   --team-id TEAMID           expected 10-character Apple Team ID (Developer ID only)
+  --provisioning-profile PATH
+                             Developer ID profile authorizing the app ID and Keychain group
   --sbom-created TIMESTAMP   SPDX creation time in RFC3339 UTC form
   -h, --help                 show this help
 EOF
@@ -70,6 +75,11 @@ while (($#)); do
       TEAM_ID="$2"
       shift 2
       ;;
+    --provisioning-profile)
+      (($# >= 2)) || fail "--provisioning-profile requires a value"
+      PROVISIONING_PROFILE="$2"
+      shift 2
+      ;;
     --sbom-created)
       (($# >= 2)) || fail "--sbom-created requires a value"
       SBOM_CREATED="$2"
@@ -95,8 +105,31 @@ python3 -c 'import datetime, sys; value = sys.argv[1]; parsed = datetime.datetim
 if [[ "$BUILD_KIND" == "developer-id" ]]; then
   [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || \
     fail "Developer ID builds require --team-id with 10 uppercase letters or digits"
+  [[ -n "$PROVISIONING_PROFILE" ]] || \
+    fail "Developer ID builds require --provisioning-profile"
+  [[ -f "$PROVISIONING_PROFILE" && ! -L "$PROVISIONING_PROFILE" ]] || \
+    fail "--provisioning-profile must be a regular file"
 else
   [[ -z "$TEAM_ID" ]] || fail "--team-id is valid only with --signing-identity"
+  [[ -z "$PROVISIONING_PROFILE" ]] || \
+    fail "--provisioning-profile is valid only with --signing-identity"
+fi
+
+cleanup_signing_temp() {
+  if [[ -n "$SIGNING_TEMP_DIR" && -d "$SIGNING_TEMP_DIR" ]]; then
+    rm -rf "$SIGNING_TEMP_DIR"
+  fi
+}
+trap cleanup_signing_temp EXIT
+
+if [[ "$BUILD_KIND" == "developer-id" ]]; then
+  SIGNING_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ytdp-auth-signing.XXXXXX")"
+  AUTH_ENTITLEMENTS="$SIGNING_TEMP_DIR/auth.entitlements"
+  python3 "$ROOT_DIR/scripts/prepare_macos_auth_signing.py" \
+    --profile "$PROVISIONING_PROFILE" \
+    --team-id "$TEAM_ID" \
+    --bundle-id "com.tachouweng.ytdownloaderpro2" \
+    --output "$AUTH_ENTITLEMENTS"
 fi
 
 case "$ARCHITECTURE_ARGUMENT" in
@@ -187,6 +220,12 @@ MACOS_DIR="$APP_PATH/Contents/MacOS"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
 mkdir -p "$MACOS_DIR" "$HELPERS_DIR" "$RESOURCES_DIR/ThirdPartyLicenses"
+
+if [[ "$BUILD_KIND" == "developer-id" ]]; then
+  /usr/bin/install -m 644 \
+    "$PROVISIONING_PROFILE" \
+    "$APP_PATH/Contents/embedded.provisionprofile"
+fi
 
 if ((${#BINARIES[@]} == 1)); then
   /usr/bin/install -m 755 "${BINARIES[0]}" "$MACOS_DIR/$EXECUTABLE_NAME"
@@ -303,7 +342,9 @@ chmod 644 "$RESOURCES_DIR/SBOM.spdx.json"
 if [[ "$BUILD_KIND" == "internal" ]]; then
   codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
 else
-  codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_PATH"
+  codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp \
+    --entitlements "$AUTH_ENTITLEMENTS" \
+    "$APP_PATH"
 fi
 
 ARCHITECTURE_CSV="$(IFS=,; printf '%s' "${ARCHITECTURES[*]}")"

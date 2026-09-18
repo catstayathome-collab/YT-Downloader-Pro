@@ -333,6 +333,180 @@ def _check_developer_identity(path, expected_team_id, command_runner, errors):
     return valid
 
 
+def _decode_plist_output(result, label, errors):
+    if result is None:
+        return None
+    output = result.stdout
+    if isinstance(output, str):
+        output = output.encode("utf-8")
+    if not output:
+        errors.append(f"{label} returned no property list")
+        return None
+    try:
+        value = plistlib.loads(output)
+    except (plistlib.InvalidFileException, ValueError, TypeError) as error:
+        errors.append(f"{label} returned an invalid property list: {error}")
+        return None
+    if not isinstance(value, dict):
+        errors.append(f"{label} must contain one property-list dictionary")
+        return None
+    return value
+
+
+def _profile_authorizes_identifier(authorization, identifier, team_id):
+    if authorization == identifier:
+        return True
+    if not isinstance(authorization, str):
+        return False
+    prefix = f"{team_id}."
+    return (
+        authorization.startswith(prefix)
+        and authorization.endswith(".*")
+        and identifier.startswith(authorization[:-1])
+    )
+
+
+def _check_auth_signing(bundle, expected_team_id, command_runner, errors):
+    expected_app_identifier = f"{expected_team_id}.{BUNDLE_IDENTIFIER}"
+    expected_entitlements = {
+        "com.apple.application-identifier": expected_app_identifier,
+        "com.apple.developer.team-identifier": expected_team_id,
+        "keychain-access-groups": [expected_app_identifier],
+    }
+
+    entitlement_result = _run(
+        command_runner,
+        [
+            "/usr/bin/codesign",
+            "-d",
+            "--entitlements",
+            ":-",
+            str(bundle),
+        ],
+        errors,
+        "signed entitlement check",
+        timeout=20,
+    )
+    if entitlement_result is None:
+        return False
+    if entitlement_result.returncode != 0:
+        errors.append(
+            "signed entitlement check failed: "
+            f"{_command_output(entitlement_result) or 'no diagnostic'}"
+        )
+        return False
+    signed_entitlements = _decode_plist_output(
+        entitlement_result, "signed entitlement check", errors
+    )
+
+    profile_path = bundle / "Contents" / "embedded.provisionprofile"
+    if not _trusted_regular_file(profile_path, bundle):
+        errors.append("missing trusted Contents/embedded.provisionprofile")
+        return False
+    try:
+        profile_size = profile_path.stat().st_size
+    except OSError as error:
+        errors.append(f"embedded.provisionprofile is unreadable: {error}")
+        return False
+    if profile_size == 0 or profile_size > 4 * 1024 * 1024:
+        errors.append("embedded.provisionprofile has an invalid size")
+        return False
+
+    profile_result = _run(
+        command_runner,
+        ["/usr/bin/security", "cms", "-D", "-i", str(profile_path)],
+        errors,
+        "embedded provisioning profile check",
+        timeout=20,
+    )
+    if profile_result is None:
+        return False
+    if profile_result.returncode != 0:
+        errors.append(
+            "embedded provisioning profile check failed: "
+            f"{_command_output(profile_result) or 'no diagnostic'}"
+        )
+        return False
+    profile = _decode_plist_output(
+        profile_result, "embedded provisioning profile check", errors
+    )
+
+    valid = signed_entitlements is not None and profile is not None
+    if signed_entitlements is not None:
+        if signed_entitlements != expected_entitlements:
+            if (
+                signed_entitlements.get("com.apple.application-identifier")
+                != expected_app_identifier
+            ):
+                errors.append("signed application identifier does not match the expected app")
+            if (
+                signed_entitlements.get("com.apple.developer.team-identifier")
+                != expected_team_id
+            ):
+                errors.append("signed developer team identifier does not match the expected team")
+            if signed_entitlements.get("keychain-access-groups") != [
+                expected_app_identifier
+            ]:
+                errors.append("signed keychain access group does not match the expected app")
+            unexpected = sorted(set(signed_entitlements) - set(expected_entitlements))
+            if unexpected:
+                errors.append(f"signed entitlements contain unexpected keys: {unexpected}")
+            valid = False
+
+    if profile is not None:
+        team_identifiers = profile.get("TeamIdentifier")
+        prefixes = profile.get("ApplicationIdentifierPrefix")
+        profile_entitlements = profile.get("Entitlements")
+        if (
+            not isinstance(team_identifiers, list)
+            or expected_team_id not in team_identifiers
+        ):
+            errors.append(
+                "embedded profile TeamIdentifier does not authorize the expected team"
+            )
+            valid = False
+        if not isinstance(prefixes, list) or expected_team_id not in prefixes:
+            errors.append(
+                "embedded profile ApplicationIdentifierPrefix does not authorize the expected team"
+            )
+            valid = False
+        if not isinstance(profile_entitlements, dict):
+            errors.append("embedded profile entitlements are missing")
+            valid = False
+        else:
+            if not _profile_authorizes_identifier(
+                profile_entitlements.get("com.apple.application-identifier"),
+                expected_app_identifier,
+                expected_team_id,
+            ):
+                errors.append(
+                    "embedded profile application identifier does not match the expected app"
+                )
+                valid = False
+            if (
+                profile_entitlements.get("com.apple.developer.team-identifier")
+                != expected_team_id
+            ):
+                errors.append(
+                    "embedded profile developer team identifier does not match the expected team"
+                )
+                valid = False
+            access_groups = profile_entitlements.get("keychain-access-groups")
+            if not isinstance(access_groups, list) or not any(
+                _profile_authorizes_identifier(
+                    value,
+                    expected_app_identifier,
+                    expected_team_id,
+                )
+                for value in access_groups
+            ):
+                errors.append(
+                    "embedded profile does not authorize the expected keychain access group"
+                )
+                valid = False
+    return valid
+
+
 def _validate_info_plist(bundle, expected_version, errors):
     info_path = bundle / "Contents" / "Info.plist"
     if not info_path.is_file() or info_path.is_symlink():
@@ -1074,6 +1248,12 @@ def verify_bundle(
                 )
                 and signatures_valid
             )
+        signatures_valid = (
+            _check_auth_signing(
+                bundle, expected_team_id, command_runner, errors
+            )
+            and signatures_valid
+        )
 
     if signatures_valid:
         for helper in EXPECTED_HELPERS:

@@ -45,6 +45,17 @@ class FakeCommandRunner:
         self.signature_failure = None
         self.team_id = "TEAM123456"
         self.authority = "Developer ID Application: Test (TEAM123456)"
+        self.app_identifier = "TEAM123456.com.tachouweng.ytdownloaderpro2"
+        self.signed_entitlements = {
+            "com.apple.application-identifier": self.app_identifier,
+            "com.apple.developer.team-identifier": self.team_id,
+            "keychain-access-groups": [self.app_identifier],
+        }
+        self.profile = {
+            "ApplicationIdentifierPrefix": [self.team_id],
+            "TeamIdentifier": [self.team_id],
+            "Entitlements": dict(self.signed_entitlements),
+        }
 
     def __call__(self, command, **kwargs):
         command = tuple(str(part) for part in command)
@@ -58,6 +69,15 @@ class FakeCommandRunner:
 
         if executable.name == "codesign":
             target = Path(command[-1])
+            if "--entitlements" in command and "-d" in command:
+                return self.completed(
+                    command,
+                    stdout=plistlib.dumps(
+                        self.signed_entitlements,
+                        fmt=plistlib.FMT_XML,
+                        sort_keys=True,
+                    ).decode("utf-8"),
+                )
             if "-dv" in command:
                 return self.completed(
                     command,
@@ -69,6 +89,16 @@ class FakeCommandRunner:
             if self.signature_failure == target.name:
                 return self.completed(command, returncode=1, stderr="invalid signature")
             return self.completed(command)
+
+        if executable.name == "security" and "cms" in command:
+            return self.completed(
+                command,
+                stdout=plistlib.dumps(
+                    self.profile,
+                    fmt=plistlib.FMT_XML,
+                    sort_keys=True,
+                ).decode("utf-8"),
+            )
 
         if executable.name == "otool" and "-L" in command:
             target = command[-1]
@@ -164,6 +194,12 @@ class SwiftBundleVerifierTests(unittest.TestCase):
             encoding="utf-8",
         )
         return bundle
+
+    @staticmethod
+    def add_developer_profile(bundle):
+        (bundle / "Contents" / "embedded.provisionprofile").write_bytes(
+            b"test provisioning profile"
+        )
 
     def write_inventory(self, bundle):
         helper_root = bundle / "Contents" / "Helpers"
@@ -532,6 +568,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
 
     def test_developer_id_mode_rejects_wrong_team_before_executing_helpers(self):
         bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
         runner = FakeCommandRunner()
         runner.team_id = "WRONGTEAM1"
 
@@ -547,6 +584,132 @@ class SwiftBundleVerifierTests(unittest.TestCase):
             any(Path(command[0]).name in HELPERS for command in runner.commands),
             runner.commands,
         )
+
+    def test_developer_id_mode_rejects_missing_auth_profile_before_executing_helpers(self):
+        bundle = self.fake_bundle()
+        runner = FakeCommandRunner()
+
+        report = self.verify(
+            bundle,
+            runner=runner,
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(
+            any("embedded.provisionprofile" in error for error in report.errors),
+            report.errors,
+        )
+        self.assertFalse(
+            any(Path(command[0]).name in HELPERS for command in runner.commands),
+            runner.commands,
+        )
+
+    def test_developer_id_mode_rejects_wrong_auth_entitlements_before_executing_helpers(self):
+        bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
+        runner = FakeCommandRunner()
+        runner.signed_entitlements["keychain-access-groups"] = [
+            "TEAM123456.com.example.wrong"
+        ]
+
+        report = self.verify(
+            bundle,
+            runner=runner,
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(
+            any("keychain access group" in error for error in report.errors),
+            report.errors,
+        )
+        self.assertFalse(
+            any(Path(command[0]).name in HELPERS for command in runner.commands),
+            runner.commands,
+        )
+
+    def test_developer_id_mode_rejects_profile_with_wrong_keychain_group(self):
+        bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
+        runner = FakeCommandRunner()
+        runner.profile["Entitlements"]["keychain-access-groups"] = [
+            "TEAM123456.com.example.wrong"
+        ]
+
+        report = self.verify(
+            bundle,
+            runner=runner,
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(
+            any(
+                "profile" in error and "keychain access group" in error
+                for error in report.errors
+            ),
+            report.errors,
+        )
+        self.assertFalse(
+            any(Path(command[0]).name in HELPERS for command in runner.commands),
+            runner.commands,
+        )
+
+    def test_developer_id_mode_rejects_unexpected_signed_entitlement(self):
+        bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
+        runner = FakeCommandRunner()
+        runner.signed_entitlements["com.apple.security.get-task-allow"] = True
+
+        report = self.verify(
+            bundle,
+            runner=runner,
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(
+            any("unexpected keys" in error for error in report.errors),
+            report.errors,
+        )
+        self.assertFalse(
+            any(Path(command[0]).name in HELPERS for command in runner.commands),
+            runner.commands,
+        )
+
+    def test_developer_id_mode_accepts_matching_auth_profile_and_entitlements(self):
+        bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
+
+        report = self.verify(
+            bundle,
+            runner=FakeCommandRunner(),
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(report.ok, report.errors)
+
+    def test_developer_id_mode_accepts_team_scoped_profile_wildcards(self):
+        bundle = self.fake_bundle()
+        self.add_developer_profile(bundle)
+        runner = FakeCommandRunner()
+        runner.profile["Entitlements"]["com.apple.application-identifier"] = (
+            "TEAM123456.*"
+        )
+        runner.profile["Entitlements"]["keychain-access-groups"] = [
+            "TEAM123456.*"
+        ]
+
+        report = self.verify(
+            bundle,
+            runner=runner,
+            signing_mode="developer-id",
+            expected_team_id="TEAM123456",
+        )
+
+        self.assertTrue(report.ok, report.errors)
 
     def test_rejects_missing_localization_and_resource(self):
         bundle = self.fake_bundle()
@@ -738,6 +901,22 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
         self.assertIn("--team-id", result.stderr)
         self.assertNotIn("Running strict Swift tests", result.stdout)
 
+    def test_developer_id_build_requires_provisioning_profile_before_building(self):
+        result = self.run_build_script(
+            "--version",
+            "2.0.0",
+            "--sbom-created",
+            "2026-08-27T00:00:00Z",
+            "--signing-identity",
+            "Developer ID Application: Test (TEAM123456)",
+            "--team-id",
+            "TEAM123456",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--provisioning-profile", result.stderr)
+        self.assertNotIn("Running strict Swift tests", result.stdout)
+
     def test_build_script_rejects_impossible_sbom_timestamp_before_building(self):
         result = self.run_build_script(
             "--version",
@@ -792,6 +971,10 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
         self.assertIn("-warnings-as-errors", content)
         self.assertIn("--sbom-created", content)
         self.assertIn("--team-id", content)
+        self.assertIn("--provisioning-profile", content)
+        self.assertIn("prepare_macos_auth_signing.py", content)
+        self.assertIn('"$APP_PATH/Contents/embedded.provisionprofile"', content)
+        self.assertIn('--entitlements "$AUTH_ENTITLEMENTS"', content)
         self.assertIn('--signing-mode "$BUILD_KIND"', content)
         self.assertIn('--expected-team-id "$TEAM_ID"', content)
         self.assertIn('--inventory "$ROOT_DIR/tools/macos-helper-inventory.json"', content)

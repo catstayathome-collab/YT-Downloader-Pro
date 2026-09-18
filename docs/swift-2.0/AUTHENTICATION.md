@@ -92,13 +92,27 @@ record. The envelope contains the synthetic account summary and opaque mock
 refresh credential; the short-lived access token stays in memory and is not
 encoded into the envelope. The record uses
 `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, is not synchronizable, and uses
-the data-protection Keychain.
+the data-protection Keychain. The data-protection Keychain is mandatory for
+this macOS accessibility contract; removing `kSecUseDataProtectionKeychain`
+would make the requested accessibility class ineffective on macOS. The release
+app therefore needs a Developer ID provisioning profile that authorizes the
+exact application identifier and default Keychain access group.
+
+An ad-hoc signature cannot carry these restricted entitlements. Internal
+`--unsigned-test` bundles intentionally remain authentication-disabled and must
+not be used as evidence that Keychain persistence works. Do not add fabricated
+Team IDs, relax the data-protection query, or fall back to preferences or files
+to make an internal build appear persistent.
 
 The focused Keychain integration test is opt-in through
 `YTDP_RUN_KEYCHAIN_INTEGRATION_TESTS=1`. It generates a disposable service
 namespace of the form `com.catstayathome.YTDownloaderPro.tests.<UUID>` and its
 teardown deletes only that test namespace's `.mock` and `.disabled` records.
-It must never use the live service prefix or clean up user records.
+It must never use the live service prefix or clean up user records. A plain
+SwiftPM test process does not inherit the app's Keychain entitlement, so this
+opt-in test is final evidence only when it runs from a correctly provisioned
+and signed test host. On an unentitled host, `errSecMissingEntitlement` is the
+expected fail-closed result.
 
 To clear only the local mock authentication record, use an authenticated test
 or a Keychain-aware maintenance path that deletes the generic password with:
