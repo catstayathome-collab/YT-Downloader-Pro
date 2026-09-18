@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import YTDownloaderPro2
@@ -1607,8 +1608,9 @@ final class DownloadStoreTests: XCTestCase {
         try await fixture.store.prepareToQuit()
     }
 
-    func testAppLifecycleOwnsBothStoresAndStartsMockRestoration() async throws {
-        let fixture = try StoreFixture()
+    func testAppLifecycleLaunchOwnsBothStoresAndStartsMockRestoration() async throws {
+        let updater = StoreUpdateChecker(result: .upToDate)
+        let fixture = try StoreFixture(updateChecker: updater)
         defer { fixture.cleanUp() }
         let envelope = StoredCredentialEnvelope.fixture(provider: .google, refreshCredential: "restore")
         let vault = RecordingCredentialVault(initial: envelope)
@@ -1623,14 +1625,20 @@ final class DownloadStoreTests: XCTestCase {
         )
         let lifecycle = AppLifecycle(store: fixture.store, accountSessionStore: accountStore)
 
-        lifecycle.startAuthenticationRestoration()
+        let application = NSApplication.shared
+        lifecycle.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification, object: application)
+        )
         try await waitUntil("mock session restoration") {
             if case .signedIn = accountStore.state { return true }
             return false
         }
+        try await updater.waitForCallCount(1)
 
         XCTAssertTrue(lifecycle.store === fixture.store)
         XCTAssertTrue(lifecycle.accountSessionStore === accountStore)
+        let updateCalls = await updater.manualArguments()
+        XCTAssertEqual(updateCalls, [false])
     }
 
     func testQuitStopsRecordMutations() async throws {

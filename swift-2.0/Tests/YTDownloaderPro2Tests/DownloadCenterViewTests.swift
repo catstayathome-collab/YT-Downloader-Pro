@@ -2,9 +2,141 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
-    func testAccountEntryIsBottomAnchoredAndNeverPartOfDownloadSelection() {
-        XCTAssertTrue(AccountSidebarLayout.isBottomAnchored)
-        XCTAssertTrue(AccountSidebarLayout.isOutsideDownloadListSelection)
+    func testAccountFocusPolicySelectsOnlyControlsRenderedByResultingPresentation() {
+        let google = AccountSettingsFocusInitiator(control: .google, provider: .google)
+        let appleRetry = AccountSettingsFocusInitiator(control: .retry, provider: .apple)
+        let appleSignOut = AccountSettingsFocusInitiator(control: .signOut, provider: .apple)
+        let signedIn = AccountSummary.fixture(provider: .google)
+        let cases: [(AccountSettingsPresentation, AccountSettingsFocusInitiator, AccountSettingsFocusControl)] = [
+            (
+                .init(isVisible: true, developmentNotice: "", content: .signedIn(signedIn)),
+                google,
+                .signOut
+            ),
+            (
+                .init(isVisible: true, developmentNotice: "", content: .signedOut),
+                appleSignOut,
+                .apple
+            ),
+            (
+                .init(isVisible: true, developmentNotice: "", content: .reauthentication(.google)),
+                google,
+                .retry
+            ),
+            (
+                .init(isVisible: true, developmentNotice: "", content: .reauthentication(nil)),
+                appleRetry,
+                .apple
+            ),
+            (
+                .init(
+                    isVisible: true,
+                    developmentNotice: "",
+                    content: .failure(message: "removal", retriesSignOut: true)
+                ),
+                appleSignOut,
+                .retry
+            ),
+            (
+                .init(
+                    isVisible: true,
+                    developmentNotice: "",
+                    content: .failure(message: "ordinary", retriesSignOut: false)
+                ),
+                appleRetry,
+                .apple
+            )
+        ]
+
+        for (presentation, initiator, expected) in cases {
+            let destination = AccountSettingsFocusPolicy.destination(
+                after: presentation,
+                initiatedBy: initiator
+            )
+
+            XCTAssertEqual(destination, expected)
+            XCTAssertTrue(AccountSettingsFocusPolicy.availableControls(in: presentation).contains(expected))
+        }
+    }
+
+    func testAccountFocusPolicyDoesNotRestoreFocusDuringOperationStates() {
+        let locale = Locale(identifier: "en")
+        let initiator = AccountSettingsFocusInitiator(control: .google, provider: .google)
+        let operationStates: [AccountSessionState] = [
+            .signingIn(.google),
+            .restoring,
+            .signingOut
+        ]
+
+        for state in operationStates {
+            let presentation = AccountSettingsPresentation.make(
+                environment: .mock,
+                state: state,
+                locale: locale
+            )
+
+            XCTAssertEqual(AccountSettingsFocusPolicy.availableControls(in: presentation), [])
+            XCTAssertNil(AccountSettingsFocusPolicy.destination(after: presentation, initiatedBy: initiator))
+            XCTAssertTrue(AccountSettingsFocusPolicy.retainsInitiator(after: presentation))
+        }
+    }
+
+    func testAccountFocusPolicyClearsInitiatorForStableHiddenPresentation() {
+        let hidden = AccountSettingsPresentation(
+            isVisible: false,
+            developmentNotice: "",
+            content: .signedOut
+        )
+        let initiator = AccountSettingsFocusInitiator(control: .apple, provider: .apple)
+
+        XCTAssertNil(AccountSettingsFocusPolicy.destination(after: hidden, initiatedBy: initiator))
+        XCTAssertFalse(AccountSettingsFocusPolicy.retainsInitiator(after: hidden))
+    }
+
+    func testSidebarCompositionPlacesVisibleMockAccountFooterAfterDownloadList() {
+        let presentation = AccountSidebarPresentation.make(
+            environment: .mock,
+            state: .signedOut,
+            locale: Locale(identifier: "en")
+        )
+
+        let composition = DownloadSidebarComposition.make(accountPresentation: presentation)
+
+        XCTAssertEqual(composition.regions.count, 2)
+        guard case let .downloadList(selectionTags) = composition.regions[0] else {
+            return XCTFail("Download list must remain the first sidebar region")
+        }
+        XCTAssertEqual(selectionTags, DownloadStatus.SidebarSection.allCases)
+        guard case let .accountFooter(actualPresentation) = composition.regions[1] else {
+            return XCTFail("Visible account footer must follow the download list")
+        }
+        XCTAssertEqual(actualPresentation, presentation)
+    }
+
+    func testSidebarCompositionOmitsAccountFooterWhenDisabled() {
+        let presentation = AccountSidebarPresentation.make(
+            environment: .disabled,
+            state: .disabled,
+            locale: Locale(identifier: "en")
+        )
+
+        let composition = DownloadSidebarComposition.make(accountPresentation: presentation)
+
+        XCTAssertEqual(
+            composition.regions,
+            [.downloadList(selectionTags: DownloadStatus.SidebarSection.allCases)]
+        )
+    }
+
+    func testAccountFooterCanNeverProvideDownloadSelectionTags() {
+        let presentation = AccountSidebarPresentation.make(
+            environment: .mock,
+            state: .signedOut,
+            locale: Locale(identifier: "en")
+        )
+        let footer = DownloadSidebarComposition.Region.accountFooter(presentation)
+
+        XCTAssertNil(footer.downloadSelectionTag)
         XCTAssertEqual(AccountSidebarLayout.minimumHeight, 56)
     }
 

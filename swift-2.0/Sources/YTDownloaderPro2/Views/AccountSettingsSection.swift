@@ -1,18 +1,85 @@
 import SwiftUI
 
+enum AccountSettingsFocusControl: Hashable {
+    case google
+    case apple
+    case retry
+    case signOut
+}
+
+struct AccountSettingsFocusInitiator: Equatable {
+    let control: AccountSettingsFocusControl
+    let provider: AuthenticationProviderKind?
+}
+
+enum AccountSettingsFocusPolicy {
+    static func availableControls(
+        in presentation: AccountSettingsPresentation
+    ) -> [AccountSettingsFocusControl] {
+        guard presentation.isVisible else { return [] }
+        return switch presentation.content {
+        case .signedOut:
+            [.google, .apple]
+        case .operation:
+            []
+        case .signedIn:
+            [.signOut]
+        case let .reauthentication(provider):
+            provider == nil ? [.google, .apple] : [.retry]
+        case let .failure(_, retriesSignOut):
+            retriesSignOut ? [.retry] : [.google, .apple]
+        }
+    }
+
+    static func destination(
+        after presentation: AccountSettingsPresentation,
+        initiatedBy initiator: AccountSettingsFocusInitiator
+    ) -> AccountSettingsFocusControl? {
+        let destination: AccountSettingsFocusControl? = switch presentation.content {
+        case .signedOut:
+            providerControl(for: initiator)
+        case .operation:
+            nil
+        case .signedIn:
+            .signOut
+        case let .reauthentication(provider):
+            provider == nil ? providerControl(for: initiator) : .retry
+        case let .failure(_, retriesSignOut):
+            retriesSignOut ? .retry : providerControl(for: initiator)
+        }
+
+        guard let destination,
+              availableControls(in: presentation).contains(destination) else { return nil }
+        return destination
+    }
+
+    static func retainsInitiator(after presentation: AccountSettingsPresentation) -> Bool {
+        guard presentation.isVisible else { return false }
+        if case .operation = presentation.content { return true }
+        return false
+    }
+
+    private static func providerControl(
+        for initiator: AccountSettingsFocusInitiator
+    ) -> AccountSettingsFocusControl {
+        switch initiator.provider {
+        case .apple:
+            .apple
+        case .google:
+            .google
+        case nil:
+            initiator.control == .apple ? .apple : .google
+        }
+    }
+}
+
 struct AccountSettingsSection: View {
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
     @Environment(\.locale) private var locale
 
-    @FocusState private var focusedControl: FocusedControl?
-    @State private var operationReturnFocus: FocusedControl?
-
-    private enum FocusedControl: Hashable {
-        case google
-        case apple
-        case retry
-        case signOut
-    }
+    @FocusState private var focusedControl: AccountSettingsFocusControl?
+    @State private var operationFocusInitiator: AccountSettingsFocusInitiator?
+    @State private var lastProvider: AuthenticationProviderKind?
 
     private var presentation: AccountSettingsPresentation {
         AccountSettingsPresentation.make(
@@ -78,7 +145,7 @@ struct AccountSettingsSection: View {
             )
             planRow(summary.planPreview)
             Button {
-                beginSignOut(returningTo: .signOut)
+                beginSignOut(returningTo: .signOut, provider: summary.provider)
             } label: {
                 Label(L10n.string(.accountSignOut, locale: locale), systemImage: "rectangle.portrait.and.arrow.right")
             }
@@ -114,7 +181,7 @@ struct AccountSettingsSection: View {
                 .foregroundStyle(.secondary)
             if retriesSignOut {
                 Button {
-                    beginSignOut(returningTo: .retry)
+                    beginSignOut(returningTo: .retry, provider: lastProvider)
                 } label: {
                     Label(L10n.string(.accountRetry, locale: locale), systemImage: "arrow.clockwise")
                 }
@@ -159,39 +226,40 @@ struct AccountSettingsSection: View {
         }
     }
 
-    private func beginSignIn(with provider: AuthenticationProviderKind, returningTo control: FocusedControl) {
-        operationReturnFocus = control
+    private func beginSignIn(
+        with provider: AuthenticationProviderKind,
+        returningTo control: AccountSettingsFocusControl
+    ) {
+        lastProvider = provider
+        operationFocusInitiator = .init(control: control, provider: provider)
         Task { await accountSessionStore.signIn(with: provider) }
     }
 
-    private func beginSignOut(returningTo control: FocusedControl) {
-        operationReturnFocus = control
+    private func beginSignOut(
+        returningTo control: AccountSettingsFocusControl,
+        provider: AuthenticationProviderKind?
+    ) {
+        lastProvider = provider ?? lastProvider
+        operationFocusInitiator = .init(control: control, provider: provider ?? lastProvider)
         Task { await accountSessionStore.signOut() }
     }
 
     private func restoreFocus(after state: AccountSessionState) {
-        guard !isOperation(state), let operationReturnFocus else { return }
-        switch state {
-        case .signedIn:
-            focusedControl = .signOut
-        case .signedOut:
-            focusedControl = operationReturnFocus == .apple ? .apple : .google
-        case .requiresReauthentication:
-            focusedControl = .retry
-        case let .failed(error):
-            focusedControl = error == .credentialRemovalFailed ? .retry : operationReturnFocus
-        case .disabled, .signingIn, .restoring, .signingOut:
-            break
+        guard let operationFocusInitiator else { return }
+        let resultingPresentation = AccountSettingsPresentation.make(
+            environment: accountSessionStore.environment,
+            state: state,
+            locale: locale
+        )
+        let destination = AccountSettingsFocusPolicy.destination(
+            after: resultingPresentation,
+            initiatedBy: operationFocusInitiator
+        )
+        if !AccountSettingsFocusPolicy.retainsInitiator(after: resultingPresentation) {
+            self.operationFocusInitiator = nil
         }
-        self.operationReturnFocus = nil
-    }
-
-    private func isOperation(_ state: AccountSessionState) -> Bool {
-        switch state {
-        case .signingIn, .restoring, .signingOut:
-            true
-        case .disabled, .signedOut, .signedIn, .requiresReauthentication, .failed:
-            false
+        if let destination {
+            focusedControl = destination
         }
     }
 }

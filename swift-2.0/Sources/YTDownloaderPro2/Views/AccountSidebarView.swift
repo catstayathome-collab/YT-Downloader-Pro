@@ -1,9 +1,33 @@
 import SwiftUI
 
 enum AccountSidebarLayout {
-    static let isBottomAnchored = true
-    static let isOutsideDownloadListSelection = true
     static let minimumHeight: CGFloat = 56
+}
+
+struct DownloadSidebarComposition: Equatable {
+    enum Region: Equatable {
+        case downloadList(selectionTags: [DownloadStatus.SidebarSection])
+        case accountFooter(AccountSidebarPresentation)
+
+        var downloadSelectionTag: DownloadStatus.SidebarSection? {
+            switch self {
+            case .downloadList, .accountFooter:
+                nil
+            }
+        }
+    }
+
+    let regions: [Region]
+
+    static func make(accountPresentation: AccountSidebarPresentation) -> Self {
+        var regions: [Region] = [
+            .downloadList(selectionTags: DownloadStatus.SidebarSection.allCases)
+        ]
+        if accountPresentation.isVisible {
+            regions.append(.accountFooter(accountPresentation))
+        }
+        return Self(regions: regions)
+    }
 }
 
 struct AccountSidebarView: View {

@@ -483,40 +483,70 @@ struct DownloadCenterView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            List(selection: $store.sidebarSection) {
-                Section(L10n.string(.downloadCenterTitle, locale: locale)) {
-                    ForEach(DownloadStatus.SidebarSection.allCases, id: \.self) { section in
-                        Label {
-                            HStack {
-                                Text(sidebarTitle(for: section, locale: locale))
-                                Spacer(minLength: 8)
-                                Text("\(count(for: section))")
-                                    .foregroundStyle(.secondary)
-                                    .monospacedDigit()
-                            }
-                        } icon: {
-                            Image(systemName: sidebarSymbol(for: section))
-                        }
-                        .tag(section)
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-
-            let presentation = AccountSidebarPresentation.make(
-                environment: accountSessionStore.environment,
-                state: accountSessionStore.state,
-                locale: locale
-            )
-            if presentation.isVisible {
-                Divider()
-                AccountSidebarView(presentation: presentation)
+            ForEach(Array(sidebarComposition.regions.enumerated()), id: \.offset) { entry in
+                sidebarRegion(entry.element)
             }
         }
         .background(DownloadCenterAppearance.palette.sidebarBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .navigationTitle(L10n.string(.downloadCenterTitle, locale: locale))
+    }
+
+    private var sidebarComposition: DownloadSidebarComposition {
+        DownloadSidebarComposition.make(
+            accountPresentation: AccountSidebarPresentation.make(
+                environment: accountSessionStore.environment,
+                state: accountSessionStore.state,
+                locale: locale
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func sidebarRegion(_ region: DownloadSidebarComposition.Region) -> some View {
+        switch region {
+        case let .downloadList(selectionTags):
+            downloadList(selectionTags: selectionTags)
+        case let .accountFooter(presentation):
+            accountFooter(presentation: presentation, selectionTag: region.downloadSelectionTag)
+        }
+    }
+
+    private func downloadList(selectionTags: [DownloadStatus.SidebarSection]) -> some View {
+        List(selection: $store.sidebarSection) {
+            Section(L10n.string(.downloadCenterTitle, locale: locale)) {
+                ForEach(selectionTags, id: \.self) { section in
+                    Label {
+                        HStack {
+                            Text(sidebarTitle(for: section, locale: locale))
+                            Spacer(minLength: 8)
+                            Text("\(count(for: section))")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    } icon: {
+                        Image(systemName: sidebarSymbol(for: section))
+                    }
+                    .tag(section)
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private func accountFooter(
+        presentation: AccountSidebarPresentation,
+        selectionTag: DownloadStatus.SidebarSection?
+    ) -> some View {
+        Divider()
+        if let selectionTag {
+            AccountSidebarView(presentation: presentation)
+                .tag(selectionTag)
+        } else {
+            AccountSidebarView(presentation: presentation)
+        }
     }
 
     private var mainPane: some View {
