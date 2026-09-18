@@ -25,6 +25,53 @@ final class AccountPresentationTests: XCTestCase {
         XCTAssertEqual(settings, .init(isVisible: false, developmentNotice: "", content: .signedOut))
     }
 
+    func testDisabledEnvironmentHidesEveryAccountSurfaceForEverySessionState() {
+        let summary = accountSummary(provider: .google, planPreview: .pro)
+        let states: [AccountSessionState] = [
+            .disabled,
+            .signedOut,
+            .signingIn(.apple),
+            .restoring,
+            .signedIn(summary),
+            .requiresReauthentication(.google),
+            .failed(.credentialRemovalFailed),
+            .signingOut
+        ]
+        let hiddenSidebar = AccountSidebarPresentation(
+            isVisible: false,
+            title: "",
+            subtitle: "",
+            systemImage: "person.crop.circle",
+            showsProgress: false
+        )
+        let hiddenSettings = AccountSettingsPresentation(
+            isVisible: false,
+            developmentNotice: "",
+            content: .signedOut
+        )
+
+        for state in states {
+            XCTAssertEqual(
+                AccountSidebarPresentation.make(
+                    environment: .disabled,
+                    state: state,
+                    locale: Locale(identifier: "en")
+                ),
+                hiddenSidebar,
+                "Sidebar exposed disabled environment for \(state)"
+            )
+            XCTAssertEqual(
+                AccountSettingsPresentation.make(
+                    environment: .disabled,
+                    state: state,
+                    locale: Locale(identifier: "en")
+                ),
+                hiddenSettings,
+                "Settings exposed disabled environment for \(state)"
+            )
+        }
+    }
+
     func testSignedInSidebarUsesSyntheticNameAndTestPlan() {
         let summary = AccountSummary.fixture(provider: .google)
         let value = AccountSidebarPresentation.make(
@@ -37,6 +84,58 @@ final class AccountPresentationTests: XCTestCase {
         XCTAssertEqual(value.subtitle, "測試 Pro · Google")
         XCTAssertEqual(value.systemImage, "person.crop.circle")
         XCTAssertFalse(value.showsProgress)
+    }
+
+    func testSignedInSidebarMapsEveryProviderAndPlanCombination() {
+        let expected: [(AuthenticationProviderKind, MockPlanPreview, String, String)] = [
+            (.google, .free, "Free · Google", "person.crop.circle"),
+            (.google, .pro, "Test Pro · Google", "person.crop.circle"),
+            (.apple, .free, "Free · Apple", "apple.logo"),
+            (.apple, .pro, "Test Pro · Apple", "apple.logo")
+        ]
+
+        for (provider, planPreview, subtitle, systemImage) in expected {
+            let summary = accountSummary(provider: provider, planPreview: planPreview)
+            let value = AccountSidebarPresentation.make(
+                environment: .mock,
+                state: .signedIn(summary),
+                locale: Locale(identifier: "en")
+            )
+
+            XCTAssertEqual(value.title, "Test User")
+            XCTAssertEqual(value.subtitle, subtitle)
+            XCTAssertEqual(value.systemImage, systemImage)
+            XCTAssertFalse(value.showsProgress)
+        }
+    }
+
+    func testProviderPresentationMappingsAreExhaustive() {
+        let expected: [(AuthenticationProviderKind, String, String)] = [
+            (.google, "Google", "person.crop.circle"),
+            (.apple, "Apple", "apple.logo")
+        ]
+
+        for (provider, label, systemImage) in expected {
+            XCTAssertEqual(
+                L10n.string(provider.localizationKey, locale: Locale(identifier: "en")),
+                label
+            )
+            XCTAssertEqual(provider.systemImage, systemImage)
+        }
+    }
+
+    func testPlanPresentationMappingsAreExhaustive() {
+        let expected: [(MockPlanPreview, String)] = [
+            (.free, "Free"),
+            (.pro, "Test Pro")
+        ]
+
+        for (planPreview, label) in expected {
+            XCTAssertEqual(
+                L10n.string(planPreview.localizationKey, locale: Locale(identifier: "en")),
+                label
+            )
+        }
     }
 
     func testSidebarExhaustivelyMapsEveryNonSignedInState() {
@@ -125,5 +224,36 @@ final class AccountPresentationTests: XCTestCase {
             let value = AccountSettingsPresentation.make(environment: .mock, state: .failed(error), locale: locale)
             XCTAssertEqual(value.content, .failure(message: message, retriesSignOut: retriesSignOut))
         }
+    }
+
+    func testSettingsPreservesEveryReauthenticationProviderAssociation() {
+        let expected: [(AuthenticationProviderKind?, AccountSettingsPresentation.Content)] = [
+            (nil, .reauthentication(nil)),
+            (.google, .reauthentication(.google)),
+            (.apple, .reauthentication(.apple))
+        ]
+
+        for (provider, content) in expected {
+            let value = AccountSettingsPresentation.make(
+                environment: .mock,
+                state: .requiresReauthentication(provider),
+                locale: Locale(identifier: "en")
+            )
+
+            XCTAssertEqual(value.content, content)
+        }
+    }
+
+    private func accountSummary(
+        provider: AuthenticationProviderKind,
+        planPreview: MockPlanPreview
+    ) -> AccountSummary {
+        AccountSummary(
+            provider: provider,
+            accountID: "test-account",
+            displayName: "Test User",
+            planPreview: planPreview,
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000)
+        )
     }
 }
