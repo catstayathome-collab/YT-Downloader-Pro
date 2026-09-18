@@ -12,7 +12,9 @@
 
 This is an engineering data inventory, not a final Privacy Policy. Legal counsel
 must review the final data flows, vendors, notices, retention periods, and user
-rights before paid launch.
+rights before paid launch. Public policy drafting requirements are tracked in
+`PUBLIC_POLICY_DRAFTS.md`. Accounting retention and invoice questions are
+tracked in `ACCOUNTING_REVIEW_BRIEF.md`.
 
 ## 1. Non-Negotiable Privacy Boundary
 
@@ -354,7 +356,7 @@ Minimum pre-launch controls:
 - Webhook signature verification, replay protection, and idempotency.
 - Dependency and secret scanning, protected production deployment, and rollback.
 - Tested backup restoration, account deletion, incident response, and key
-  rotation.
+  rotation, using the drill evidence defined in `OPERATIONS_RUNBOOK.md`.
 - Sanitized support exports and adversarial redaction tests.
 
 Production data must never be copied into development fixtures. Tests use

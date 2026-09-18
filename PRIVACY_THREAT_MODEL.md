@@ -78,7 +78,7 @@ provider candidates only.
 | Diagnostics leak cookies, tokens, URL signatures, query values, credentials, or local output paths | `DownloadFailure` and `DiagnosticEvent` sanitize details and arguments before persistence | Implemented and tested |
 | A malicious thumbnail URL causes credential leakage or local-file access | `ThumbnailCache` accepts only supported remote HTTP(S) URLs and rejects credential-bearing URLs | Implemented and tested |
 | Update manifests steer users to unsafe release/download URLs | `UpdateChecker` and `UpdateReleaseCommand` require safe HTTPS URLs without userinfo | Implemented and tested |
-| Local deletion controls accidentally delete media or expose local paths | `LocalDeletionDraft` previews deleted and retained categories, thumbnail cache names, and selected media file names without executing deletion or exposing full output paths | Implemented and tested |
+| Local deletion controls accidentally delete media or expose local paths | `LocalDeletionDraft` and `LocalDeletionPreviewPresentation` preview deleted and retained categories, thumbnail cache names, and selected media file names without executing deletion or exposing full output paths | Implemented and tested |
 | Future entitlement or support services collect media activity by default | `PRIVACY_DATA_MAP.md` forbids media URLs, titles, files, paths, cookies, and detailed diagnostics by default | Designed; implementation blocked |
 | Cloud history sync exposes sensitive activity | Optional sync is postponed and requires explicit privacy design, deletion/export, retention, and legal review | Blocked |
 | Mock Keychain envelope is read by the wrong environment or duplicated | The vault appends the environment namespace, uses one `active-session` envelope, and uses device-only data-protection Keychain accessibility | Implemented and unit-tested; provisioned Developer ID host save/restore/delete evidence remains required |
@@ -112,7 +112,8 @@ Before a paid launch decision, keep current passing evidence for:
   store, persistence, recovery, retry/edit, thumbnail, runner, update, and
   diagnostics boundaries.
 - Focused tests covering support-report, local export, and local deletion preview
-  payloads before support or data-request UI execution is enabled.
+  payloads and presentation contracts before support or data-request UI
+  execution is enabled.
 - Full strict Swift 2.x suite with strict concurrency and warnings as errors.
 - Live Keychain save, relaunch restoration, scoped sign-out deletion, and
   disposable-namespace cleanup from a correctly provisioned Developer ID test
@@ -121,9 +122,12 @@ Before a paid launch decision, keep current passing evidence for:
 - Manual installed-app checks on clean supported Macs after Developer ID
   signing, notarization, stapling, and release packaging.
 - Release-specific dependency and license inventory.
+- Written license review for the exact helper bundle, SBOM, notices, and
+  source-delivery plan, tracked in `LICENSE_REVIEW_BRIEF.md`.
 - A privacy review covering deletion/export, support reports, optional sync,
   backups, credential rotation, incident response, cancellation, refunds, and
-  shutdown.
+  shutdown, with operational drills defined in `OPERATIONS_RUNBOOK.md` and
+  public policy drafting gates defined in `PUBLIC_POLICY_DRAFTS.md`.
 - `SUPPORT_REPORT_AND_DATA_REQUESTS.md` stays current with the implemented
   support-preview, local export, and local deletion behavior.
 

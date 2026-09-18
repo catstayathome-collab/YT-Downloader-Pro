@@ -283,11 +283,19 @@ This decision is implemented by the following reviewable documents:
 - `PAYMENT_PROVIDER_QUESTIONS.md`: exact ECPay product disclosure and questions;
   it remains unsubmitted until fresh owner approval.
 - `LEGAL_REVIEW_BRIEF.md`: facts and questions for qualified Taiwan counsel.
+- `ACCOUNTING_REVIEW_BRIEF.md`: tax, invoice, seller-registration, refund,
+  retention, and entity questions for a qualified Taiwan accountant.
+- `LICENSE_REVIEW_BRIEF.md`: helper-bundle, SBOM, notices, source-delivery,
+  and release-specific license questions for qualified counsel.
 - `PRIVACY_DATA_MAP.md`: current and proposed data inventory and boundaries.
 - `PRIVACY_THREAT_MODEL.md`: macOS Swift 2.x privacy assets, trust boundaries,
   implemented controls, and blocked launch gates.
 - `SUPPORT_REPORT_AND_DATA_REQUESTS.md`: user-reviewed support report payloads,
   local export and deletion rules, and future backend data-request gates.
+- `OPERATIONS_RUNBOOK.md`: credential rotation, backup/restore, incident
+  response, cancellation/refund handling, and shutdown drills.
+- `PUBLIC_POLICY_DRAFTS.md`: Terms, Acceptable Use, Privacy Policy, refund,
+  cancellation, complaint, and public-claim draft requirements.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and
