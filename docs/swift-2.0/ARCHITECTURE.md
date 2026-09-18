@@ -11,6 +11,22 @@ version.
 The app has no background daemon. Downloads stop safely during quit and are
 restored as paused; they do not continue after the process exits.
 
+### Implemented Local Authentication Skeleton
+
+The app includes a Phase 1 local mock authentication skeleton in
+`Authentication/`. It is enabled only by the exact `YTDP_AUTH_MODE=mock`
+environment value and is otherwise disabled with no account UI. `AppLifecycle`
+owns the `AccountSessionStore` separately from `DownloadStore` and starts
+restoration asynchronously after launch. The store serializes its own session
+operations; authentication cancellation returns the prior stable account state
+and never cancels downloads.
+
+This is not production authentication. Google and Apple are synthetic mock
+provider labels only; no Google or Apple identity service, browser flow,
+backend, billing, entitlement delivery, paid feature enforcement, or external
+submission is implemented. See `AUTHENTICATION.md` for the exact Keychain,
+diagnostic, state, and future-provider contracts.
+
 ## Module Boundaries
 
 | Area | Owner | May depend on | Must not own |

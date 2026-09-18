@@ -85,6 +85,20 @@ swift test --disable-sandbox \
   -Xswiftc -warnings-as-errors
 ```
 
+### Local Authentication Skeleton
+
+The implemented authentication surface is development-only and local-only. Run
+the debug executable with `YTDP_AUTH_MODE=mock` to expose the synthetic Google
+and Apple-labelled account controls. Leave the variable unset, or use any value
+other than lowercase `mock`, to verify the normal disabled state with no
+account controls.
+
+The mock flow has no provider SDK, browser callback, network request, backend,
+billing, entitlement delivery, or paid feature effect. Do not use it to claim
+that Google, Apple, real accounts, production authentication, or external
+submission is implemented. The full operating contract and scoped Keychain
+cleanup details are in `AUTHENTICATION.md`.
+
 Strict macOS 13 arm64 release compile:
 
 ```bash

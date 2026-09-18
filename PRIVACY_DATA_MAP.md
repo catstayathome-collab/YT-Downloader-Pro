@@ -46,6 +46,28 @@ No production database, analytics SDK, crash reporter, or support vendor is
 approved merely by appearing in this map. Each requires a vendor assessment,
 data-processing terms, retention configuration, and update to the public notice.
 
+### Implemented Phase 1 Local Authentication Skeleton
+
+The current app has no real account, identity provider, backend, billing, or
+entitlement delivery. Its development-only local mock skeleton is enabled only
+by exact `YTDP_AUTH_MODE=mock`; the normal disabled mode shows no account UI
+and performs no credential lookup. Google and Apple are synthetic provider
+labels, not live identity integrations.
+
+In mock mode, the app keeps one local Keychain envelope for the active session
+in the `com.catstayathome.YTDownloaderPro.auth.mock` service under the
+`active-session` account key. It contains a synthetic provider, opaque mock
+account identifier, synthetic display label, mock plan label, expiry, and
+opaque mock refresh credential. The short-lived mock access token remains in
+memory only. The record is device-only and is not synchronized. Retention ends
+at mock sign-out, replacement, or scoped deletion of that mock record.
+
+No authentication diagnostic may contain credentials, complete account IDs,
+email addresses, Keychain data, raw provider errors, media URLs, titles,
+paths, cookies, history, jobs, billing data, or entitlement data. The skeleton
+does not upload or submit any of this data. The proposed account and billing
+inventory below is not implemented.
+
 ## 3. Current macOS Local Data
 
 Current Swift 2.0 behavior was mapped from `DownloadJob`, `DownloadOptions`,

@@ -14,6 +14,21 @@ This document defines boundaries and testable contracts so another engineer can
 implement the system after approval. It is not permission to create production
 accounts, payment orders, secrets, or checkout.
 
+## Implemented Phase 1 Boundary
+
+The current macOS Swift 2.x app contains only a local mock authentication
+skeleton. It has synthetic Google- and Apple-labelled providers, local
+Keychain restoration, and presentation-only mock plan labels behind the exact
+`YTDP_AUTH_MODE=mock` development gate. It has no real identity provider,
+account, backend, billing, subscription state, entitlement delivery, paid
+feature enforcement, or external submission.
+
+Apple is a future identity-provider candidate alongside Google. Neither Apple
+nor Google sign-in is implemented. Every flow and service described below is a
+proposed real account, billing, and entitlement architecture and remains
+subject to separate approved specifications, plans, provider and commercial
+gates, and external-account approvals.
+
 ## 1. Design Principles
 
 - The free app works without an account and without contacting the entitlement

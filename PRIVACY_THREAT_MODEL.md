@@ -23,6 +23,8 @@ This threat model covers the current macOS Swift 2.x desktop application:
 - User-selected browser cookie modes.
 - Local retry, recovery, pause, cancellation, and app relaunch behavior.
 - Update checks and release presentation.
+- A local-only, development-gated mock authentication skeleton with synthetic
+  Google- and Apple-labelled sessions.
 
 Out of scope until separate approval:
 
@@ -30,6 +32,11 @@ Out of scope until separate approval:
 - Account, billing, entitlement, support, analytics, or sync backends.
 - Production ECPay, Google OAuth, email, ticketing, or crash-reporting services.
 - Public release publishing, repository visibility changes, or billing enablement.
+
+The implemented skeleton is not production authentication: it does not call
+Google, Apple, a backend, billing provider, or entitlement service, and it does
+not submit data or enforce paid features. Apple and Google are future identity
+provider candidates only.
 
 ## 2. Protected Assets
 
@@ -42,6 +49,8 @@ Out of scope until separate approval:
 | Thumbnails and titles | Reveal downloaded content even without URLs | Application Support thumbnail cache and jobs |
 | Helper command output | May contain URLs, tokens, signatures, paths, or account hints | Progress parser, failures, diagnostics |
 | Update URLs | Can direct the user to release pages or downloads | Update manifest and update UI |
+| Mock restoration envelope | Contains a synthetic summary and opaque mock refresh credential | One device-only Keychain record per authentication environment |
+| In-memory mock access token | Short-lived synthetic access material | `AccountSessionStore` memory only; never the Keychain envelope |
 
 ## 3. Trust Boundaries
 
@@ -55,6 +64,7 @@ Out of scope until separate approval:
 | Thumbnail URL to cache loader | Thumbnail cache validation | Remote image URL | Reject unsupported or credential-bearing remote URLs before fetch |
 | Update manifest to UI opener | Update checker and release command | Remote manifest fields | Require HTTPS, expected platform, checksum, and credential-free URLs |
 | Local app to future backend | Not implemented | Operator services | Never send media activity by default; design requires separate approval |
+| Mock provider to external identity service | No connection exists | Future Google or Apple identity service | The implemented provider performs no network, browser, callback, or submission operation |
 
 ## 4. Threats And Controls
 
@@ -71,6 +81,10 @@ Out of scope until separate approval:
 | Local deletion controls accidentally delete media or expose local paths | `LocalDeletionDraft` previews deleted and retained categories, thumbnail cache names, and selected media file names without executing deletion or exposing full output paths | Implemented and tested |
 | Future entitlement or support services collect media activity by default | `PRIVACY_DATA_MAP.md` forbids media URLs, titles, files, paths, cookies, and detailed diagnostics by default | Designed; implementation blocked |
 | Cloud history sync exposes sensitive activity | Optional sync is postponed and requires explicit privacy design, deletion/export, retention, and legal review | Blocked |
+| Mock Keychain envelope is read by the wrong environment or duplicated | The vault appends the environment namespace, uses one `active-session` envelope, and uses device-only Keychain accessibility | Implemented and tested |
+| Mock credentials or complete identities leak into authentication diagnostics | Diagnostics accept a finite event enum only; credentials, account IDs, emails, Keychain data, and raw provider errors are prohibited | Implemented and tested |
+| An environment typo exposes account controls or a real-provider surface | Only exact lowercase `YTDP_AUTH_MODE=mock` enables the mock skeleton; every other value is disabled | Implemented and tested |
+| A cancelled or stale authentication operation overwrites newer state | Store operation ownership invalidates cancelled work and restores the prior stable state; download lifecycle remains independent | Implemented and tested |
 
 ## 5. Required Privacy Invariants
 
