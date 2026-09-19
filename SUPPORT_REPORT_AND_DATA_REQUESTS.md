@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phase 1 support privacy design |
+| Status | Phase 1 local support and data controls implemented; external services blocked |
 | Product owner | Ta-Chou Weng |
 | Prepared | 2026-09-07 |
 | Scope | macOS Swift 2.x local app, support report preview, export, and deletion rules |
@@ -50,6 +50,10 @@ Current local foundation:
 - `SupportReportPreviewPresentation` exposes the local-only presentation contract
   for optional support fields, paid-priority bypass routing, and disabled
   external submission.
+- `SupportReportView` lets the user choose a category, write the report, opt in
+  to individual optional fields, inspect the exact JSON, and save it to a
+  user-selected local folder. English, Japanese, and Traditional Chinese are
+  supported.
 - The default preview includes typed environment and failure context, but leaves
   optional source URL, title, format, screenshot, contact, diagnostic-export,
   and media-file fields disabled.
@@ -115,6 +119,9 @@ Current local foundation:
 - `LocalExportPackageWriter` writes only the reviewed draft to a user-selected
   local folder. No submission endpoint, support vendor, email flow, account
   backend, or upload action is implemented.
+- `LocalDataExportView` shows section and record counts before export, states
+  the exclusions, and keeps the export disabled until the local preview is
+  ready. The completed `.ytdpexport` package can be revealed in Finder.
 
 The app should expose a local export action before any cloud account or support
 backend exists. Export is useful for self-service troubleshooting and future
@@ -159,9 +166,11 @@ Current local foundation:
   retain downloaded media.
 - `SelectedMediaFileDeleter` remains the only service that can delete a
   user-selected media file; it rejects folders and symbolic links.
-- These are local service boundaries only. The user-facing confirmation UI,
-  submission endpoint, support vendor, email flow, account backend, and upload
-  action are not implemented yet.
+- `LocalDataManagementView` exposes each action separately, describes retained
+  data, and requires a destructive confirmation. Media deletion begins with an
+  explicit single-file picker and never accepts a directory or symbolic link.
+- No submission endpoint, support vendor, email flow, account backend, or upload
+  action is implemented.
 
 The macOS app must provide separate deletion actions with distinct labels:
 
@@ -223,6 +232,8 @@ Before paid launch or support submission is enabled:
   incorrect-charge, and account-recovery categories do not depend on Pro status.
 - Manual clean-Mac testing confirms exported files contain only the selected
   sections and can be inspected without network access.
+- Localization coverage proves every support and data-control string resolves in
+  English, Japanese, and Traditional Chinese with identical format placeholders.
 
 ## 8. Open Gates
 

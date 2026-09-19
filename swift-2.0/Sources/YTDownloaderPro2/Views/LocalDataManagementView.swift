@@ -3,6 +3,7 @@ import SwiftUI
 
 struct LocalDataExportView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var store: DownloadStore
 
     let appVersion: String
@@ -17,34 +18,34 @@ struct LocalDataExportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            sheetHeader(title: "Export Local App Data")
+            sheetHeader(title: L10n.string(.dataExportTitle, locale: locale))
 
-            Text("Review the sanitized counts below before creating a local export package. Nothing is uploaded or sent automatically.")
+            Text(L10n.string(.dataExportNotice, locale: locale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            GroupBox("Sanitized Export Preview") {
+            GroupBox(L10n.string(.dataExportPreviewTitle, locale: locale)) {
                 if let draft {
                     let presentation = LocalExportPreviewPresentation(draft: draft)
                     VStack(spacing: 10) {
-                        exportCountRow("Sections", value: presentation.sectionCount)
-                        exportCountRow("History and queue records", value: presentation.jobCount)
-                        exportCountRow("Thumbnail references", value: presentation.thumbnailReferenceCount)
-                        exportCountRow("Diagnostic lines", value: presentation.diagnosticLineCount)
+                        exportCountRow(L10n.string(.dataExportSections, locale: locale), value: presentation.sectionCount)
+                        exportCountRow(L10n.string(.dataExportJobRecords, locale: locale), value: presentation.jobCount)
+                        exportCountRow(L10n.string(.dataExportThumbnailReferences, locale: locale), value: presentation.thumbnailReferenceCount)
+                        exportCountRow(L10n.string(.dataExportDiagnosticLines, locale: locale), value: presentation.diagnosticLineCount)
                     }
                     .padding(8)
                 } else if isPreparing {
-                    ProgressView("Preparing local preview...")
+                    ProgressView(L10n.string(.dataExportPreparing, locale: locale))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
                 } else {
-                    Text("The export preview is unavailable.")
+                    Text(L10n.string(.dataExportUnavailable, locale: locale))
                         .foregroundStyle(.secondary)
                         .padding(8)
                 }
             }
 
-            Text("The package excludes downloaded media, browser cookies, security-scoped bookmarks, output paths, and raw diagnostic files.")
+            Text(L10n.string(.dataExportExclusions, locale: locale))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -60,22 +61,22 @@ struct LocalDataExportView: View {
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([exportedPackageURL])
                     } label: {
-                        Label("Reveal Export in Finder", systemImage: "folder")
+                        Label(L10n.string(.dataExportReveal, locale: locale), systemImage: "folder")
                     }
-                    .accessibilityLabel("Reveal the completed local export package in Finder")
+                    .accessibilityLabel(L10n.string(.dataExportReveal, locale: locale))
                 }
 
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(L10n.string(.commonClose, locale: locale)) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button {
                     exportLocally()
                 } label: {
-                    Label("Choose Folder and Export...", systemImage: "square.and.arrow.down")
+                    Label(L10n.string(.dataExportChooseAndExport, locale: locale), systemImage: "square.and.arrow.down")
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(draft == nil || isPreparing)
-                .accessibilityLabel("Choose a local folder and create the reviewed export package")
+                .accessibilityLabel(L10n.string(.dataExportChooseAndExport, locale: locale))
             }
         }
         .padding(24)
@@ -127,27 +128,30 @@ struct LocalDataExportView: View {
             feedback = nil
         } catch {
             draft = nil
-            feedback = .error("The local export preview could not be prepared.")
+            feedback = .error(L10n.string(.dataExportPreviewFailed, locale: locale))
         }
     }
 
     @MainActor
     private func exportLocally() {
         guard let draft,
-              let directory = OutputFolderPicker.choose(prompt: "Export") else { return }
+              let directory = OutputFolderPicker.choose(
+                prompt: L10n.string(.dataExportChooseAndExport, locale: locale)
+              ) else { return }
         do {
             let packageURL = try writer.write(draft, to: directory)
             exportedPackageURL = packageURL
-            feedback = .success("Exported locally: \(packageURL.path)")
+            feedback = .success(L10n.string(.dataExportSaved, locale: locale, packageURL.path))
         } catch {
             exportedPackageURL = nil
-            feedback = .error("The export package could not be saved. Choose another local folder and try again.")
+            feedback = .error(L10n.string(.dataExportSaveFailed, locale: locale))
         }
     }
 }
 
 struct LocalDataManagementView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var store: DownloadStore
 
     @State private var pendingAction: PendingLocalDataAction?
@@ -159,20 +163,20 @@ struct LocalDataManagementView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("Manage Local Data")
+                Text(L10n.string(.dataManagementTitle, locale: locale))
                     .font(.title2.weight(.semibold))
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(L10n.string(.commonClose, locale: locale)) { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
 
-            Text("Each action is separate and requires confirmation. Clearing history never deletes downloaded media files.")
+            Text(L10n.string(.dataManagementNotice, locale: locale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    GroupBox("History") {
+                    GroupBox(L10n.string(.dataManagementHistory, locale: locale)) {
                         VStack(spacing: 0) {
                             actionRow(for: completedHistoryDraft)
                             Divider()
@@ -181,7 +185,7 @@ struct LocalDataManagementView: View {
                         .padding(6)
                     }
 
-                    GroupBox("App Data") {
+                    GroupBox(L10n.string(.dataManagementAppData, locale: locale)) {
                         VStack(spacing: 0) {
                             actionRow(for: .actionPreview(.clearDiagnostics))
                             Divider()
@@ -190,9 +194,10 @@ struct LocalDataManagementView: View {
                         .padding(6)
                     }
 
-                    GroupBox("Downloaded Media") {
+                    GroupBox(L10n.string(.dataManagementDownloadedMedia, locale: locale)) {
                         let presentation = LocalDeletionActionPresentation(
-                            draft: .actionPreview(.deleteSelectedMediaFile)
+                            draft: .actionPreview(.deleteSelectedMediaFile),
+                            locale: locale
                         )
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: presentation.symbolName)
@@ -202,7 +207,7 @@ struct LocalDataManagementView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(presentation.title)
                                     .font(.body.weight(.medium))
-                                Text("Select one regular file to review its filename before permanent deletion.")
+                                Text(L10n.string(.dataManagementSelectFileDescription, locale: locale))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -214,11 +219,11 @@ struct LocalDataManagementView: View {
 
                             Spacer()
 
-                            Button("Choose File...") {
+                            Button(L10n.string(.dataManagementChooseFile, locale: locale)) {
                                 chooseMediaFile()
                             }
                             .disabled(isPerformingAction)
-                            .accessibilityLabel("Choose one downloaded media file to review for permanent deletion")
+                            .accessibilityLabel(L10n.string(.dataManagementChooseFile, locale: locale))
                         }
                         .padding(.vertical, 10)
                         .padding(.horizontal, 6)
@@ -239,7 +244,7 @@ struct LocalDataManagementView: View {
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         .alert(item: $pendingAction) { pending in
-            let presentation = pending.presentation
+            let presentation = LocalDeletionActionPresentation(draft: pending.draft, locale: locale)
             return Alert(
                 title: Text(presentation.title),
                 message: Text("\(presentation.confirmationMessage)\n\n\(presentation.retainedDataDescription)"),
@@ -260,7 +265,7 @@ struct LocalDataManagementView: View {
     }
 
     private func actionRow(for draft: LocalDeletionDraft) -> some View {
-        let presentation = LocalDeletionActionPresentation(draft: draft)
+        let presentation = LocalDeletionActionPresentation(draft: draft, locale: locale)
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: presentation.symbolName)
                 .frame(width: 24, height: 24)
@@ -281,11 +286,11 @@ struct LocalDataManagementView: View {
 
             Spacer()
 
-            Button("Review...") {
+            Button(L10n.string(.commonReview, locale: locale)) {
                 pendingAction = PendingLocalDataAction(draft: draft)
             }
             .disabled(!presentation.isEnabled || isPerformingAction)
-            .accessibilityLabel("Review \(presentation.title)")
+            .accessibilityLabel("\(L10n.string(.commonReview, locale: locale)): \(presentation.title)")
         }
         .padding(.vertical, 10)
     }
@@ -296,7 +301,7 @@ struct LocalDataManagementView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Review File"
+        panel.prompt = L10n.string(.dataManagementReviewFilePrompt, locale: locale)
         guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
         pendingAction = PendingLocalDataAction(
             draft: .actionPreview(.deleteSelectedMediaFile, selectedMediaFileURL: selectedURL),
@@ -325,9 +330,11 @@ struct LocalDataManagementView: View {
                     }
                     try mediaFileDeleter.delete(selectedMediaURL)
                 }
-                feedback = .success("\(pending.presentation.title) completed.")
+                let title = LocalDeletionActionPresentation(draft: pending.draft, locale: locale).title
+                feedback = .success(L10n.string(.dataManagementActionCompleted, locale: locale, title))
             } catch {
-                feedback = .error("\(pending.presentation.title) could not be completed. Some items may remain; review the list and try again.")
+                let title = LocalDeletionActionPresentation(draft: pending.draft, locale: locale).title
+                feedback = .error(L10n.string(.dataManagementActionFailed, locale: locale, title))
             }
             isPerformingAction = false
         }
@@ -344,9 +351,6 @@ private struct PendingLocalDataAction: Identifiable {
     }
 
     var id: String { draft.action.rawValue }
-    var presentation: LocalDeletionActionPresentation {
-        LocalDeletionActionPresentation(draft: draft)
-    }
 }
 
 private struct LocalDataFeedback: Equatable {

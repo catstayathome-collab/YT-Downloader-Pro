@@ -60,29 +60,38 @@ struct SettingsView: View {
                 .accessibilityLabel(UpdateControlPresentation.accessibilityLabel(locale: locale))
             }
 
-            Section("Support") {
+            Section(L10n.string(.settingsSupport, locale: locale)) {
                 Button {
                     showsSupportReport = true
                 } label: {
-                    Label("Create Local Support Report", systemImage: "lifepreserver")
+                    Label(
+                        L10n.string(.settingsSupportCreateReport, locale: locale),
+                        systemImage: "lifepreserver"
+                    )
                 }
-                .accessibilityLabel("Create and review a local support report")
+                .accessibilityLabel(L10n.string(.settingsSupportCreateReport, locale: locale))
             }
 
-            Section("Data") {
+            Section(L10n.string(.settingsData, locale: locale)) {
                 Button {
                     showsLocalExport = true
                 } label: {
-                    Label("Export Local App Data", systemImage: "square.and.arrow.up")
+                    Label(
+                        L10n.string(.settingsDataExport, locale: locale),
+                        systemImage: "square.and.arrow.up"
+                    )
                 }
-                .accessibilityLabel("Review and export sanitized local app data")
+                .accessibilityLabel(L10n.string(.settingsDataExport, locale: locale))
 
                 Button {
                     showsLocalDataManagement = true
                 } label: {
-                    Label("Manage Local Data", systemImage: "externaldrive.badge.minus")
+                    Label(
+                        L10n.string(.settingsDataManage, locale: locale),
+                        systemImage: "externaldrive.badge.minus"
+                    )
                 }
-                .accessibilityLabel("Review local data clearing and media deletion actions")
+                .accessibilityLabel(L10n.string(.settingsDataManage, locale: locale))
             }
         }
         .formStyle(.grouped)

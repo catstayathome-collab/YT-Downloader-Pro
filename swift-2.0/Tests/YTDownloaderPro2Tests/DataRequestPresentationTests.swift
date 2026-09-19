@@ -31,30 +31,47 @@ final class DataRequestPresentationTests: XCTestCase {
         XCTAssertEqual(completed.title, "Clear Completed History")
         XCTAssertEqual(completed.symbolName, "checkmark.circle")
         XCTAssertEqual(completed.confirmationButtonTitle, "Clear History")
+        XCTAssertEqual(
+            completed.confirmationMessage,
+            "Remove 1 completed history record(s) and their cached thumbnails?"
+        )
         XCTAssertEqual(completed.severity, .destructiveRecords)
         XCTAssertEqual(completed.retainedDataDescription, "Downloaded media, settings, and diagnostics are kept.")
 
         XCTAssertEqual(failed.title, "Clear Failed and Cancelled History")
         XCTAssertEqual(failed.symbolName, "exclamationmark.triangle")
         XCTAssertEqual(failed.confirmationButtonTitle, "Clear History")
+        XCTAssertEqual(
+            failed.confirmationMessage,
+            "Remove 1 failed or cancelled history record(s) and their cached thumbnails?"
+        )
         XCTAssertEqual(failed.severity, .destructiveRecords)
         XCTAssertEqual(failed.retainedDataDescription, "Downloaded media, settings, and diagnostics are kept.")
 
         XCTAssertEqual(diagnostics.title, "Clear Diagnostics")
         XCTAssertEqual(diagnostics.symbolName, "doc.text.magnifyingglass")
         XCTAssertEqual(diagnostics.confirmationButtonTitle, "Clear Diagnostics")
+        XCTAssertEqual(diagnostics.confirmationMessage, "Remove the local diagnostic log?")
         XCTAssertEqual(diagnostics.severity, .destructiveLocalData)
         XCTAssertEqual(diagnostics.retainedDataDescription, "History, thumbnails, downloaded media, and settings are kept.")
 
         XCTAssertEqual(settings.title, "Reset Settings")
         XCTAssertEqual(settings.symbolName, "arrow.counterclockwise")
         XCTAssertEqual(settings.confirmationButtonTitle, "Reset Settings")
+        XCTAssertEqual(
+            settings.confirmationMessage,
+            "Restore all app settings to their defaults, including the saved output-folder selection?"
+        )
         XCTAssertEqual(settings.severity, .destructiveLocalData)
         XCTAssertEqual(settings.retainedDataDescription, "History, thumbnails, downloaded media, and diagnostics are kept.")
 
         XCTAssertEqual(media.title, "Delete Selected Media File")
         XCTAssertEqual(media.symbolName, "trash")
         XCTAssertEqual(media.confirmationButtonTitle, "Delete File")
+        XCTAssertEqual(
+            media.confirmationMessage,
+            "Permanently delete private-title.mp4? This cannot be undone."
+        )
         XCTAssertEqual(media.severity, .irreversibleMediaDeletion)
         XCTAssertEqual(media.retainedDataDescription, "History, thumbnails, settings, and diagnostics are kept.")
     }

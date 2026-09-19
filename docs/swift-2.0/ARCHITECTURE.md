@@ -226,3 +226,44 @@ always produce a result. A valid manifest requires platform `macos`, strict
 versions, minimum macOS, credential-free HTTPS URLs, lowercase SHA-256,
 publication time, and release notes. Windows manifest parsing remains in the
 Python line and is not shared with this executable.
+
+## Local Support And Data Management
+
+The Settings support and data flows are local-first and split into three layers:
+
+- `SupportReportDraft`, `LocalDataExportDraft`, and `LocalDeletionDraft` are
+  side-effect-free review contracts. They define exactly what the user can see
+  before a file is written or data is removed.
+- `SupportReportComposer`, `SupportReportPreviewPresentation`,
+  `LocalExportPreviewPresentation`, and `LocalDeletionActionPresentation`
+  prepare sanitized, localized presentation state. Optional report fields start
+  disabled and are included only after an explicit user choice.
+- `LocalSupportReportWriter`, `LocalExportPackageWriter`, and
+  `SelectedMediaFileDeleter` own filesystem mutation. `DownloadStore` separately
+  owns history, thumbnail, diagnostics, and settings mutations.
+
+`SettingsView` opens `SupportReportView`, `LocalDataExportView`, and
+`LocalDataManagementView`. None of these views contains an upload, email,
+account, billing, or network submission path. Save panels always require the
+user to choose a local destination.
+
+The support report is one reviewed JSON file. A local app-data export is a
+`.ytdpexport` directory containing a manifest plus the selected sanitized jobs,
+settings, thumbnail references, and bounded diagnostic excerpts. It excludes
+downloaded media, cookies, credentials, security-scoped bookmarks, remote
+thumbnail URLs, and full unbounded diagnostics.
+
+Deletion boundaries are intentionally separate:
+
+- Clearing completed or failed/cancelled history removes only matching records
+  and owned thumbnail cache entries. Downloaded media is retained.
+- Clearing diagnostics retains history, settings, thumbnails, and media.
+- Resetting settings retains history, diagnostics, thumbnails, and media.
+- Deleting media requires the user to choose one regular file, review its file
+  name, and confirm an irreversible action. Directories and symbolic links are
+  rejected; no bulk folder deletion API exists.
+
+External support, account data requests, cloud history, and server-side
+deletion remain a separate future architecture. They require dated legal,
+privacy, operations, and owner approval before any endpoint, vendor SDK, or
+automatic transfer is added.

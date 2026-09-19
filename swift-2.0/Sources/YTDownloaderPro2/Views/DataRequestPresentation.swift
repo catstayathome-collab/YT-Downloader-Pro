@@ -235,7 +235,7 @@ struct LocalDeletionActionPresentation: Equatable, Sendable {
     var requiresSeparateMediaFileAction: Bool
     var selectedMediaFileName: String?
 
-    init(draft: LocalDeletionDraft) {
+    init(draft: LocalDeletionDraft, locale: Locale = Locale(identifier: "en")) {
         action = draft.action
         deletesDownloadedMedia = draft.deletesDownloadedMedia
         requiresSeparateMediaFileAction = draft.requiresSeparateMediaFileAction
@@ -243,44 +243,53 @@ struct LocalDeletionActionPresentation: Equatable, Sendable {
 
         switch draft.action {
         case .clearCompletedHistory:
-            title = "Clear Completed History"
+            title = L10n.string(.dataActionCompletedTitle, locale: locale)
             symbolName = "checkmark.circle"
-            confirmationButtonTitle = "Clear History"
-            confirmationMessage = "Remove \(draft.jobRecordIDs.count) completed history record(s) and their cached thumbnails?"
-            retainedDataDescription = "Downloaded media, settings, and diagnostics are kept."
+            confirmationButtonTitle = L10n.string(.dataActionClearHistoryButton, locale: locale)
+            confirmationMessage = L10n.string(
+                .dataActionCompletedConfirmation,
+                locale: locale,
+                Int64(draft.jobRecordIDs.count)
+            )
+            retainedDataDescription = L10n.string(.dataActionHistoryRetained, locale: locale)
             severity = .destructiveRecords
             isEnabled = !draft.jobRecordIDs.isEmpty
         case .clearFailedAndCancelledHistory:
-            title = "Clear Failed and Cancelled History"
+            title = L10n.string(.dataActionFailedTitle, locale: locale)
             symbolName = "exclamationmark.triangle"
-            confirmationButtonTitle = "Clear History"
-            confirmationMessage = "Remove \(draft.jobRecordIDs.count) failed or cancelled history record(s) and their cached thumbnails?"
-            retainedDataDescription = "Downloaded media, settings, and diagnostics are kept."
+            confirmationButtonTitle = L10n.string(.dataActionClearHistoryButton, locale: locale)
+            confirmationMessage = L10n.string(
+                .dataActionFailedConfirmation,
+                locale: locale,
+                Int64(draft.jobRecordIDs.count)
+            )
+            retainedDataDescription = L10n.string(.dataActionHistoryRetained, locale: locale)
             severity = .destructiveRecords
             isEnabled = !draft.jobRecordIDs.isEmpty
         case .clearDiagnostics:
-            title = "Clear Diagnostics"
+            title = L10n.string(.dataActionDiagnosticsTitle, locale: locale)
             symbolName = "doc.text.magnifyingglass"
-            confirmationButtonTitle = "Clear Diagnostics"
-            confirmationMessage = "Remove the local diagnostic log?"
-            retainedDataDescription = "History, thumbnails, downloaded media, and settings are kept."
+            confirmationButtonTitle = L10n.string(.dataActionClearDiagnosticsButton, locale: locale)
+            confirmationMessage = L10n.string(.dataActionDiagnosticsConfirmation, locale: locale)
+            retainedDataDescription = L10n.string(.dataActionDiagnosticsRetained, locale: locale)
             severity = .destructiveLocalData
             isEnabled = true
         case .resetSettings:
-            title = "Reset Settings"
+            title = L10n.string(.dataActionResetSettingsTitle, locale: locale)
             symbolName = "arrow.counterclockwise"
-            confirmationButtonTitle = "Reset Settings"
-            confirmationMessage = "Restore all app settings to their defaults, including the saved output-folder selection?"
-            retainedDataDescription = "History, thumbnails, downloaded media, and diagnostics are kept."
+            confirmationButtonTitle = L10n.string(.dataActionResetSettingsButton, locale: locale)
+            confirmationMessage = L10n.string(.dataActionResetSettingsConfirmation, locale: locale)
+            retainedDataDescription = L10n.string(.dataActionSettingsRetained, locale: locale)
             severity = .destructiveLocalData
             isEnabled = true
         case .deleteSelectedMediaFile:
-            title = "Delete Selected Media File"
+            title = L10n.string(.dataActionDeleteMediaTitle, locale: locale)
             symbolName = "trash"
-            confirmationButtonTitle = "Delete File"
-            let fileName = draft.selectedMediaFileName ?? "No file selected"
-            confirmationMessage = "Permanently delete \(fileName)? This cannot be undone."
-            retainedDataDescription = "History, thumbnails, settings, and diagnostics are kept."
+            confirmationButtonTitle = L10n.string(.dataActionDeleteFileButton, locale: locale)
+            let fileName = draft.selectedMediaFileName
+                ?? L10n.string(.dataActionNoFileSelected, locale: locale)
+            confirmationMessage = L10n.string(.dataActionDeleteMediaConfirmation, locale: locale, fileName)
+            retainedDataDescription = L10n.string(.dataActionMediaRetained, locale: locale)
             severity = .irreversibleMediaDeletion
             isEnabled = draft.selectedMediaFileName != nil
         }

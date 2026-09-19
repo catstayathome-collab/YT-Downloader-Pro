@@ -3844,6 +3844,670 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "更新" } }
       }
     },
+    "common.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "關閉" } }
+      }
+    },
+    "common.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢視..." } }
+      }
+    },
+    "settings.support": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Support" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポート" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "支援" } }
+      }
+    },
+    "settings.data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "データ" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資料" } }
+      }
+    },
+    "settings.support.createReport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create Local Support Report" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルサポートレポートを作成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "建立本機支援報告" } }
+      }
+    },
+    "settings.data.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Export Local App Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルアプリデータを書き出す" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "匯出本機 App 資料" } }
+      }
+    },
+    "settings.data.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manage Local Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルデータを管理" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "管理本機資料" } }
+      }
+    },
+    "supportReport.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create Support Report" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートレポートを作成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "建立支援報告" } }
+      }
+    },
+    "supportReport.notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Nothing is sent automatically. Review the exact report below, then choose a folder to save a local JSON file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動送信は行われません。下の内容を確認してから、ローカル JSON ファイルの保存先を選んでください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "不會自動傳送任何資料。請先檢視下方的完整內容，再選擇資料夾儲存本機 JSON 檔案。" } }
+      }
+    },
+    "supportReport.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save Local Report..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルレポートを保存..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "儲存本機報告..." } }
+      }
+    },
+    "supportReport.details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Report Details" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "レポートの詳細" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "報告詳細資料" } }
+      }
+    },
+    "supportReport.category": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Category" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カテゴリー" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "類別" } }
+      }
+    },
+    "supportReport.subject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Subject" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "件名" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "主旨" } }
+      }
+    },
+    "supportReport.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メッセージ" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "訊息" } }
+      }
+    },
+    "supportReport.optional.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional Information" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "任意の情報" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選填資訊" } }
+      }
+    },
+    "supportReport.optional.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Every item is off by default. Enable only information you want to include in the saved report." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて初期状態では無効です。保存するレポートに含めたい情報だけを有効にしてください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "所有項目預設皆為關閉。請只啟用您願意加入報告的資訊。" } }
+      }
+    },
+    "supportReport.optional.include": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Include %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を含める" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "包含%@" } }
+      }
+    },
+    "supportReport.optional.activityWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This information can reveal viewing or download activity." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この情報から視聴またはダウンロード履歴が分かる場合があります。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這項資訊可能透露觀看或下載活動。" } }
+      }
+    },
+    "supportReport.preview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Exact JSON Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "JSON の完全プレビュー" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "完整 JSON 預覽" } }
+      }
+    },
+    "supportReport.preview.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The local file will contain exactly this JSON. File and screenshot fields store names only; no attachment or media file is copied." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルファイルにはこの JSON だけが保存されます。ファイルとスクリーンショットの項目には名前のみを記録し、添付ファイルやメディアはコピーしません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "本機檔案只會包含此 JSON。檔案與截圖欄位僅記錄名稱，不會複製附件或媒體檔案。" } }
+      }
+    },
+    "supportReport.preview.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The preview could not be created." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューを作成できませんでした。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法建立預覽。" } }
+      }
+    },
+    "supportReport.savePrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save Report" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "レポートを保存" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "儲存報告" } }
+      }
+    },
+    "supportReport.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Saved locally: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルに保存しました：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已儲存於本機：%@" } }
+      }
+    },
+    "supportReport.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The report could not be saved. Choose another local folder and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "レポートを保存できませんでした。別のローカルフォルダを選んで再試行してください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法儲存報告。請選擇其他本機資料夾後再試一次。" } }
+      }
+    },
+    "supportReport.category.downloadFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Download failure" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード失敗" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載失敗" } }
+      }
+    },
+    "supportReport.category.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Privacy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プライバシー" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "隱私" } }
+      }
+    },
+    "supportReport.category.security": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Security" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セキュリティ" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "安全性" } }
+      }
+    },
+    "supportReport.category.copyright": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copyright" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "著作権" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "著作權" } }
+      }
+    },
+    "supportReport.category.cancellation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancellation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取消" } }
+      }
+    },
+    "supportReport.category.incorrectCharge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Incorrect charge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "誤請求" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "錯誤扣款" } }
+      }
+    },
+    "supportReport.category.accountRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Account recovery" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウント復旧" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "帳號復原" } }
+      }
+    },
+    "supportReport.category.general": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "General" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一般" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "一般問題" } }
+      }
+    },
+    "supportReport.field.sourceURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Source URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "参照元 URL" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "來源網址" } }
+      }
+    },
+    "supportReport.field.mediaTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Media title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メディアのタイトル" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "媒體標題" } }
+      }
+    },
+    "supportReport.field.selectedFormatID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected format identifier" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択した形式 ID" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "所選格式識別碼" } }
+      }
+    },
+    "supportReport.field.diagnosticExport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Diagnostic export file name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "診断書き出しファイル名" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "診斷匯出檔名" } }
+      }
+    },
+    "supportReport.field.screenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screenshot file name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリーンショットのファイル名" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "截圖檔名" } }
+      }
+    },
+    "supportReport.field.contactEmail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Contact email" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "連絡先メールアドレス" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "聯絡信箱" } }
+      }
+    },
+    "supportReport.field.mediaFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Media file name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メディアファイル名" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "媒體檔名" } }
+      }
+    },
+    "dataExport.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Export Local App Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルアプリデータを書き出す" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "匯出本機 App 資料" } }
+      }
+    },
+    "dataExport.notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review the summary before choosing a folder. The package stays on this Mac and is never uploaded automatically." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダを選ぶ前に概要を確認してください。パッケージはこの Mac に保存され、自動アップロードされることはありません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請先檢視摘要再選擇資料夾。匯出套件只會留在這台 Mac，不會自動上傳。" } }
+      }
+    },
+    "dataExport.preview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Export Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "書き出しプレビュー" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "匯出預覽" } }
+      }
+    },
+    "dataExport.sections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sections" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セクション" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資料區段" } }
+      }
+    },
+    "dataExport.jobRecords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Download records" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード記録" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載紀錄" } }
+      }
+    },
+    "dataExport.thumbnailReferences": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Thumbnail references" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サムネイル参照" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "縮圖參照" } }
+      }
+    },
+    "dataExport.diagnosticLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Diagnostic lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "診断行" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "診斷紀錄行數" } }
+      }
+    },
+    "dataExport.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preparing local preview..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルプレビューを準備中..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在準備本機預覽..." } }
+      }
+    },
+    "dataExport.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The export preview is unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "書き出しプレビューを利用できません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法使用匯出預覽。" } }
+      }
+    },
+    "dataExport.exclusions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Downloaded media, credentials, cookies, and security-scoped access tokens are excluded." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード済みメディア、認証情報、Cookie、セキュリティスコープのアクセストークンは含まれません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載的媒體、憑證、Cookie 與安全範圍存取權杖皆不會匯出。" } }
+      }
+    },
+    "dataExport.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show in Finder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Finder に表示" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 Finder 中顯示" } }
+      }
+    },
+    "dataExport.chooseAndExport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Folder and Export..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダを選んで書き出す..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇資料夾並匯出..." } }
+      }
+    },
+    "dataExport.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The local export preview could not be prepared." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカル書き出しのプレビューを準備できませんでした。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法準備本機匯出預覽。" } }
+      }
+    },
+    "dataExport.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Exported locally: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルに書き出しました：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已匯出至本機：%@" } }
+      }
+    },
+    "dataExport.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The export could not be saved. Choose another local folder and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "書き出しを保存できませんでした。別のローカルフォルダを選んで再試行してください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法儲存匯出套件。請選擇其他本機資料夾後再試一次。" } }
+      }
+    },
+    "dataManagement.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manage Local Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルデータを管理" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "管理本機資料" } }
+      }
+    },
+    "dataManagement.notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Each action is separate and requires confirmation. Clearing history never deletes downloaded media." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "各操作は独立しており、実行前に確認が必要です。履歴を消去してもダウンロード済みメディアは削除されません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "每項操作彼此獨立，且都需要確認。清除紀錄不會刪除下載的媒體。" } }
+      }
+    },
+    "dataManagement.history": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Download History" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード履歴" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載紀錄" } }
+      }
+    },
+    "dataManagement.appData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "App Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリデータ" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "App 資料" } }
+      }
+    },
+    "dataManagement.downloadedMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Downloaded Media" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード済みメディア" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已下載媒體" } }
+      }
+    },
+    "dataManagement.selectFileDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose one media file explicitly. The app will never delete an entire folder." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メディアファイルを 1 つ明示的に選んでください。アプリがフォルダ全体を削除することはありません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請明確選擇一個媒體檔案；App 絕不會刪除整個資料夾。" } }
+      }
+    },
+    "dataManagement.chooseFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose File..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇檔案..." } }
+      }
+    },
+    "dataManagement.reviewFilePrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review File" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを確認" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢視檔案" } }
+      }
+    },
+    "dataManagement.actionCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ completed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@が完了しました。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%@已完成。" } }
+      }
+    },
+    "dataManagement.actionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ could not be completed. Some items may remain; review the list and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@を完了できませんでした。一部の項目が残っている可能性があります。一覧を確認して再試行してください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法完成%@。部分項目可能仍保留；請檢視清單後再試一次。" } }
+      }
+    },
+    "dataAction.completed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Completed History" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了履歴を消去" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除完成紀錄" } }
+      }
+    },
+    "dataAction.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Failed and Cancelled History" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "失敗・キャンセル履歴を消去" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除失敗與取消紀錄" } }
+      }
+    },
+    "dataAction.diagnostics.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Diagnostics" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "診断ログを消去" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除診斷紀錄" } }
+      }
+    },
+    "dataAction.resetSettings.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset Settings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリ設定をリセット" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重設 App 設定" } }
+      }
+    },
+    "dataAction.deleteMedia.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete Selected Media File" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したメディアファイルを削除" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "刪除所選媒體檔案" } }
+      }
+    },
+    "dataAction.clearHistory.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear History" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "履歴を消去" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除紀錄" } }
+      }
+    },
+    "dataAction.clearDiagnostics.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Diagnostics" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ログを消去" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除紀錄" } }
+      }
+    },
+    "dataAction.resetSettings.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset Settings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定をリセット" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重設設定" } }
+      }
+    },
+    "dataAction.deleteFile.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete File" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを削除" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "刪除檔案" } }
+      }
+    },
+    "dataAction.completed.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove %lld completed history record(s) and their cached thumbnails?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了した履歴 %lld 件と対応するキャッシュ済みサムネイルを削除しますか？" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要移除 %lld 筆已完成紀錄及其快取縮圖嗎？" } }
+      }
+    },
+    "dataAction.failed.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove %lld failed or cancelled history record(s) and their cached thumbnails?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "失敗またはキャンセルした履歴 %lld 件と対応するキャッシュ済みサムネイルを削除しますか？" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要移除 %lld 筆失敗或已取消紀錄及其快取縮圖嗎？" } }
+      }
+    },
+    "dataAction.diagnostics.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove the local diagnostic log?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルの診断ログを削除しますか？" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要移除本機診斷紀錄嗎？" } }
+      }
+    },
+    "dataAction.resetSettings.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore all app settings to their defaults, including the saved output-folder selection?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存済みの出力フォルダ選択を含む、すべてのアプリ設定を初期値に戻しますか？" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要將所有 App 設定還原為預設值，包括已儲存的輸出資料夾選擇嗎？" } }
+      }
+    },
+    "dataAction.deleteMedia.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Permanently delete %@? This cannot be undone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を完全に削除しますか？この操作は取り消せません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要永久刪除%@嗎？此操作無法復原。" } }
+      }
+    },
+    "dataAction.noFileSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No file is selected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが選択されていません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "尚未選擇檔案。" } }
+      }
+    },
+    "dataAction.history.retained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Downloaded media, settings, and diagnostics are kept." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード済みメディア、設定、診断データは保持されます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載的媒體、設定與診斷資料都會保留。" } }
+      }
+    },
+    "dataAction.diagnostics.retained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "History, thumbnails, downloaded media, and settings are kept." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード履歴、設定、ダウンロード済みメディアは保持されます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載紀錄、設定與下載的媒體都會保留。" } }
+      }
+    },
+    "dataAction.settings.retained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "History, thumbnails, downloaded media, and diagnostics are kept." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード履歴、診断データ、ダウンロード済みメディアは保持されます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載紀錄、診斷資料與下載的媒體都會保留。" } }
+      }
+    },
+    "dataAction.media.retained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "History, thumbnails, settings, and diagnostics are kept." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリ履歴、設定、診断データ、その他すべてのメディアファイルは保持されます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "App 紀錄、設定、診斷資料與其他所有媒體檔案都會保留。" } }
+      }
+    },
     "update.available.message": {
       "extractionState": "manual",
       "localizations": {

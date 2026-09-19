@@ -206,19 +206,19 @@
 - Consumes: all user-visible controls introduced by Tasks 3 and 4.
 - Produces: complete English, Traditional Chinese, and Japanese strings plus maintainer documentation.
 
-- [ ] **Step 1: Write failing localization coverage tests**
+- [x] **Step 1: Write failing localization coverage tests**
 
   Add every new key to the required-key test and assert all three supported locales produce nonempty, non-key output.
 
-- [ ] **Step 2: Run localization tests and verify RED**
+- [x] **Step 2: Run localization tests and verify RED**
 
   Expected: failures for missing keys.
 
-- [ ] **Step 3: Add translations and maintenance documentation**
+- [x] **Step 3: Add translations and maintenance documentation**
 
   Document service ownership, local-only boundaries, file formats, deletion guarantees, tests, and the explicit future gate for external support/account backends.
 
-- [ ] **Step 4: Run complete verification**
+- [x] **Step 4: Run complete verification**
 
   ```bash
   env CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache" swift test --package-path swift-2.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
@@ -231,7 +231,13 @@
 
   Confirm no text overlaps at the minimum Settings window size, keyboard focus reaches every control, local save panels appear, no network request is made, and every delete confirmation describes retained data.
 
-- [ ] **Step 6: Commit**
+  Partial 2026-09-19 result: the built Japanese Settings page was inspected at
+  its minimum size and exposed every Support and Data control through macOS
+  accessibility without visible overlap. Opening a child SwiftUI sheet closed
+  the UI automation transport, so child-sheet layout, keyboard traversal, and
+  save-panel presentation still require a short hands-on pass before release.
+
+- [x] **Step 6: Commit**
 
   ```bash
   git add swift-2.0/Sources/YTDownloaderPro2/Models/Localization.swift swift-2.0/Sources/YTDownloaderPro2/Resources/Localizable.xcstrings docs/swift-2.0 SUPPORT_REPORT_AND_DATA_REQUESTS.md swift-2.0/Tests/YTDownloaderPro2Tests/LocalizationTests.swift

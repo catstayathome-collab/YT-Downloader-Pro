@@ -4,6 +4,39 @@ import XCTest
 
 final class LocalizationTests: XCTestCase {
     private let localeIdentifiers = ["en", "ja", "zh-Hant"]
+    private let supportAndDataKeys: Set<String> = [
+        "common.close", "common.review",
+        "settings.support", "settings.data", "settings.support.createReport",
+        "settings.data.export", "settings.data.manage",
+        "supportReport.title", "supportReport.notice", "supportReport.save",
+        "supportReport.details", "supportReport.category", "supportReport.subject", "supportReport.message",
+        "supportReport.optional.title", "supportReport.optional.description", "supportReport.optional.include",
+        "supportReport.optional.activityWarning", "supportReport.preview.title",
+        "supportReport.preview.description", "supportReport.preview.failed", "supportReport.savePrompt",
+        "supportReport.saved", "supportReport.saveFailed",
+        "supportReport.category.downloadFailure", "supportReport.category.privacy",
+        "supportReport.category.security", "supportReport.category.copyright",
+        "supportReport.category.cancellation", "supportReport.category.incorrectCharge",
+        "supportReport.category.accountRecovery", "supportReport.category.general",
+        "supportReport.field.sourceURL", "supportReport.field.mediaTitle",
+        "supportReport.field.selectedFormatID", "supportReport.field.diagnosticExport",
+        "supportReport.field.screenshot", "supportReport.field.contactEmail", "supportReport.field.mediaFile",
+        "dataExport.title", "dataExport.notice", "dataExport.preview.title", "dataExport.sections",
+        "dataExport.jobRecords", "dataExport.thumbnailReferences", "dataExport.diagnosticLines",
+        "dataExport.preparing", "dataExport.unavailable", "dataExport.exclusions", "dataExport.reveal",
+        "dataExport.chooseAndExport", "dataExport.previewFailed", "dataExport.saved", "dataExport.saveFailed",
+        "dataManagement.title", "dataManagement.notice", "dataManagement.history", "dataManagement.appData",
+        "dataManagement.downloadedMedia", "dataManagement.selectFileDescription", "dataManagement.chooseFile",
+        "dataManagement.reviewFilePrompt", "dataManagement.actionCompleted", "dataManagement.actionFailed",
+        "dataAction.completed.title", "dataAction.failed.title", "dataAction.diagnostics.title",
+        "dataAction.resetSettings.title", "dataAction.deleteMedia.title", "dataAction.clearHistory.button",
+        "dataAction.clearDiagnostics.button", "dataAction.resetSettings.button", "dataAction.deleteFile.button",
+        "dataAction.completed.confirmation", "dataAction.failed.confirmation",
+        "dataAction.diagnostics.confirmation", "dataAction.resetSettings.confirmation",
+        "dataAction.deleteMedia.confirmation", "dataAction.noFileSelected",
+        "dataAction.history.retained", "dataAction.diagnostics.retained",
+        "dataAction.settings.retained", "dataAction.media.retained"
+    ]
     private let maintainedRegionalMessages = [
         "Video is region restricted",
         "This video is restricted in your region",
@@ -13,7 +46,7 @@ final class LocalizationTests: XCTestCase {
     ]
 
     func testVisibleKeyInventoryIsExplicitAndComplete() {
-        let expected: Set<String> = [
+        let expected: Set<String> = Set([
             "app.settings",
             "account.settings.title", "account.developmentMode", "account.signIn.prompt", "account.signInOrViewPlans",
             "account.signIn.google", "account.signIn.apple", "account.free.noSignIn", "account.currentPlan",
@@ -64,9 +97,19 @@ final class LocalizationTests: XCTestCase {
             "update.checking", "update.dismiss", "update.failed.message", "update.failed.title",
             "update.openRelease", "update.unsupported.message", "update.unsupported.title",
             "update.upToDate.message", "update.upToDate.title"
-        ]
+        ]).union(supportAndDataKeys)
 
         XCTAssertEqual(Set(L10n.Key.allCases.map(\.rawValue)), expected)
+    }
+
+    func testSupportAndDataKeysResolveWithoutRawFallbacksInEveryLocale() {
+        for key in supportAndDataKeys {
+            for localeIdentifier in localeIdentifiers {
+                let value = L10n.string(key, localeIdentifier: localeIdentifier)
+                XCTAssertFalse(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Empty \(localeIdentifier) value for \(key)")
+                XCTAssertNotEqual(value, key, "Raw key fallback for \(key) in \(localeIdentifier)")
+            }
+        }
     }
 
     func testAccountPresentationCatalogUsesTheSpecifiedTranslations() throws {

@@ -300,3 +300,41 @@ codesign --verify --deep --strict --verbose=2 \
 Diagnose from the outer layer inward: UI intent, Store state, coordinator event,
 runner phase, process result, helper version/architecture, then filesystem
 ownership. See `TROUBLESHOOTING.md` for exact user-safe diagnostics.
+
+## Maintaining Local Support And Data Controls
+
+Run the focused service, presentation, store, and localization tests while
+editing these flows:
+
+```bash
+env CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache" \
+  swift test --package-path swift-2.0 --disable-sandbox \
+  --filter 'SupportReport|LocalData|LocalDeletion|LocalizationTests' \
+  -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+```
+
+Before committing, run the complete strict Swift suite, the Python regression
+suite, the unsigned arm64 app build, and `git diff --check`. The build is part
+of verification because SwiftPM tests do not exercise the assembled app's
+resource catalog or bundled helper layout.
+
+Manual Settings QA at the minimum supported window size must cover:
+
+1. Keyboard focus reaches every report, export, and data-management control.
+2. English, Japanese, and Traditional Chinese text wraps without overlap.
+3. Optional support fields begin off and the exact JSON preview changes only
+   after the user enables them.
+4. Support-report and local-export save panels appear and can be cancelled
+   without writing a file.
+5. Every destructive action presents a confirmation that names both the target
+   and the data that will be retained.
+6. History cleanup never removes downloaded media. Media deletion accepts one
+   regular file only and rejects a symbolic link or directory.
+7. No support or data-management interaction initiates a network request.
+
+When adding a new exported field or deletion action, update the draft model,
+side-effect-free presentation, service boundary, all three localizations, and
+positive plus adversarial tests together. Do not attach a backend URL, support
+vendor SDK, email sender, cloud history, account identifier, or billing record
+to these local flows. External support and account-data work remains blocked
+until the project records fresh legal, privacy, operations, and owner approval.

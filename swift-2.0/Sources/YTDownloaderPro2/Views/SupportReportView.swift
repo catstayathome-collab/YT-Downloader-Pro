@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SupportReportView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     private let environment: SupportReportDraft.Environment
     private let selectedJob: DownloadJob?
@@ -35,15 +36,15 @@ struct SupportReportView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Create Support Report")
+                Text(L10n.string(.supportReportTitle, locale: locale))
                     .font(.title2.weight(.semibold))
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(L10n.string(.commonClose, locale: locale)) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .accessibilityLabel("Close support report")
+                    .accessibilityLabel(L10n.string(.commonClose, locale: locale))
             }
 
-            Text("Nothing is sent automatically. Review the exact report below, then choose a folder to save a local JSON file.")
+            Text(L10n.string(.supportReportNotice, locale: locale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -65,10 +66,10 @@ struct SupportReportView: View {
 
             HStack {
                 Spacer()
-                Button("Save Local Report...") { saveReport() }
+                Button(L10n.string(.supportReportSave, locale: locale)) { saveReport() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave || previewPayload == nil)
-                    .accessibilityLabel("Choose a folder and save the reviewed support report locally")
+                    .accessibilityLabel(L10n.string(.supportReportSave, locale: locale))
             }
         }
         .padding(24)
@@ -82,20 +83,20 @@ struct SupportReportView: View {
     }
 
     private var reportDetails: some View {
-        GroupBox("Report Details") {
+        GroupBox(L10n.string(.supportReportDetails, locale: locale)) {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("Category", selection: $category) {
+                Picker(L10n.string(.supportReportCategory, locale: locale), selection: $category) {
                     ForEach(Self.categories, id: \.self) { category in
-                        Text(category.label).tag(category)
+                        Text(category.label(locale: locale)).tag(category)
                     }
                 }
-                .accessibilityLabel("Support category")
+                .accessibilityLabel(L10n.string(.supportReportCategory, locale: locale))
 
-                TextField("Subject", text: $subject)
+                TextField(L10n.string(.supportReportSubject, locale: locale), text: $subject)
                     .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Support report subject")
+                    .accessibilityLabel(L10n.string(.supportReportSubject, locale: locale))
 
-                Text("Message")
+                Text(L10n.string(.supportReportMessage, locale: locale))
                     .font(.callout.weight(.medium))
                 TextEditor(text: $message)
                     .font(.body)
@@ -107,32 +108,35 @@ struct SupportReportView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .stroke(.separator, lineWidth: 1)
                     }
-                    .accessibilityLabel("Support report message")
+                    .accessibilityLabel(L10n.string(.supportReportMessage, locale: locale))
             }
             .padding(8)
         }
     }
 
     private var optionalInformation: some View {
-        GroupBox("Optional Information") {
+        GroupBox(L10n.string(.supportReportOptionalTitle, locale: locale)) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Every item is off by default. Enable only information you want to include in the saved report.")
+                Text(L10n.string(.supportReportOptionalDescription, locale: locale))
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
                 ForEach(SupportReportPreviewPresentation.OptionalFieldKind.allCases, id: \.self) { kind in
+                    let fieldLabel = kind.label(locale: locale)
                     VStack(alignment: .leading, spacing: 6) {
-                        Toggle(kind.label, isOn: selectionBinding(for: kind))
-                            .accessibilityLabel("Include \(kind.label)")
+                        Toggle(fieldLabel, isOn: selectionBinding(for: kind))
+                            .accessibilityLabel(
+                                L10n.string(.supportReportOptionalInclude, locale: locale, fieldLabel)
+                            )
 
                         if enabledOptionalFields.contains(kind) {
-                            TextField(kind.placeholder, text: valueBinding(for: kind))
+                            TextField(fieldLabel, text: valueBinding(for: kind))
                                 .textFieldStyle(.roundedBorder)
-                                .accessibilityLabel(kind.label)
+                                .accessibilityLabel(fieldLabel)
 
                             if kind.canRevealDownloadActivity {
                                 Label(
-                                    "This information can reveal viewing or download activity.",
+                                    L10n.string(.supportReportOptionalActivityWarning, locale: locale),
                                     systemImage: "exclamationmark.shield"
                                 )
                                 .font(.caption)
@@ -148,14 +152,14 @@ struct SupportReportView: View {
     }
 
     private var exactPreview: some View {
-        GroupBox("Exact JSON Preview") {
+        GroupBox(L10n.string(.supportReportPreviewTitle, locale: locale)) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("The local file will contain exactly this JSON. File and screenshot fields store names only; no attachment or media file is copied.")
+                Text(L10n.string(.supportReportPreviewDescription, locale: locale))
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
                 ScrollView([.horizontal, .vertical]) {
-                    Text(previewPayload ?? "The preview could not be created.")
+                    Text(previewPayload ?? L10n.string(.supportReportPreviewFailed, locale: locale))
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,7 +172,7 @@ struct SupportReportView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(.separator, lineWidth: 1)
                 }
-                .accessibilityLabel("Exact JSON support report preview")
+                .accessibilityLabel(L10n.string(.supportReportPreviewTitle, locale: locale))
             }
             .padding(8)
         }
@@ -228,17 +232,19 @@ struct SupportReportView: View {
 
     @MainActor
     private func saveReport() {
-        guard let directory = OutputFolderPicker.choose(prompt: "Save Report") else { return }
+        guard let directory = OutputFolderPicker.choose(
+            prompt: L10n.string(.supportReportSavePrompt, locale: locale)
+        ) else { return }
         do {
             let destination = try writer.write(composer.makeDraft(), to: directory)
             saveFeedback = SaveFeedback(
-                message: "Saved locally: \(destination.path)",
+                message: L10n.string(.supportReportSaved, locale: locale, destination.path),
                 systemImage: "checkmark.circle.fill",
                 isError: false
             )
         } catch {
             saveFeedback = SaveFeedback(
-                message: "The report could not be saved. Choose another local folder and try again.",
+                message: L10n.string(.supportReportSaveFailed, locale: locale),
                 systemImage: "exclamationmark.triangle.fill",
                 isError: true
             )
@@ -266,42 +272,30 @@ private extension SupportReportView {
 }
 
 private extension SupportReportDraft.Category {
-    var label: String {
+    func label(locale: Locale) -> String {
         switch self {
-        case .downloadFailure: "Download failure"
-        case .privacy: "Privacy"
-        case .security: "Security"
-        case .copyright: "Copyright"
-        case .cancellation: "Cancellation"
-        case .incorrectCharge: "Incorrect charge"
-        case .accountRecovery: "Account recovery"
-        case .general: "General"
+        case .downloadFailure: L10n.string(.supportReportCategoryDownloadFailure, locale: locale)
+        case .privacy: L10n.string(.supportReportCategoryPrivacy, locale: locale)
+        case .security: L10n.string(.supportReportCategorySecurity, locale: locale)
+        case .copyright: L10n.string(.supportReportCategoryCopyright, locale: locale)
+        case .cancellation: L10n.string(.supportReportCategoryCancellation, locale: locale)
+        case .incorrectCharge: L10n.string(.supportReportCategoryIncorrectCharge, locale: locale)
+        case .accountRecovery: L10n.string(.supportReportCategoryAccountRecovery, locale: locale)
+        case .general: L10n.string(.supportReportCategoryGeneral, locale: locale)
         }
     }
 }
 
 private extension SupportReportPreviewPresentation.OptionalFieldKind {
-    var label: String {
+    func label(locale: Locale) -> String {
         switch self {
-        case .sourceURL: "Source URL"
-        case .mediaTitle: "Media title"
-        case .selectedFormatID: "Selected format identifier"
-        case .diagnosticExport: "Diagnostic export file name"
-        case .screenshot: "Screenshot file name"
-        case .contactEmail: "Contact email"
-        case .mediaFile: "Media file name"
-        }
-    }
-
-    var placeholder: String {
-        switch self {
-        case .sourceURL: "https://www.youtube.com/watch?v=..."
-        case .mediaTitle: "Title shown by the app"
-        case .selectedFormatID: "For example: 137+140"
-        case .diagnosticExport: "diagnostics.jsonl"
-        case .screenshot: "screenshot.png"
-        case .contactEmail: "name@example.com"
-        case .mediaFile: "video.mp4"
+        case .sourceURL: L10n.string(.supportReportFieldSourceURL, locale: locale)
+        case .mediaTitle: L10n.string(.supportReportFieldMediaTitle, locale: locale)
+        case .selectedFormatID: L10n.string(.supportReportFieldSelectedFormatID, locale: locale)
+        case .diagnosticExport: L10n.string(.supportReportFieldDiagnosticExport, locale: locale)
+        case .screenshot: L10n.string(.supportReportFieldScreenshot, locale: locale)
+        case .contactEmail: L10n.string(.supportReportFieldContactEmail, locale: locale)
+        case .mediaFile: L10n.string(.supportReportFieldMediaFile, locale: locale)
         }
     }
 
