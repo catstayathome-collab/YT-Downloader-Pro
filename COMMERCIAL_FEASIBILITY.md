@@ -252,6 +252,9 @@ Verbal assurances and screenshots of general account enablement are not enough.
 - [ ] A Taiwan lawyer reviews YouTube/platform terms, copyright exposure,
       product naming, marketing copy, Terms of Use, Acceptable Use Policy,
       privacy policy, refund terms, and complaint handling.
+- [ ] Traditional Chinese and English public copy is reviewed for consistency
+      against legal, provider, accounting, licensing, privacy, and support
+      evidence.
 - [ ] A Taiwan accountant confirms registration, invoice, tax, and entity
       requirements for the intended launch volume.
 - [ ] A licensing review covers yt-dlp, FFmpeg, FFprobe, QuickJS/JavaScript
@@ -296,6 +299,8 @@ This decision is implemented by the following reviewable documents:
   response, cancellation/refund handling, and shutdown drills.
 - `PUBLIC_POLICY_DRAFTS.md`: Terms, Acceptable Use, Privacy Policy, refund,
   cancellation, complaint, and public-claim draft requirements.
+- `PUBLIC_COPY_LOCALIZATION_REVIEW.md`: internal public-copy inventory,
+  Traditional Chinese/English consistency checks, and publication gates.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and
