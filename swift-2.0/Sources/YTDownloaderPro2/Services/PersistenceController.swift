@@ -84,6 +84,22 @@ actor PersistenceController {
         }
     }
 
+    /// Explicit deletion must also remove the old recovery copy, unlike a normal save.
+    func saveJobsAfterHistoryRemoval(_ jobs: [DownloadJob]) throws {
+        let deferredFailure: PersistenceControllerError?
+        do {
+            try saveJobs(jobs, flush: true)
+            deferredFailure = nil
+        } catch let error as PersistenceControllerError where error == .deferredWriteFailed {
+            deferredFailure = error
+        }
+        let data = try Data(contentsOf: primaryURL)
+        try data.write(to: previousURL, options: .atomic)
+        if let deferredFailure {
+            throw deferredFailure
+        }
+    }
+
     private var stateDirectoryURL: URL {
         root.appendingPathComponent("State", isDirectory: true)
     }

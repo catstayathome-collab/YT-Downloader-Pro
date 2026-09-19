@@ -47,7 +47,7 @@ struct LocalDataExportDraft: Codable, Equatable, Sendable {
             ),
             jobs: exportedJobs,
             settings: sanitizedSettingsForExport(settings),
-            thumbnailReferences: thumbnailReferences(from: exportedJobs),
+            thumbnailReferences: thumbnailReferences(from: jobs),
             diagnosticExcerpt: sanitizedDiagnosticExcerpt(
                 from: diagnosticLines,
                 maximumLines: maximumDiagnosticLines
@@ -58,6 +58,22 @@ struct LocalDataExportDraft: Codable, Equatable, Sendable {
     private static func sanitizedJobForExport(_ job: DownloadJob) -> DownloadJob {
         var sanitized = job.scrubbingRetainedMediaURLCredentials()
         sanitized.outputURL = nil
+        sanitized.thumbnailCachePath = nil
+        sanitized.sourceMetadata = job.sourceMetadata.flatMap {
+            MediaURLValidator.credentialFreeEquivalent(of: $0)
+        }
+        sanitized.reservedOutputBasename = nil
+        if let failure = job.failure {
+            var sanitizedFailure = DownloadFailure(
+                category: failure.category,
+                technicalDetail: failure.technicalDetail.map(sanitizeExportDiagnosticLine),
+                toolExitCode: failure.toolExitCode,
+                occurredAt: failure.occurredAt
+            )
+            sanitizedFailure.summaryKey = failure.summaryKey
+            sanitizedFailure.recoverySuggestionKey = failure.recoverySuggestionKey
+            sanitized.failure = sanitizedFailure
+        }
         sanitized.options = sanitizedOptionsForExport(sanitized.options)
         return sanitized
     }
@@ -102,7 +118,7 @@ struct LocalDataExportDraft: Codable, Equatable, Sendable {
         return Array(nonEmptyLines.prefix(maximumLines))
     }
 
-    private static func sanitizeExportDiagnosticLine(_ line: String) -> String {
+    static func sanitizeExportDiagnosticLine(_ line: String) -> String {
         var sanitized = DownloadFailure.sanitizedDiagnosticDetail(line)
         sanitized = replacingMatches(structuredURLPattern, in: sanitized, withTemplate: "[REDACTED]")
         sanitized = replacingMatches(localPathPattern, in: sanitized, withTemplate: "[REDACTED]")

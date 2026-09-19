@@ -933,38 +933,83 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    /// Clears retained terminal history and thumbnail cache without touching downloaded media.
+    enum LocalDataOperationError: Error {
+        case shuttingDown
+        case cleanupIncomplete
+    }
+
+    func resetSettings() throws {
+        guard !isPreparingToQuit else { throw LocalDataOperationError.shuttingDown }
+        settings = .defaults
+        settingsStore.reset()
+    }
+
+    func clearDiagnostics() async throws {
+        guard !isPreparingToQuit else { throw LocalDataOperationError.shuttingDown }
+        try await diagnostics.clear()
+    }
+
+    func makeLocalExportDraft(
+        appVersion: String,
+        releaseChannel: String,
+        exportDate: Date = .now
+    ) async throws -> LocalDataExportDraft {
+        let lines = try await diagnostics.exportLines()
+        return LocalDataExportDraft.defaultPreview(
+            appVersion: appVersion, releaseChannel: releaseChannel, exportDate: exportDate,
+            jobs: jobs, settings: settings, diagnosticLines: lines
+        )
+    }
+
+    func clearCompletedHistory() async throws {
+        try await clearHistory(matching: { $0 == .completed })
+    }
+
+    func clearFailedAndCancelledHistory() async throws {
+        try await clearHistory(matching: { $0 == .failed || $0 == .cancelled })
+    }
+
+    /// Legacy toolbar command; new data-management callers use the throwing scoped commands.
     func clearHistory() async {
-        guard !isPreparingToQuit else { return }
-        let terminalJobs = jobs.filter { $0.status.isTerminal && !discardingRecordIDs.contains($0.id) }
+        do {
+            try await clearHistory(matching: { $0.isTerminal })
+        } catch {
+            await recordDiagnostic(jobID: nil, stage: "history-cleanup", detail: String(describing: error))
+        }
+    }
+
+    private func clearHistory(matching includes: (DownloadStatus) -> Bool) async throws {
+        guard !isPreparingToQuit else { throw LocalDataOperationError.shuttingDown }
+        let terminalJobs = jobs.filter {
+            $0.status.isTerminal && includes($0.status) && !discardingRecordIDs.contains($0.id)
+        }
         guard !terminalJobs.isEmpty else { return }
         let terminalIDs = Set(terminalJobs.map(\.id))
         discardingRecordIDs.formUnion(terminalIDs)
         terminalIDs.forEach(invalidateRetry)
         defer { discardingRecordIDs.subtract(terminalIDs) }
         var removableIDs: [UUID] = []
+        var cleanupFailed = false
         for job in terminalJobs {
             if await coordinator.cleanupDiscardedRecord(job),
                jobs.contains(where: { $0.id == job.id && $0.status.isTerminal }) {
-                removableIDs.append(job.id)
+                await cancelThumbnailOperations(for: job.id)
+                do {
+                    try await thumbnailCache.remove(jobID: job.id)
+                    removableIDs.append(job.id)
+                } catch {
+                    cleanupFailed = true
+                }
             } else {
-                await recordDiagnostic(jobID: job.id, stage: "history-cleanup", detail: "Owned download artifacts could not be released.")
+                cleanupFailed = true
             }
         }
-        guard !removableIDs.isEmpty else { return }
         let removableIDSet = Set(removableIDs)
         jobs.removeAll { removableIDSet.contains($0.id) }
         selection.subtract(removableIDSet)
         coordinatorManagedJobIDs.subtract(removableIDSet)
-        await persist(flush: true)
-        for jobID in removableIDs {
-            await cancelThumbnailOperations(for: jobID)
-            do {
-                try await thumbnailCache.remove(jobID: jobID)
-            } catch {
-                await recordDiagnostic(jobID: jobID, stage: "thumbnail-removal", detail: String(describing: error))
-            }
-        }
+        try await persistence.saveJobsAfterHistoryRemoval(jobs)
+        if cleanupFailed { throw LocalDataOperationError.cleanupIncomplete }
     }
 
     func reAdd(_ jobID: UUID) async {

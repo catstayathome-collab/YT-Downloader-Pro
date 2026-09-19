@@ -77,35 +77,35 @@
 - Consumes: current jobs, settings, thumbnails, persistence, and diagnostics already owned by `DownloadStore`.
 - Produces: `makeLocalExportDraft(...)`, `clearCompletedHistory()`, `clearFailedAndCancelledHistory()`, `clearDiagnostics()`, and `resetSettings()`.
 
-- [ ] **Step 1: Write failing settings and diagnostics tests**
+- [x] **Step 1: Write failing settings and diagnostics tests**
 
   Prove `AppSettingsStore.reset()` removes the persisted preference and `DiagnosticsLogger.clear()` removes only the known diagnostic logs, rotation marker, and rotation backups under the diagnostics directory.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
   Expected: compile failures for the missing `reset` and `clear` methods.
 
-- [ ] **Step 3: Implement the narrow reset and diagnostic-clear operations**
+- [x] **Step 3: Implement the narrow reset and diagnostic-clear operations**
 
   Keep both operations idempotent. Diagnostic cleanup must enumerate only the logger's fixed filenames and must never remove the diagnostics directory recursively.
 
-- [ ] **Step 4: Write failing scoped-history tests**
+- [x] **Step 4: Write failing scoped-history tests**
 
   Given completed, failed, cancelled, paused, queued, and downloading jobs, prove each scoped command removes only its allowed terminal statuses and related thumbnail cache entries while preserving every `outputURL` media file.
 
-- [ ] **Step 5: Implement one private scoped cleanup path**
+- [x] **Step 5: Implement one private scoped cleanup path**
 
   Reuse the existing coordinator-owned artifact cleanup and thumbnail removal behavior. Keep `clearHistory()` as the existing all-terminal command and delegate the two new public commands to a private status predicate.
 
-- [ ] **Step 6: Write failing local-export draft tests**
+- [x] **Step 6: Write failing local-export draft tests**
 
   Prove the store-created draft contains the current jobs/settings, bounded sanitized diagnostics, and no output path, cookie selection, bookmark bytes, or credential-bearing source URL.
 
-- [ ] **Step 7: Implement export-draft creation and reset commands**
+- [x] **Step 7: Implement export-draft creation and reset commands**
 
   Read bounded diagnostic lines through `DiagnosticsLogger`, build `LocalDataExportDraft.defaultPreview`, and make resetting settings update both memory and persistence to `.defaults`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add swift-2.0/Sources/YTDownloaderPro2/Models/AppSettings.swift swift-2.0/Sources/YTDownloaderPro2/Services/DiagnosticsLogger.swift swift-2.0/Sources/YTDownloaderPro2/Stores/DownloadStore.swift swift-2.0/Tests/YTDownloaderPro2Tests

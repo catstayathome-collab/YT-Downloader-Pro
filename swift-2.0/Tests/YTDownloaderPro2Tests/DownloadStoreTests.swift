@@ -826,6 +826,128 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertFalse(completed.fixture.store.jobs.contains(where: { $0.id == completed.job.id }))
     }
 
+    func testScopedHistoryClearPreservesOtherStatusesMediaAndRecoverySnapshot() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let media = root.appendingPathComponent("keep.mp4")
+        try Data("media".utf8).write(to: media)
+        let statuses: [DownloadStatus] = [.completed, .failed, .cancelled, .paused, .queued, .queued]
+        let jobs = statuses.map { DownloadJob.fixture(status: $0, outputURL: media) }
+        let fixture = try StoreFixture(jobs: jobs)
+        defer { fixture.cleanUp() }
+        try await fixture.persistence.saveJobs(jobs, flush: true)
+        let active = jobs[5]
+        await fixture.store.start(active.id)
+        try await fixture.runner.waitForStart(of: active.id)
+        await fixture.runner.emit(.phase(.downloading), for: active.id)
+        try await waitUntil("scoped history fixture to become active") {
+            fixture.store.jobs.first(where: { $0.id == active.id })?.status == .downloading
+        }
+        let thumbnail = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        for job in jobs { _ = try await fixture.thumbnailCache.store(data: thumbnail, for: job.id) }
+
+        try await fixture.store.clearCompletedHistory()
+        XCTAssertEqual(fixture.store.jobs.map(\.id), Array(jobs.dropFirst()).map(\.id))
+        let removedThumbnail = await fixture.thumbnailCache.url(for: jobs[0].id)
+        let retainedThumbnail = await fixture.thumbnailCache.url(for: jobs[1].id)
+        XCTAssertNil(removedThumbnail)
+        XCTAssertNotNil(retainedThumbnail)
+        try await fixture.store.clearFailedAndCancelledHistory()
+        XCTAssertEqual(fixture.store.jobs.map(\.id), Array(jobs.suffix(3)).map(\.id))
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == active.id })?.status, .downloading)
+        XCTAssertEqual(try Data(contentsOf: media), Data("media".utf8))
+        let restored = try await fixture.persistence.loadJobs()
+        XCTAssertEqual(restored.map(\.id), fixture.store.jobs.map(\.id))
+        try Data("corrupted primary".utf8).write(to: fixture.root.appendingPathComponent("downloads.json"))
+        let recovered = try await PersistenceController(root: fixture.root).loadJobs()
+        XCTAssertEqual(recovered.map(\.id), fixture.store.jobs.map(\.id))
+        try await fixture.store.clearCompletedHistory()
+    }
+
+    func testScopedHistoryClearReportsCleanupFailureAndRetainsRecord() async throws {
+        let job = DownloadJob.fixture(status: .failed)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.runner.failCleanup(for: job.id)
+        do {
+            try await fixture.store.clearFailedAndCancelledHistory()
+            XCTFail("Cleanup failure must reach the caller")
+        } catch {}
+        XCTAssertEqual(fixture.store.jobs.map(\.id), [job.id])
+    }
+
+    func testScopedHistoryClearReportsPersistenceFailure() async throws {
+        let fixture = try StoreFixture(jobs: [.fixture(status: .completed)])
+        defer { fixture.cleanUp() }
+        try Data("block directory".utf8).write(to: fixture.root.appendingPathComponent("State"))
+        do {
+            try await fixture.store.clearCompletedHistory()
+            XCTFail("Persistence failure must reach the caller")
+        } catch {}
+    }
+
+    func testScopedHistoryClearWithNoMatchingRecordsDoesNotTouchPersistence() async throws {
+        let fixture = try StoreFixture(jobs: [.fixture(status: .queued)])
+        defer { fixture.cleanUp() }
+        try Data("block persistence".utf8).write(to: fixture.root.appendingPathComponent("State"))
+        try await fixture.store.clearCompletedHistory()
+        XCTAssertEqual(fixture.store.jobs.map(\.status), [.queued])
+    }
+
+    func testResetSettingsUpdatesMemoryAndRemovesPersistedBookmark() throws {
+        let suite = "store-reset-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settingsStore = AppSettingsStore(defaults: defaults)
+        var settings = AppSettings.defaults
+        settings.maximumConcurrentDownloads = 9
+        settings.defaultOptions.outputDirectoryBookmark = Data("bookmark".utf8)
+        settingsStore.save(settings)
+        let job = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(jobs: [job], settings: settings, settingsStore: settingsStore)
+        defer { fixture.cleanUp() }
+        try fixture.store.resetSettings()
+        XCTAssertEqual(fixture.store.settings, .defaults)
+        XCTAssertEqual(settingsStore.load(), .defaults)
+        XCTAssertNil(defaults.object(forKey: "app-settings"))
+        XCTAssertEqual(fixture.store.jobs, [job])
+    }
+
+    func testLocalExportUsesCurrentStateAndOmitsPrivatePaths() async throws {
+        var job = DownloadJob.fixture(sourceURL: "https://user:password@youtube.test/watch?v=example",
+                                      status: .completed,
+                                      outputURL: URL(fileURLWithPath: "/Users/private/media.mp4"))
+        job.thumbnailCachePath = "/Users/private/cache/thumb.jpg"
+        job.sourceMetadata = "https://user:password@youtube.test/watch?v=example"
+        job.options.cookies = .chrome
+        job.options.outputDirectoryBookmark = Data("bookmark".utf8)
+        job.options.outputDirectoryDisplayPath = "/Users/private"
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        fixture.store.settings.maximumConcurrentDownloads = 7
+        let logger = DiagnosticsLogger(root: fixture.root)
+        for _ in 0..<105 {
+            try await logger.record(DiagnosticEvent(stage: "download",
+                technicalDetail: "HTTP 403 at /Users/private/file; https://user:password@host.test/path?token=secret"))
+        }
+        let draft = try await fixture.store.makeLocalExportDraft(appVersion: "test", releaseChannel: "local")
+        XCTAssertEqual(draft.jobs.map(\.id), [job.id])
+        XCTAssertEqual(draft.settings.maximumConcurrentDownloads, 7)
+        XCTAssertEqual(draft.diagnosticExcerpt.count, 100)
+        XCTAssertNil(draft.jobs[0].outputURL)
+        XCTAssertNil(draft.jobs[0].thumbnailCachePath)
+        XCTAssertNil(draft.jobs[0].options.outputDirectoryBookmark)
+        XCTAssertEqual(draft.jobs[0].options.cookies, .none)
+        let payload = String(decoding: try JSONEncoder().encode(draft), as: UTF8.self)
+        for secret in ["private", "password", "bookmark", "secret", "host.test"] {
+            XCTAssertFalse(payload.contains(secret), secret)
+        }
+        XCTAssertNotNil(fixture.store.jobs[0].outputURL)
+        try await fixture.store.clearDiagnostics()
+        let next = try await fixture.store.makeLocalExportDraft(appVersion: "test", releaseChannel: "local")
+        XCTAssertTrue(next.diagnosticExcerpt.isEmpty)
+    }
+
     func testRemoveFailedRecordReleasesOwnedArtifactsBeforeRemovingHistory() async throws {
         var failed = DownloadJob.fixture(status: .failed)
         failed.reservedOutputBasename = "Reserved title"

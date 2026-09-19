@@ -112,8 +112,9 @@ Current local foundation:
   data, and output-folder display paths before encoding.
 - Thumbnail references expose only local cache file names, not remote thumbnail
   URLs or embedded image data.
-- No file writer, submission endpoint, support vendor, email flow, account
-  backend, or upload action is implemented by this model.
+- `LocalExportPackageWriter` writes only the reviewed draft to a user-selected
+  local folder. No submission endpoint, support vendor, email flow, account
+  backend, or upload action is implemented.
 
 The app should expose a local export action before any cloud account or support
 backend exists. Export is useful for self-service troubleshooting and future
@@ -152,9 +153,15 @@ Current local foundation:
 - Deleting a selected media file is represented as the only preview action that
   deletes downloaded media, and the payload keeps only the selected file name,
   not its full local path.
-- No file writer, diagnostic remover, settings resetter, media deleter,
-  submission endpoint, support vendor, email flow, account backend, or upload
-  action is implemented by this model.
+- `DownloadStore` exposes separate commands for completed history,
+  failed/cancelled history, diagnostics, and settings. History commands remove
+  only matching records and thumbnails, synchronize the recovery snapshot, and
+  retain downloaded media.
+- `SelectedMediaFileDeleter` remains the only service that can delete a
+  user-selected media file; it rejects folders and symbolic links.
+- These are local service boundaries only. The user-facing confirmation UI,
+  submission endpoint, support vendor, email flow, account backend, and upload
+  action are not implemented yet.
 
 The macOS app must provide separate deletion actions with distinct labels:
 

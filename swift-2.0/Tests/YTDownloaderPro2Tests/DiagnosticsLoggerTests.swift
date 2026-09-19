@@ -3,6 +3,94 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DiagnosticsLoggerTests: XCTestCase {
+    func testClearRemovesOnlyKnownLogsAndInterruptedRotationFiles() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("Diagnostics")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let names = ["diagnostics.jsonl", "diagnostics.rotation.json"]
+            + (1...3).map { "diagnostics.\($0).jsonl" }
+            + (0...3).map { "diagnostics.rotation-backup-\($0).jsonl" }
+        for name in names + ["keep.txt", "diagnostics.4.jsonl"] {
+            try Data("unparsed".utf8).write(to: directory.appendingPathComponent(name))
+        }
+        let logger = DiagnosticsLogger(root: root)
+        try await logger.clear()
+        try await logger.clear()
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)),
+                       Set(["keep.txt", "diagnostics.4.jsonl"]))
+        let event = DiagnosticEvent(jobID: UUID(), stage: "new")
+        try await logger.record(event)
+        let details = try await logger.details(for: XCTUnwrap(event.jobID))
+        XCTAssertEqual(details, [event])
+    }
+
+    func testClearRejectsDirectoryAtLogFilenameWithoutDeletingItsContents() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("Diagnostics/diagnostics.jsonl")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let keep = directory.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: keep)
+        do {
+            try await DiagnosticsLogger(root: root).clear()
+            XCTFail("Expected an error, not recursive deletion")
+        } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keep.path))
+    }
+
+    func testExportLinesAreBoundedNewestFirstAndSkipMalformedRecords() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logger = DiagnosticsLogger(root: root)
+        for number in 0..<5 {
+            try await logger.record(DiagnosticEvent(stage: "stage-\(number)"))
+        }
+        let url = await logger.currentLogURL
+        var data = try Data(contentsOf: url)
+        data.append(Data("malformed\n".utf8))
+        try data.write(to: url)
+        let lines = try await logger.exportLines(maximumLines: 2)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[0].contains("stage-4"))
+        XCTAssertTrue(lines[1].contains("stage-3"))
+        let empty = try await logger.exportLines(maximumLines: 0)
+        XCTAssertEqual(empty, [])
+    }
+
+    func testClearFailureCanBeRetriedWithoutRestoringOldEvents() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fs = FaultingDiagnosticsFileSystem(failingOnce: .remove("diagnostics.jsonl"))
+        let logger = DiagnosticsLogger(root: root, fileSystem: fs)
+        let id = UUID()
+        try await logger.record(DiagnosticEvent(jobID: id, stage: "old"))
+        do {
+            try await logger.clear()
+            XCTFail("Expected deletion failure")
+        } catch {}
+        try await logger.clear()
+        let details = try await DiagnosticsLogger(root: root).details(for: id)
+        XCTAssertTrue(details.isEmpty)
+    }
+
+    func testMaintenanceRejectsSymlinkedDiagnosticsDirectory() async throws {
+        let root = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let keep = outside.appendingPathComponent("diagnostics.jsonl")
+        try Data("private".utf8).write(to: keep)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Diagnostics"),
+                                                 withDestinationURL: outside)
+        let logger = DiagnosticsLogger(root: root)
+        do { try await logger.clear(); XCTFail("Expected rejection") } catch {}
+        do { _ = try await logger.exportLines(); XCTFail("Expected rejection") } catch {}
+        XCTAssertEqual(try Data(contentsOf: keep), Data("private".utf8))
+    }
+
     func testAllCredentialURLAndCookiePathFormsAreRedactedBeforeDiskWrite() async throws {
         let logger = DiagnosticsLogger(root: try temporaryDirectory())
         let event = DiagnosticEvent(

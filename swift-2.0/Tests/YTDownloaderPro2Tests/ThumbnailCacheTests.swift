@@ -5,6 +5,15 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ThumbnailCacheTests: XCTestCase {
+    func testRemovalIsIdempotentBeforeCacheDirectoryExists() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root)
+        try await cache.remove(jobID: UUID())
+        try await cache.remove(jobID: UUID())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Thumbnails").path))
+    }
+
     func testStoreNamesThumbnailWithJobIDAndDetectedImageExtension() async throws {
         let cache = ThumbnailCache(root: try temporaryDirectory())
         let jobID = UUID()

@@ -41,6 +41,7 @@ struct DiagnosticEvent: Codable, Equatable, Sendable, Identifiable {
 }
 
 protocol DiagnosticsFileSystem: Sendable {
+    func validateMaintenanceDirectory(at url: URL) throws
     func createDirectory(at url: URL) throws
     func fileExists(at url: URL) -> Bool
     func readData(at url: URL) throws -> Data
@@ -49,7 +50,19 @@ protocol DiagnosticsFileSystem: Sendable {
     func removeItem(at url: URL) throws
 }
 
+extension DiagnosticsFileSystem {
+    func validateMaintenanceDirectory(at url: URL) throws {}
+}
+
 struct LiveDiagnosticsFileSystem: DiagnosticsFileSystem {
+    func validateMaintenanceDirectory(at url: URL) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+    }
+
     func createDirectory(at url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
@@ -59,7 +72,11 @@ struct LiveDiagnosticsFileSystem: DiagnosticsFileSystem {
     }
 
     func readData(at url: URL) throws -> Data {
-        try Data(contentsOf: url)
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        return try Data(contentsOf: url)
     }
 
     func writeData(_ data: Data, to url: URL) throws {
@@ -71,6 +88,10 @@ struct LiveDiagnosticsFileSystem: DiagnosticsFileSystem {
     }
 
     func removeItem(at url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true || values.isSymbolicLink == true else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
         try FileManager.default.removeItem(at: url)
     }
 }
@@ -101,6 +122,39 @@ actor DiagnosticsLogger {
 
     var currentLogURL: URL {
         logURL(generation: 0)
+    }
+
+    /// Point-in-time cleanup. Later download events may create a new log.
+    func clear() throws {
+        try fileSystem.validateMaintenanceDirectory(at: diagnosticsDirectory)
+        // Remove recovery instructions first so a partial cleanup cannot restore old logs.
+        let targets = [markerURL] + (0...Self.rotatedLogCount).map(backupURL) + logURLs
+        for url in targets where fileSystem.fileExists(at: url) {
+            try fileSystem.removeItem(at: url)
+        }
+    }
+
+    /// Bounded, newest-first text for an explicit local export, never raw JSON or arguments.
+    func exportLines(maximumLines: Int = 100) throws -> [String] {
+        let limit = min(maximumLines, 100)
+        guard limit > 0 else { return [] }
+        try fileSystem.validateMaintenanceDirectory(at: diagnosticsDirectory)
+        try recoverInterruptedRotation()
+        var lines: [String] = []
+        for url in logURLs {
+            guard fileSystem.fileExists(at: url) else { continue }
+            let data = try fileSystem.readData(at: url)
+            for record in data.split(separator: 0x0A).reversed() {
+                guard let event = try? decoder.decode(DiagnosticEvent.self, from: Data(record)) else { continue }
+                let text = ([event.stage, event.exitCode.map { "exit=\($0)" } ?? "",
+                             event.technicalDetail ?? ""] + event.arguments).joined(separator: " ")
+                let sanitized = LocalDataExportDraft.sanitizeExportDiagnosticLine(text)
+                    .split(whereSeparator: \.isNewline).joined(separator: " ")
+                lines.append(String(sanitized.prefix(4096)))
+                if lines.count == limit { return lines }
+            }
+        }
+        return lines
     }
 
     func record(_ event: DiagnosticEvent) throws {

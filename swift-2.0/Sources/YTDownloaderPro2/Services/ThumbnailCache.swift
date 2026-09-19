@@ -268,7 +268,8 @@ actor ThumbnailCache {
         if (try? fileSystem.isSymbolicLink(at: directory)) == true {
             throw ThumbnailCacheError.unsafeCachePath
         }
-        if !fileSystem.fileExists(at: directory), createIfMissing {
+        if !fileSystem.fileExists(at: directory) {
+            guard createIfMissing else { return directory }
             try fileSystem.createDirectory(at: directory)
         }
         try recheckDirectory(directory)
@@ -295,6 +296,7 @@ actor ThumbnailCache {
     }
 
     private func existingThumbnails(for jobID: UUID, in directory: URL) throws -> [URL] {
+        guard fileSystem.fileExists(at: directory) else { return [] }
         try recheckDirectory(directory)
         var existing: [URL] = []
         for imageType in ImageType.allCases {

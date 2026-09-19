@@ -378,6 +378,10 @@ final class ModelsTests: XCTestCase {
             status: .completed,
             outputURL: URL(fileURLWithPath: "/Users/example/Movies/Private Lecture.mp4"),
             options: unsafeOptions,
+            failure: DownloadFailure(
+                category: .downloadFailed,
+                technicalDetail: "Writing /Users/example/Movies/Private Lecture.mp4"
+            ),
             completedAt: exportDate
         )
         let unsafeSettings = AppSettings(

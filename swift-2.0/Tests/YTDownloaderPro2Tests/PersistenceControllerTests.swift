@@ -153,6 +153,31 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.title), ["Latest"])
     }
 
+    func testHistoryRemovalMirrorsRecoverySnapshotEvenWhenReportingDeferredFailure() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let removed = DownloadJob.fixture(title: "Removed", status: .completed)
+        let retained = DownloadJob.fixture(title: "Retained", status: .queued)
+        let sut = PersistenceController(root: root)
+        try await sut.saveJobs([removed, retained], flush: true)
+        let blockedNext = root.appendingPathComponent("State/downloads.next")
+        try FileManager.default.createDirectory(at: blockedNext, withIntermediateDirectories: false)
+        try await sut.saveJobs([removed, retained], flush: false)
+        try await Task.sleep(for: .milliseconds(100))
+        try FileManager.default.removeItem(at: blockedNext)
+
+        do {
+            try await sut.saveJobsAfterHistoryRemoval([retained])
+            XCTFail("Expected the prior deferred failure to be reported")
+        } catch {
+            XCTAssertEqual(error as? PersistenceControllerError, .deferredWriteFailed)
+        }
+
+        try Data("corrupted primary".utf8).write(to: root.appendingPathComponent("downloads.json"))
+        let recovered = try await PersistenceController(root: root).loadJobs()
+        XCTAssertEqual(recovered.map(\.id), [retained.id])
+    }
+
     func testFailedFlushRetryPreservesDeferredFailureAndLatestSnapshot() async throws {
         let parent = try temporaryDirectory()
         let root = parent.appendingPathComponent("blocked-root")
