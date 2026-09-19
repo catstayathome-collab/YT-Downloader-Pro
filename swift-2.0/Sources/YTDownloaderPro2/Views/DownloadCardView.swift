@@ -335,8 +335,10 @@ struct DownloadCardView: View {
             )
         }
         .sheet(isPresented: $showsErrorDetails) {
-            if let failure = job.failure {
-                ErrorDetailsView(failure: failure)
+            LocalizedSheetRoot(locale: locale) {
+                if let failure = job.failure {
+                    ErrorDetailsView(failure: failure)
+                }
             }
         }
     }

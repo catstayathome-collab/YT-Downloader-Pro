@@ -55,16 +55,30 @@ struct MediaOptionsPresentation: Equatable {
     private(set) var selectedAudioID: String?
     private(set) var options: DownloadOptions
 
+    var quickTimeVideoChoices: [MediaFormat] {
+        videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
+    }
+
+    var quickTimeAudioChoices: [MediaFormat] {
+        audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
+    }
+
     // MetadataProbe sorts typed formats highest-first, so the first usable choice is the reviewed default.
     init(analysis: VideoAnalysis, defaults: DownloadOptions) {
         identity = MediaIdentityPresentation(analysis: analysis)
         videoChoices = analysis.videoFormats
         audioChoices = analysis.audioFormats
         options = defaults.normalizedForExecution()
-        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: analysis.videoFormats)
-            ?? analysis.videoFormats.first?.id
-        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: analysis.audioFormats)
-            ?? analysis.audioFormats.first?.id
+        let selectableVideoFormats = defaults.outputKind == .mp4
+            ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
+            : analysis.videoFormats
+        let selectableAudioFormats = defaults.outputKind == .mp4
+            ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
+            : analysis.audioFormats
+        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: selectableVideoFormats)
+            ?? selectableVideoFormats.first?.id
+        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
+            ?? selectableAudioFormats.first?.id
         applySelectedFormats()
     }
 
@@ -299,7 +313,7 @@ struct DownloadOptionsEditor: View {
 
                 Picker(L10n.string(.mediaVideoFormat, locale: locale), selection: videoSelection) {
                     Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(videoChoices) { format in
+                    ForEach(visibleVideoChoices) { format in
                         Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
@@ -308,7 +322,7 @@ struct DownloadOptionsEditor: View {
 
                 Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
                     Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(audioChoices) { format in
+                    ForEach(visibleAudioChoices) { format in
                         Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
@@ -366,8 +380,27 @@ struct DownloadOptionsEditor: View {
     private var outputKind: Binding<OutputKind> {
         Binding(
             get: { options.outputKind },
-            set: { options.selectOutputKind($0) }
+            set: { kind in
+                options.selectOutputKind(kind)
+                guard kind == .mp4 else { return }
+                if !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat) {
+                    options.selectVideoFormat(visibleVideoChoices.first)
+                }
+                if !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat) {
+                    options.selectAudioFormat(visibleAudioChoices.first)
+                }
+            }
         )
+    }
+
+    private var visibleVideoChoices: [MediaFormat] {
+        guard options.outputKind == .mp4 else { return videoChoices }
+        return videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
+    }
+
+    private var visibleAudioChoices: [MediaFormat] {
+        guard options.outputKind == .mp4 else { return audioChoices }
+        return audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
     }
 
     private func subtitleModeLabel(_ mode: SubtitleMode) -> String {

@@ -95,6 +95,13 @@ Retry reanalyzes source formats. If a selected format disappeared, choose a new
 format; do not silently substitute a materially different one. Keep source
 partials until ownership-safe cleanup or a successful continuation decides them.
 
+For MP4 output, the options UI and `YouTubeStrategy` accept only QuickTime-safe
+H.264/AVC video in an MP4-family container plus AAC audio in an M4A/MP4-family
+container. `--merge-output-format mp4` changes the container only; it does not
+convert VP9 or Opus streams. If FFprobe reports `vp9` or `opus` inside an `.mp4`,
+the file may play in third-party players while failing in QuickTime. Re-download
+with a current build; existing incompatible files are not modified automatically.
+
 ## Output Folder And Bookmarks
 
 Output folders use security-scoped bookmarks. A stale, unreadable, or revoked
@@ -166,6 +173,11 @@ missing catalog entry or placeholder mismatch; run:
 cd swift-2.0
 swift test --filter LocalizationTests
 ```
+
+Every `.sheet` presentation must wrap its content in `LocalizedSheetRoot` with
+the current app locale. SwiftUI modal presentation boundaries may otherwise
+fall back to the macOS language even when the presenting scene is using the
+in-app override.
 
 Inspect the minimum `760 x 540` window in all three locales after changing long
 copy. Automated catalog completeness does not replace visual overlap testing.

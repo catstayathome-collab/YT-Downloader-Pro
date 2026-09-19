@@ -105,7 +105,7 @@ final class YouTubeStrategyTests: XCTestCase {
             "--ffmpeg-location",
             "/bundle",
             "--format",
-            "bestvideo*+bestaudio/best",
+            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]",
             "--output",
             "/tmp/Downloads/Example video.%(ext)s",
             "--print",
@@ -124,6 +124,55 @@ final class YouTubeStrategyTests: XCTestCase {
             "youtube:player_client=web_embedded",
             "https://example.com/video"
         ])
+    }
+
+    func testMP4DownloadRejectsPersistedWebMSelectionsAndUsesQuickTimeCompatibleFormats() {
+        let vp9 = MediaFormat(
+            id: "248",
+            label: "1080p - webm",
+            codec: "vp9",
+            videoCodec: "vp9",
+            audioCodec: nil,
+            container: "webm",
+            width: 1920,
+            height: 1080,
+            resolution: "1920x1080",
+            framesPerSecond: 30,
+            bitrate: 2_000,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "1080p"
+        )
+        let opus = MediaFormat(
+            id: "251",
+            label: "Audio: original (medium) - webm",
+            codec: "opus",
+            videoCodec: nil,
+            audioCodec: "opus",
+            container: "webm",
+            width: nil,
+            height: nil,
+            resolution: nil,
+            framesPerSecond: nil,
+            bitrate: 160,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "medium"
+        )
+        var job = DownloadJob.fixture(outputKind: .mp4)
+        job.options.selectVideoFormat(vp9)
+        job.options.selectAudioFormat(opus)
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertEqual(
+            argument(after: "--format", in: arguments),
+            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]"
+        )
     }
 
     func testMP3DownloadArgumentsUsePostprocessingPhaseAndSelectedAudioFormat() {

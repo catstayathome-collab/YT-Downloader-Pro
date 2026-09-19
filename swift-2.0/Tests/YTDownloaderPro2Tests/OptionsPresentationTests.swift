@@ -32,8 +32,14 @@ final class OptionsPresentationTests: XCTestCase {
 
     func testVideoOptionsDefaultToHighestAvailableVideoAndAudio() {
         let analysis = videoAnalysis(
-            videoFormats: [format(id: "video-high", label: "2160p"), format(id: "video-low", label: "720p")],
-            audioFormats: [format(id: "audio-high", label: "Opus 160 kbps"), format(id: "audio-low", label: "AAC 128 kbps")]
+            videoFormats: [
+                format(id: "video-high", label: "2160p", videoCodec: "avc1.640033", container: "mp4"),
+                format(id: "video-low", label: "720p", videoCodec: "avc1.4d401f", container: "mp4")
+            ],
+            audioFormats: [
+                format(id: "audio-high", label: "AAC 256 kbps", audioCodec: "mp4a.40.2", container: "m4a"),
+                format(id: "audio-low", label: "AAC 128 kbps", audioCodec: "mp4a.40.2", container: "m4a")
+            ]
         )
 
         let model = MediaOptionsPresentation(analysis: analysis, defaults: .defaults)
@@ -41,9 +47,86 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.selectedVideoID, "video-high")
         XCTAssertEqual(model.selectedAudioID, "audio-high")
         XCTAssertEqual(model.options.videoQuality, .format(id: "video-high", label: "2160p"))
-        XCTAssertEqual(model.options.audioQuality, .format(id: "audio-high", label: "Opus 160 kbps"))
+        XCTAssertEqual(model.options.audioQuality, .format(id: "audio-high", label: "AAC 256 kbps"))
         XCTAssertEqual(model.options.selectedVideoFormat, analysis.videoFormats.first.map(PersistedFormatPresentation.init))
         XCTAssertEqual(model.options.selectedAudioFormat, analysis.audioFormats.first.map(PersistedFormatPresentation.init))
+    }
+
+    func testMP4DefaultsSkipWebMCodecsAndChooseTheHighestQuickTimeCompatiblePair() {
+        let vp9 = MediaFormat(
+            id: "248",
+            label: "1080p - webm",
+            codec: "vp9",
+            videoCodec: "vp9",
+            audioCodec: nil,
+            container: "webm",
+            width: 1920,
+            height: 1080,
+            resolution: "1920x1080",
+            framesPerSecond: 30,
+            bitrate: 2_000,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "1080p"
+        )
+        let avc = MediaFormat(
+            id: "137",
+            label: "1080p - mp4",
+            codec: "avc1.640028",
+            videoCodec: "avc1.640028",
+            audioCodec: nil,
+            container: "mp4",
+            width: 1920,
+            height: 1080,
+            resolution: "1920x1080",
+            framesPerSecond: 30,
+            bitrate: 1_800,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "1080p"
+        )
+        let opus = MediaFormat(
+            id: "251",
+            label: "Audio: original (medium) - webm",
+            codec: "opus",
+            videoCodec: nil,
+            audioCodec: "opus",
+            container: "webm",
+            width: nil,
+            height: nil,
+            resolution: nil,
+            framesPerSecond: nil,
+            bitrate: 160,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "medium"
+        )
+        let aac = MediaFormat(
+            id: "140",
+            label: "Audio: original (medium) - m4a",
+            codec: "mp4a.40.2",
+            videoCodec: nil,
+            audioCodec: "mp4a.40.2",
+            container: "m4a",
+            width: nil,
+            height: nil,
+            resolution: nil,
+            framesPerSecond: nil,
+            bitrate: 128,
+            language: nil,
+            estimatedFileSize: nil,
+            note: "medium"
+        )
+
+        let model = MediaOptionsPresentation(
+            analysis: videoAnalysis(videoFormats: [vp9, avc], audioFormats: [opus, aac]),
+            defaults: .defaults
+        )
+
+        XCTAssertEqual(model.selectedVideoID, "137")
+        XCTAssertEqual(model.selectedAudioID, "140")
+        XCTAssertEqual(model.quickTimeVideoChoices.map(\.id), ["137"])
+        XCTAssertEqual(model.quickTimeAudioChoices.map(\.id), ["140"])
     }
 
     func testPersistedStructuredFormatChoicesRelocalizeWithoutReanalysis() throws {
@@ -337,14 +420,20 @@ final class OptionsPresentationTests: XCTestCase {
         )
     }
 
-    private func format(id: String, label: String) -> MediaFormat {
+    private func format(
+        id: String,
+        label: String,
+        videoCodec: String? = nil,
+        audioCodec: String? = nil,
+        container: String? = nil
+    ) -> MediaFormat {
         MediaFormat(
             id: id,
             label: label,
             codec: nil,
-            videoCodec: nil,
-            audioCodec: nil,
-            container: nil,
+            videoCodec: videoCodec,
+            audioCodec: audioCodec,
+            container: container,
             width: nil,
             height: nil,
             resolution: nil,

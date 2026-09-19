@@ -41,6 +41,20 @@ struct LocalizedSceneRoot<Content: View>: View {
     }
 }
 
+struct LocalizedSheetRoot<Content: View>: View {
+    let locale: Locale
+    private let content: Content
+
+    init(locale: Locale, @ViewBuilder content: () -> Content) {
+        self.locale = locale
+        self.content = content()
+    }
+
+    var body: some View {
+        content.environment(\.locale, locale)
+    }
+}
+
 enum TerminationSafetyPolicy {
     static func shouldTerminate(after result: Result<Void, Error>) -> Bool {
         switch result {

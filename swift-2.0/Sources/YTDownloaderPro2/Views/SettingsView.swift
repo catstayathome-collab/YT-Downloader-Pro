@@ -104,15 +104,21 @@ struct SettingsView: View {
             UpdateAlertFactory.make(notice: notice, locale: locale)
         }
         .sheet(isPresented: $showsSupportReport) {
-            SupportReportView(environment: supportEnvironment)
+            LocalizedSheetRoot(locale: locale) {
+                SupportReportView(environment: supportEnvironment)
+            }
         }
         .sheet(isPresented: $showsLocalExport) {
-            LocalDataExportView(appVersion: appVersion, releaseChannel: releaseChannel)
-                .environmentObject(store)
+            LocalizedSheetRoot(locale: locale) {
+                LocalDataExportView(appVersion: appVersion, releaseChannel: releaseChannel)
+                    .environmentObject(store)
+            }
         }
         .sheet(isPresented: $showsLocalDataManagement) {
-            LocalDataManagementView()
-                .environmentObject(store)
+            LocalizedSheetRoot(locale: locale) {
+                LocalDataManagementView()
+                    .environmentObject(store)
+            }
         }
     }
 

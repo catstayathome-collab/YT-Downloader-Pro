@@ -75,6 +75,43 @@ struct PersistedFormatPresentation: Codable, Equatable, Sendable {
     }
 }
 
+enum QuickTimeMP4Compatibility {
+    static let ytDLPVideoSelector = "bestvideo[vcodec^=avc1][ext=mp4]"
+    static let ytDLPAudioSelector = "bestaudio[acodec^=mp4a][ext=m4a]"
+    static let ytDLPProgressiveSelector = "best[vcodec^=avc1][acodec^=mp4a][ext=mp4]"
+    static let ytDLPFormatSelector = "\(ytDLPVideoSelector)+\(ytDLPAudioSelector)/\(ytDLPProgressiveSelector)"
+
+    static func supportsVideo(_ format: MediaFormat) -> Bool {
+        supportsVideo(codec: format.videoCodec, container: format.container)
+    }
+
+    static func supportsAudio(_ format: MediaFormat) -> Bool {
+        supportsAudio(codec: format.audioCodec, container: format.container)
+    }
+
+    static func supportsVideo(_ format: PersistedFormatPresentation?) -> Bool {
+        guard let format else { return false }
+        return supportsVideo(codec: format.videoCodec, container: format.container)
+    }
+
+    static func supportsAudio(_ format: PersistedFormatPresentation?) -> Bool {
+        guard let format else { return false }
+        return supportsAudio(codec: format.audioCodec, container: format.container)
+    }
+
+    private static func supportsVideo(codec: String?, container: String?) -> Bool {
+        guard let codec = codec?.lowercased(), let container = container?.lowercased() else { return false }
+        return ["mp4", "m4v", "mov"].contains(container)
+            && (codec.hasPrefix("avc1") || codec.hasPrefix("h264"))
+    }
+
+    private static func supportsAudio(codec: String?, container: String?) -> Bool {
+        guard let codec = codec?.lowercased(), let container = container?.lowercased() else { return false }
+        return ["m4a", "mp4", "mov"].contains(container)
+            && (codec.hasPrefix("mp4a") || codec.hasPrefix("aac"))
+    }
+}
+
 struct VideoAnalysis: Codable, Equatable, Sendable {
     var sourceURL: String
     var title: String

@@ -363,63 +363,69 @@ struct DownloadCenterView: View {
             }
         }
         .sheet(item: $optionsSheet) { sheet in
-            switch sheet {
-            case let .queued(session):
-                MediaOptionsSheet(
-                    analysis: session.analysis,
-                    defaults: session.options,
-                    titleKey: .mediaEditDownload,
-                    actionKey: .commonSave
-                ) { options in
-                    optionsSheet = nil
-                    Task { _ = await store.applyQueuedJobEdit(session, options: options) }
-                }
-            case let .failedPreflight(job):
-                MediaOptionsSheet(
-                    titleKey: .mediaEditAndRetry,
-                    options: job.options,
-                    actionKey: .mediaReanalyze
-                ) { options in
-                    optionsSheet = nil
-                    Task {
-                        if let session = await store.prepareFailedJobEdit(job.id, options: options) {
-                            optionsSheet = .failedFresh(session)
+            LocalizedSheetRoot(locale: locale) {
+                switch sheet {
+                case let .queued(session):
+                    MediaOptionsSheet(
+                        analysis: session.analysis,
+                        defaults: session.options,
+                        titleKey: .mediaEditDownload,
+                        actionKey: .commonSave
+                    ) { options in
+                        optionsSheet = nil
+                        Task { _ = await store.applyQueuedJobEdit(session, options: options) }
+                    }
+                case let .failedPreflight(job):
+                    MediaOptionsSheet(
+                        titleKey: .mediaEditAndRetry,
+                        options: job.options,
+                        actionKey: .mediaReanalyze
+                    ) { options in
+                        optionsSheet = nil
+                        Task {
+                            if let session = await store.prepareFailedJobEdit(job.id, options: options) {
+                                optionsSheet = .failedFresh(session)
+                            }
                         }
                     }
-                }
-            case let .failedFresh(session):
-                MediaOptionsSheet(
-                    analysis: session.analysis,
-                    defaults: session.options,
-                    titleKey: .mediaEditAndRetry,
-                    actionKey: .downloadActionRetry
-                ) { options in
-                    optionsSheet = nil
-                    Task { _ = await store.applyFailedJobEdit(session, options: options) }
+                case let .failedFresh(session):
+                    MediaOptionsSheet(
+                        analysis: session.analysis,
+                        defaults: session.options,
+                        titleKey: .mediaEditAndRetry,
+                        actionKey: .downloadActionRetry
+                    ) { options in
+                        optionsSheet = nil
+                        Task { _ = await store.applyFailedJobEdit(session, options: options) }
+                    }
                 }
             }
         }
         .sheet(item: $analysisSheet) { sheet in
-            switch sheet {
-            case let .video(analysis):
-                MediaOptionsSheet(analysis: analysis, defaults: store.settings.defaultOptions) { options in
-                    analysisSheet = nil
-                    Task { await store.addVideo(options: options) }
-                }
-            case let .playlist(analysis):
-                PlaylistSelectionSheet(
-                    analysis: analysis,
-                    defaults: store.settings.defaultOptions,
-                    selectAllToken: playlistSelectAllToken
-                ) { selectedIDs, options in
-                    analysisSheet = nil
-                    Task { await store.addPlaylistEntries(selectedIDs: selectedIDs, options: options) }
+            LocalizedSheetRoot(locale: locale) {
+                switch sheet {
+                case let .video(analysis):
+                    MediaOptionsSheet(analysis: analysis, defaults: store.settings.defaultOptions) { options in
+                        analysisSheet = nil
+                        Task { await store.addVideo(options: options) }
+                    }
+                case let .playlist(analysis):
+                    PlaylistSelectionSheet(
+                        analysis: analysis,
+                        defaults: store.settings.defaultOptions,
+                        selectAllToken: playlistSelectAllToken
+                    ) { selectedIDs, options in
+                        analysisSheet = nil
+                        Task { await store.addPlaylistEntries(selectedIDs: selectedIDs, options: options) }
+                    }
                 }
             }
         }
         .sheet(isPresented: $showsAnalysisErrorDetails) {
-            if case let .failed(failure) = store.analysisState {
-                ErrorDetailsView(failure: failure)
+            LocalizedSheetRoot(locale: locale) {
+                if case let .failed(failure) = store.analysisState {
+                    ErrorDetailsView(failure: failure)
+                }
             }
         }
         .alert(item: presentedAlert) { alert in

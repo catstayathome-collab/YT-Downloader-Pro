@@ -73,14 +73,26 @@ struct YouTubeStrategy: Sendable {
     }
 
     private func selectedFormat(for options: DownloadOptions) -> String {
-        let audioID = formatID(from: options.audioQuality) ?? "bestaudio"
-
         switch options.outputKind {
         case .mp4:
-            let videoID = formatID(from: options.videoQuality) ?? "bestvideo*"
-            let fallback = options.videoQuality == .best && options.audioQuality == .best ? "/best" : ""
-            return "\(videoID)+\(audioID)\(fallback)"
+            let videoID = QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat)
+                ? formatID(from: options.videoQuality)
+                : nil
+            let audioID = QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat)
+                ? formatID(from: options.audioQuality)
+                : nil
+            switch (videoID, audioID) {
+            case let (videoID?, audioID?):
+                return "\(videoID)+\(audioID)"
+            case let (videoID?, nil):
+                return "\(videoID)+\(QuickTimeMP4Compatibility.ytDLPAudioSelector)"
+            case let (nil, audioID?):
+                return "\(QuickTimeMP4Compatibility.ytDLPVideoSelector)+\(audioID)"
+            case (nil, nil):
+                return QuickTimeMP4Compatibility.ytDLPFormatSelector
+            }
         case .mp3:
+            let audioID = formatID(from: options.audioQuality) ?? "bestaudio"
             return options.audioQuality == .best ? "bestaudio/best" : audioID
         }
     }
