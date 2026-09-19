@@ -32,11 +32,11 @@
 - Consumes: `SupportReportDraft`, `LocalDataExportDraft`.
 - Produces: `LocalSupportReportWriter.write(_:to:)`, `LocalExportPackageWriter.write(_:to:)`, and `SelectedMediaFileDeleter.delete(_:)`.
 
-- [ ] **Step 1: Write failing writer tests**
+- [x] **Step 1: Write failing writer tests**
 
   Test that the support writer creates exactly one JSON file whose decoded payload equals the reviewed draft. Test that the export writer creates a package directory containing `manifest.json`, `jobs.json`, `settings.json`, `thumbnails.json`, and `diagnostics.json`, and that no media file is copied.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
   Run:
   ```bash
@@ -44,19 +44,19 @@
   ```
   Expected: compile failure because the writer types do not exist.
 
-- [ ] **Step 3: Implement atomic local writers**
+- [x] **Step 3: Implement atomic local writers**
 
   Implement value-type writers with injected `FileManager`, sorted-key pretty JSON, collision-safe names, a staging directory for exports, and cleanup on failure. Reject non-file destinations. Return the final local URL and perform no network work.
 
-- [ ] **Step 4: Write failing selected-media deletion tests**
+- [x] **Step 4: Write failing selected-media deletion tests**
 
   Cover an existing regular file, a missing file, a directory, and a symbolic link. Only an explicitly selected existing regular file may be removed.
 
-- [ ] **Step 5: Implement the selected-media deleter and rerun focused tests**
+- [x] **Step 5: Implement the selected-media deleter and rerun focused tests**
 
   `SelectedMediaFileDeleter.delete(_:)` must reject non-file URLs, directories, and symlinks before calling `removeItem`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add swift-2.0/Sources/YTDownloaderPro2/Services/LocalSupportDataServices.swift swift-2.0/Tests/YTDownloaderPro2Tests/LocalSupportDataServicesTests.swift
@@ -237,4 +237,3 @@
   git add swift-2.0/Sources/YTDownloaderPro2/Models/Localization.swift swift-2.0/Sources/YTDownloaderPro2/Resources/Localizable.xcstrings docs/swift-2.0 SUPPORT_REPORT_AND_DATA_REQUESTS.md swift-2.0/Tests/YTDownloaderPro2Tests/LocalizationTests.swift
   git commit -m "docs: document local support data flows"
   ```
-
