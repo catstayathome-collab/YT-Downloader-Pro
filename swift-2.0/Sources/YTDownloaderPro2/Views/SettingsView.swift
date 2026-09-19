@@ -4,6 +4,9 @@ struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
     @Environment(\.locale) private var locale
+    @State private var showsSupportReport = false
+    @State private var showsLocalExport = false
+    @State private var showsLocalDataManagement = false
 
     var body: some View {
         Form {
@@ -56,6 +59,31 @@ struct SettingsView: View {
                 .disabled(store.isCheckingForUpdatesManually)
                 .accessibilityLabel(UpdateControlPresentation.accessibilityLabel(locale: locale))
             }
+
+            Section("Support") {
+                Button {
+                    showsSupportReport = true
+                } label: {
+                    Label("Create Local Support Report", systemImage: "lifepreserver")
+                }
+                .accessibilityLabel("Create and review a local support report")
+            }
+
+            Section("Data") {
+                Button {
+                    showsLocalExport = true
+                } label: {
+                    Label("Export Local App Data", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Review and export sanitized local app data")
+
+                Button {
+                    showsLocalDataManagement = true
+                } label: {
+                    Label("Manage Local Data", systemImage: "externaldrive.badge.minus")
+                }
+                .accessibilityLabel("Review local data clearing and media deletion actions")
+            }
         }
         .formStyle(.grouped)
         .padding(20)
@@ -65,6 +93,17 @@ struct SettingsView: View {
         .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         .alert(item: manualUpdateNotice) { notice in
             UpdateAlertFactory.make(notice: notice, locale: locale)
+        }
+        .sheet(isPresented: $showsSupportReport) {
+            SupportReportView(environment: supportEnvironment)
+        }
+        .sheet(isPresented: $showsLocalExport) {
+            LocalDataExportView(appVersion: appVersion, releaseChannel: releaseChannel)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showsLocalDataManagement) {
+            LocalDataManagementView()
+                .environmentObject(store)
         }
     }
 
@@ -110,5 +149,36 @@ struct SettingsView: View {
         var settings = store.settings
         update(&settings)
         store.settings = settings
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "development"
+    }
+
+    private var releaseChannel: String {
+        Bundle.main.object(forInfoDictionaryKey: "YTDPReleaseChannel") as? String
+            ?? "local"
+    }
+
+    private var supportEnvironment: SupportReportDraft.Environment {
+        let operatingSystem = ProcessInfo.processInfo.operatingSystemVersion
+        return SupportReportDraft.Environment(
+            appVersion: appVersion,
+            releaseChannel: releaseChannel,
+            macOSVersion: "\(operatingSystem.majorVersion).\(operatingSystem.minorVersion).\(operatingSystem.patchVersion)",
+            architecture: Self.architecture,
+            localeIdentifier: locale.identifier
+        )
+    }
+
+    private static var architecture: String {
+#if arch(arm64)
+        "arm64"
+#elseif arch(x86_64)
+        "x86_64"
+#else
+        "unknown"
+#endif
     }
 }

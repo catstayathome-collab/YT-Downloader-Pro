@@ -2,6 +2,100 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DataRequestPresentationTests: XCTestCase {
+    func testEveryLocalDeletionActionHasStablePresentation() {
+        let completed = LocalDeletionActionPresentation(
+            draft: .historyPreview(
+                action: .clearCompletedHistory,
+                jobs: [.fixture(status: .completed)]
+            )
+        )
+        let failed = LocalDeletionActionPresentation(
+            draft: .historyPreview(
+                action: .clearFailedAndCancelledHistory,
+                jobs: [.fixture(status: .failed)]
+            )
+        )
+        let diagnostics = LocalDeletionActionPresentation(
+            draft: .actionPreview(.clearDiagnostics)
+        )
+        let settings = LocalDeletionActionPresentation(
+            draft: .actionPreview(.resetSettings)
+        )
+        let media = LocalDeletionActionPresentation(
+            draft: .actionPreview(
+                .deleteSelectedMediaFile,
+                selectedMediaFileURL: URL(fileURLWithPath: "/Users/example/Movies/private-title.mp4")
+            )
+        )
+
+        XCTAssertEqual(completed.title, "Clear Completed History")
+        XCTAssertEqual(completed.symbolName, "checkmark.circle")
+        XCTAssertEqual(completed.confirmationButtonTitle, "Clear History")
+        XCTAssertEqual(completed.severity, .destructiveRecords)
+        XCTAssertEqual(completed.retainedDataDescription, "Downloaded media, settings, and diagnostics are kept.")
+
+        XCTAssertEqual(failed.title, "Clear Failed and Cancelled History")
+        XCTAssertEqual(failed.symbolName, "exclamationmark.triangle")
+        XCTAssertEqual(failed.confirmationButtonTitle, "Clear History")
+        XCTAssertEqual(failed.severity, .destructiveRecords)
+        XCTAssertEqual(failed.retainedDataDescription, "Downloaded media, settings, and diagnostics are kept.")
+
+        XCTAssertEqual(diagnostics.title, "Clear Diagnostics")
+        XCTAssertEqual(diagnostics.symbolName, "doc.text.magnifyingglass")
+        XCTAssertEqual(diagnostics.confirmationButtonTitle, "Clear Diagnostics")
+        XCTAssertEqual(diagnostics.severity, .destructiveLocalData)
+        XCTAssertEqual(diagnostics.retainedDataDescription, "History, thumbnails, downloaded media, and settings are kept.")
+
+        XCTAssertEqual(settings.title, "Reset Settings")
+        XCTAssertEqual(settings.symbolName, "arrow.counterclockwise")
+        XCTAssertEqual(settings.confirmationButtonTitle, "Reset Settings")
+        XCTAssertEqual(settings.severity, .destructiveLocalData)
+        XCTAssertEqual(settings.retainedDataDescription, "History, thumbnails, downloaded media, and diagnostics are kept.")
+
+        XCTAssertEqual(media.title, "Delete Selected Media File")
+        XCTAssertEqual(media.symbolName, "trash")
+        XCTAssertEqual(media.confirmationButtonTitle, "Delete File")
+        XCTAssertEqual(media.severity, .irreversibleMediaDeletion)
+        XCTAssertEqual(media.retainedDataDescription, "History, thumbnails, settings, and diagnostics are kept.")
+    }
+
+    func testDeletionPresentationEnablesOnlyAvailableTargetsAndSeparatesMediaDeletion() {
+        let emptyCompleted = LocalDeletionActionPresentation(
+            draft: .historyPreview(action: .clearCompletedHistory, jobs: [])
+        )
+        let populatedCompleted = LocalDeletionActionPresentation(
+            draft: .historyPreview(
+                action: .clearCompletedHistory,
+                jobs: [.fixture(status: .completed)]
+            )
+        )
+        let mediaWithoutSelection = LocalDeletionActionPresentation(
+            draft: .actionPreview(.deleteSelectedMediaFile)
+        )
+        let mediaWithSelection = LocalDeletionActionPresentation(
+            draft: .actionPreview(
+                .deleteSelectedMediaFile,
+                selectedMediaFileURL: URL(fileURLWithPath: "/Users/example/Movies/private-title.mp4")
+            )
+        )
+
+        XCTAssertFalse(emptyCompleted.isEnabled)
+        XCTAssertTrue(populatedCompleted.isEnabled)
+        XCTAssertTrue(LocalDeletionActionPresentation(draft: .actionPreview(.clearDiagnostics)).isEnabled)
+        XCTAssertTrue(LocalDeletionActionPresentation(draft: .actionPreview(.resetSettings)).isEnabled)
+        XCTAssertFalse(mediaWithoutSelection.isEnabled)
+        XCTAssertTrue(mediaWithSelection.isEnabled)
+
+        XCTAssertFalse(populatedCompleted.deletesDownloadedMedia)
+        XCTAssertTrue(populatedCompleted.requiresSeparateMediaFileAction)
+        XCTAssertNil(populatedCompleted.selectedMediaFileName)
+        XCTAssertTrue(mediaWithSelection.deletesDownloadedMedia)
+        XCTAssertFalse(mediaWithSelection.requiresSeparateMediaFileAction)
+        XCTAssertEqual(mediaWithSelection.selectedMediaFileName, "private-title.mp4")
+        XCTAssertFalse(mediaWithSelection.confirmationMessage.contains("/Users/example"))
+        XCTAssertTrue(mediaWithSelection.confirmationMessage.contains("private-title.mp4"))
+    }
+
     func testComposerExcludesEveryOptionalValueUntilUserEnablesIt() {
         var composer = SupportReportComposer(
             category: .general,

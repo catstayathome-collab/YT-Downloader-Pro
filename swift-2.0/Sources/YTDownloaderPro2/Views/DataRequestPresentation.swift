@@ -216,6 +216,77 @@ struct LocalDeletionPreviewPresentation: Equatable, Sendable {
     }
 }
 
+struct LocalDeletionActionPresentation: Equatable, Sendable {
+    enum ConfirmationSeverity: Equatable, Sendable {
+        case destructiveRecords
+        case destructiveLocalData
+        case irreversibleMediaDeletion
+    }
+
+    var action: LocalDeletionDraft.Action
+    var title: String
+    var symbolName: String
+    var confirmationButtonTitle: String
+    var confirmationMessage: String
+    var retainedDataDescription: String
+    var severity: ConfirmationSeverity
+    var isEnabled: Bool
+    var deletesDownloadedMedia: Bool
+    var requiresSeparateMediaFileAction: Bool
+    var selectedMediaFileName: String?
+
+    init(draft: LocalDeletionDraft) {
+        action = draft.action
+        deletesDownloadedMedia = draft.deletesDownloadedMedia
+        requiresSeparateMediaFileAction = draft.requiresSeparateMediaFileAction
+        selectedMediaFileName = draft.selectedMediaFileName
+
+        switch draft.action {
+        case .clearCompletedHistory:
+            title = "Clear Completed History"
+            symbolName = "checkmark.circle"
+            confirmationButtonTitle = "Clear History"
+            confirmationMessage = "Remove \(draft.jobRecordIDs.count) completed history record(s) and their cached thumbnails?"
+            retainedDataDescription = "Downloaded media, settings, and diagnostics are kept."
+            severity = .destructiveRecords
+            isEnabled = !draft.jobRecordIDs.isEmpty
+        case .clearFailedAndCancelledHistory:
+            title = "Clear Failed and Cancelled History"
+            symbolName = "exclamationmark.triangle"
+            confirmationButtonTitle = "Clear History"
+            confirmationMessage = "Remove \(draft.jobRecordIDs.count) failed or cancelled history record(s) and their cached thumbnails?"
+            retainedDataDescription = "Downloaded media, settings, and diagnostics are kept."
+            severity = .destructiveRecords
+            isEnabled = !draft.jobRecordIDs.isEmpty
+        case .clearDiagnostics:
+            title = "Clear Diagnostics"
+            symbolName = "doc.text.magnifyingglass"
+            confirmationButtonTitle = "Clear Diagnostics"
+            confirmationMessage = "Remove the local diagnostic log?"
+            retainedDataDescription = "History, thumbnails, downloaded media, and settings are kept."
+            severity = .destructiveLocalData
+            isEnabled = true
+        case .resetSettings:
+            title = "Reset Settings"
+            symbolName = "arrow.counterclockwise"
+            confirmationButtonTitle = "Reset Settings"
+            confirmationMessage = "Restore all app settings to their defaults, including the saved output-folder selection?"
+            retainedDataDescription = "History, thumbnails, downloaded media, and diagnostics are kept."
+            severity = .destructiveLocalData
+            isEnabled = true
+        case .deleteSelectedMediaFile:
+            title = "Delete Selected Media File"
+            symbolName = "trash"
+            confirmationButtonTitle = "Delete File"
+            let fileName = draft.selectedMediaFileName ?? "No file selected"
+            confirmationMessage = "Permanently delete \(fileName)? This cannot be undone."
+            retainedDataDescription = "History, thumbnails, settings, and diagnostics are kept."
+            severity = .irreversibleMediaDeletion
+            isEnabled = draft.selectedMediaFileName != nil
+        }
+    }
+}
+
 private extension SupportReportDraft.OptionalFields {
     var selectedKinds: Set<SupportReportPreviewPresentation.OptionalFieldKind> {
         var kinds: Set<SupportReportPreviewPresentation.OptionalFieldKind> = []

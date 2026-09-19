@@ -161,31 +161,31 @@
 - Consumes: `DownloadStore` local export and scoped deletion commands plus Task 1 writers.
 - Produces: separate local-export and data-management sheets reachable from Settings.
 
-- [ ] **Step 1: Write failing action-presentation tests**
+- [x] **Step 1: Write failing action-presentation tests**
 
   Define stable labels, symbols, confirmation severity, retained-data copy, enabled state, and media-deletion separation for every `LocalDeletionDraft.Action`.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   Expected: assertions fail because the action presentation does not yet exist.
 
-- [ ] **Step 3: Implement export UI**
+- [x] **Step 3: Implement export UI**
 
   Show sanitized section and record counts before writing. Use `NSOpenPanel` only to choose a local destination folder, then call `LocalExportPackageWriter`; reveal the completed package only on an explicit button press.
 
-- [ ] **Step 4: Implement data-management UI**
+- [x] **Step 4: Implement data-management UI**
 
   Present separate rows and confirmation dialogs for completed history, failed/cancelled history, diagnostics, settings, and selected media file. Disable empty history actions. Media deletion requires `NSOpenPanel`, displays only the selected filename in confirmation, and never runs through a history action.
 
-- [ ] **Step 5: Wire Settings navigation**
+- [x] **Step 5: Wire Settings navigation**
 
   Add distinct Support and Data sections with icon buttons that present the sheets. Do not add external links or network actions.
 
-- [ ] **Step 6: Compile and run focused tests**
+- [x] **Step 6: Compile and run focused tests**
 
   Verify strict compilation and presentation tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add swift-2.0/Sources/YTDownloaderPro2/Views/LocalDataManagementView.swift swift-2.0/Sources/YTDownloaderPro2/Views/SettingsView.swift swift-2.0/Tests/YTDownloaderPro2Tests/DataRequestPresentationTests.swift
