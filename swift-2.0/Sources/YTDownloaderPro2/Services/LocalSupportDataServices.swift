@@ -7,6 +7,14 @@ enum LocalSupportDataServiceError: Error, Equatable, Sendable {
     case unsafeMediaSelection
 }
 
+enum SupportReportPayloadEncoder {
+    static func encode(_ draft: SupportReportDraft) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(draft)
+    }
+}
+
 struct LocalSupportReportWriter {
     private let fileManager: FileManager
 
@@ -26,7 +34,7 @@ struct LocalSupportReportWriter {
                 try? fileManager.removeItem(at: stagingURL)
             }
         }
-        try encoded(draft).write(to: stagingURL, options: .atomic)
+        try SupportReportPayloadEncoder.encode(draft).write(to: stagingURL, options: .atomic)
         try fileManager.moveItem(at: stagingURL, to: destination)
         return destination
     }
@@ -55,11 +63,6 @@ struct LocalSupportReportWriter {
         }
     }
 
-    private func encoded<Value: Encodable>(_ value: Value) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(value)
-    }
 }
 
 struct LocalExportPackageWriter {

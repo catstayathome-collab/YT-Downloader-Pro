@@ -123,27 +123,27 @@
 - Consumes: user-entered category, subject, message, explicitly enabled optional values, and the current app environment.
 - Produces: `SupportReportComposer` and a SwiftUI sheet that previews exact encoded JSON and saves it locally only after the user chooses a folder.
 
-- [ ] **Step 1: Write failing composer tests**
+- [x] **Step 1: Write failing composer tests**
 
   Verify every optional field is nil by default, disabled fields stay absent even when text exists, enabled activity-revealing fields are marked in presentation, and the resulting draft preserves paid-priority bypass routing.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   Expected: compile failure because `SupportReportComposer` is missing.
 
-- [ ] **Step 3: Implement the composer and preview presentation**
+- [x] **Step 3: Implement the composer and preview presentation**
 
   Keep it a pure value type. It must build through `SupportReportDraft.defaultPreview`, then copy only explicitly enabled optional values into the draft.
 
-- [ ] **Step 4: Build the support sheet**
+- [x] **Step 4: Build the support sheet**
 
   Add category, subject, message, optional-field disclosure controls, a read-only exact JSON preview, a local-folder save button, success/failure feedback, accessibility labels, and explicit copy stating that no report is sent automatically.
 
-- [ ] **Step 5: Compile and run focused tests**
+- [x] **Step 5: Compile and run focused tests**
 
   Run strict focused tests and `swift build --package-path swift-2.0 --disable-sandbox`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add swift-2.0/Sources/YTDownloaderPro2/Views/SupportReportView.swift swift-2.0/Sources/YTDownloaderPro2/Views/DataRequestPresentation.swift swift-2.0/Tests/YTDownloaderPro2Tests/DataRequestPresentationTests.swift

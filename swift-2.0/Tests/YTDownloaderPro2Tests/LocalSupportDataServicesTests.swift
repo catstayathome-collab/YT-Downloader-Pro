@@ -41,6 +41,20 @@ final class LocalSupportDataServicesTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: firstURL), originalData)
     }
 
+    func testSupportWriterBytesMatchTheReviewedExactPreview() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let draft = supportDraft()
+        let preview = try SupportReportJSONPreview(draft: draft)
+
+        let writtenURL = try LocalSupportReportWriter().write(draft, to: root)
+
+        XCTAssertEqual(
+            String(decoding: try Data(contentsOf: writtenURL), as: UTF8.self),
+            preview.payload
+        )
+    }
+
     func testExportWriterCreatesOnlyTheFiveReviewedJSONFiles() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
