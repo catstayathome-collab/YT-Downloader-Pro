@@ -1,6 +1,6 @@
 # Swift 2.0 Test And Release Checklist
 
-Use this checklist for `YT Downloader Pro 2.0.0` on macOS. Record the date,
+Use this checklist for `YT Downloader Pro 2.0.1` on macOS. Record the date,
 machine, macOS version, app checksum, source commit, tester, and evidence link for
 every run. `Not run` and `Blocked` are valid results; never convert them to Pass.
 
@@ -9,7 +9,7 @@ every run. `Not run` and `Blocked` are valid results; never convert them to Pass
 | Field | Value |
 | --- | --- |
 | Source commit | |
-| App version | `2.0.0` |
+| App version | `2.0.1` |
 | Bundle identifier | `com.tachouweng.ytdownloaderpro2` |
 | ZIP SHA-256 | |
 | Machine and architecture | |
@@ -26,10 +26,10 @@ Result values: `Pass`, `Fail`, `Blocked`, or `Not run`.
 | Full pinned Python suite | `python3 -c 'import yaml' && python3 -m unittest discover -s tests -v` (after activating the project venv) | | |
 | Full strict Swift suite | `cd swift-2.0 && swift test --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
 | macOS 13 arm64 release build | `swift build --package-path swift-2.0 --configuration release --triple arm64-apple-macosx13.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
-| End-to-end internal bundle | `./scripts/build_swift_2.sh --version 2.0.0 --architectures arm64 --sbom-created 2026-08-27T00:00:00Z --unsigned-test` | | |
-| Independent bundle verification | `python3 scripts/check_swift_bundle.py 'dist/YT Downloader Pro 2.app' --expected-version 2.0.0 --architectures arm64 --inventory tools/macos-helper-inventory.json` | | |
+| End-to-end internal bundle | `./scripts/build_swift_2.sh --version 2.0.1 --architectures arm64 --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
+| Independent bundle verification | `python3 scripts/check_swift_bundle.py 'dist/YT Downloader Pro 2.app' --expected-version 2.0.1 --architectures arm64 --inventory tools/macos-helper-inventory.json` | | |
 | Strict signature check | `codesign --verify --deep --strict --verbose=2 'dist/YT Downloader Pro 2.app'` | | |
-| Universal request fails closed | `./scripts/build_swift_2.sh --version 2.0.0 --architectures universal --sbom-created 2026-08-27T00:00:00Z --unsigned-test` | | |
+| Universal request fails closed | `./scripts/build_swift_2.sh --version 2.0.1 --architectures universal --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
 
 ## Platform And Installation
 
@@ -109,8 +109,8 @@ URL row, tabs, sheets, icon buttons, long error recovery, and keyboard focus.
 | Gatekeeper | `spctl --assess --type execute --verbose=4` accepts installed app | | |
 | DMG | DMG is signed/notarized, stapled, mounted, installed, and launched | | |
 | Manifest checksum | `updates/macos.json` SHA-256 equals the published download | | |
-| Version alignment | App plist, manifest, ZIP/DMG name, and release notes say `2.0.0` | | |
-| Tag alignment | `macos-v2.0.0` resolves to the tested source commit | | |
+| Version alignment | App plist, manifest, ZIP/DMG name, and release notes say `2.0.1` | | |
+| Tag alignment | `macos-v2.0.1` resolves to the tested source commit | | |
 | GitHub Release alignment | Tag, assets, checksums, source commit, and URLs agree | | |
 | Windows isolation | Windows remains Python `1.8.x` and reads only `updates/windows.json` | | |
 

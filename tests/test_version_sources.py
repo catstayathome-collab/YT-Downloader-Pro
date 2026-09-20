@@ -1,3 +1,5 @@
+import importlib.util
+import inspect
 import json
 import subprocess
 import tempfile
@@ -29,6 +31,25 @@ BUILD_ENTRYPOINTS = {
 
 
 class VersionSourceLayoutTests(unittest.TestCase):
+    def test_swift_release_candidate_defaults_to_2_0_1(self):
+        checker_path = ROOT / "scripts" / "check_swift_bundle.py"
+        spec = importlib.util.spec_from_file_location(
+            "check_swift_bundle", checker_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        default_version = inspect.signature(
+            module.verify_bundle
+        ).parameters["expected_version"].default
+        release_notes = (
+            ROOT / "docs" / "swift-2.0" / "RELEASE_NOTES_2.0.1.md"
+        )
+
+        self.assertEqual(default_version, "2.0.1")
+        self.assertTrue(release_notes.is_file())
+        self.assertIn("2.0.1", release_notes.read_text(encoding="utf-8"))
+
     def test_future_python_builds_use_windows_contents_manifest(self):
         from ytdp import app
 

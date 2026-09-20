@@ -25,7 +25,7 @@ Confirm the app contains one canonical helper set:
 ```bash
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
-  --expected-version 2.0.0 \
+  --expected-version 2.0.1 \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 ```

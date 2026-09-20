@@ -1157,7 +1157,7 @@ def _normalize_architectures(architectures):
 
 def verify_bundle(
     bundle,
-    expected_version="2.0.0",
+    expected_version="2.0.1",
     expected_architectures=("arm64",),
     command_runner=None,
     signing_mode="internal",
@@ -1327,7 +1327,7 @@ def write_deterministic_zip(bundle, archive_path):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=Path)
-    parser.add_argument("--expected-version", default="2.0.0")
+    parser.add_argument("--expected-version", default="2.0.1")
     parser.add_argument(
         "--signing-mode",
         choices=("internal", "developer-id"),

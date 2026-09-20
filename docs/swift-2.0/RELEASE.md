@@ -2,7 +2,7 @@
 
 ## Release Boundary
 
-macOS Swift releases use `2.x`, tags such as `macos-v2.0.0`, and
+macOS Swift releases use `2.x`, tags such as `macos-v2.0.1`, and
 `updates/macos.json`. Windows remains Python `1.8.x`, uses tags such as
 `windows-v1.8.9`, and reads `updates/windows.json`. Never move the Windows
 manifest, `version.txt`, or a Windows asset to announce a macOS Swift release.
@@ -21,9 +21,9 @@ internal candidate:
 
 ```bash
 ./scripts/build_swift_2.sh \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --architectures arm64 \
-  --sbom-created 2026-08-27T00:00:00Z \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --unsigned-test
 ```
 
@@ -34,7 +34,7 @@ Outputs:
 
 ```text
 dist/YT Downloader Pro 2.app
-dist/YT-Downloader-Pro-2.0.0-macOS-arm64-internal.zip
+dist/YT-Downloader-Pro-2.0.1-macOS-arm64-internal.zip
 dist/swift-2.0-bundle-report.json
 ```
 
@@ -88,7 +88,7 @@ YT Downloader Pro 2.app/
       zh-Hant.lproj/Localizable.strings
 ```
 
-`Info.plist` must contain short version and bundle version `2.0.0`, minimum
+`Info.plist` must contain short version and bundle version `2.0.1`, minimum
 macOS `13.0`, executable `YT Downloader Pro 2`, and identifier
 `com.tachouweng.ytdownloaderpro2`.
 
@@ -98,12 +98,12 @@ macOS `13.0`, executable `YT Downloader Pro 2`, and identifier
 python3 -m unittest tests.test_swift_sbom tests.test_swift_bundle -v
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
-  --expected-version 2.0.0 \
+  --expected-version 2.0.1 \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 codesign --verify --deep --strict --verbose=2 \
   'dist/YT Downloader Pro 2.app'
-unzip -l 'dist/YT-Downloader-Pro-2.0.0-macOS-arm64-internal.zip'
+unzip -l 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64-internal.zip'
 ```
 
 Execute the copied helpers, never the repository inputs, for final evidence:
@@ -129,9 +129,9 @@ Prove the unsupported request fails before assembly:
 
 ```bash
 ./scripts/build_swift_2.sh \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --architectures universal \
-  --sbom-created 2026-08-27T00:00:00Z \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --unsigned-test
 ```
 
@@ -153,7 +153,7 @@ Build with hardened runtime and secure timestamps:
 
 ```bash
 ./scripts/build_swift_2.sh \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --signing-identity "$IDENTITY" \
@@ -197,7 +197,7 @@ Submit the exact ZIP produced by the Developer ID build:
 
 ```bash
 xcrun notarytool submit \
-  'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.zip' \
+  'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip' \
   --keychain-profile YTDP_NOTARY \
   --wait
 xcrun stapler staple 'dist/YT Downloader Pro 2.app'
@@ -209,13 +209,13 @@ After stapling, regenerate the ZIP from the stapled app and rerun verification:
 ```bash
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
-  --expected-version 2.0.0 \
+  --expected-version 2.0.1 \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json \
   --signing-mode developer-id \
   --expected-team-id "$TEAM_ID" \
   --report dist/swift-2.0-bundle-report.json \
-  --archive dist/YT-Downloader-Pro-2.0.0-macOS-arm64.zip
+  --archive dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip
 ```
 
 Do not publish unless `notarytool`, `stapler validate`, strict codesign, Gatekeeper
@@ -231,15 +231,15 @@ hdiutil create \
   -volname 'YT Downloader Pro 2' \
   -srcfolder 'dist/YT Downloader Pro 2.app' \
   -ov -format UDZO \
-  'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.dmg'
+  'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg'
 codesign --force --sign "$IDENTITY" --timestamp \
-  'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.dmg'
+  'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg'
 xcrun notarytool submit \
-  'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.dmg' \
+  'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg' \
   --keychain-profile YTDP_NOTARY \
   --wait
-xcrun stapler staple 'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.dmg'
-xcrun stapler validate 'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.dmg'
+xcrun stapler staple 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg'
+xcrun stapler validate 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg'
 ```
 
 Mount, drag to `/Applications`, launch, and run a bundled-helper health check on
@@ -250,17 +250,17 @@ the installed copy. Record DMG and ZIP checksums separately.
 Choose the final published asset first, then compute its checksum:
 
 ```bash
-shasum -a 256 'dist/YT-Downloader-Pro-2.0.0-macOS-arm64.zip'
+shasum -a 256 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip'
 ```
 
 Generate the checked-in manifest from explicit final values:
 
 ```bash
 python3 scripts/create_macos_manifest.py \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --minimum-macos 13.0.0 \
-  --release-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/tag/macos-v2.0.0' \
-  --download-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.0.0/YT-Downloader-Pro-2.0.0-macOS-arm64.zip' \
+  --release-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/tag/macos-v2.0.1' \
+  --download-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.0.1/YT-Downloader-Pro-2.0.1-macOS-arm64.zip' \
   --sha256 '<64-lowercase-hex-from-shasum>' \
   --published-at '<UTC-RFC3339-timestamp>' \
   --release-notes '<short-release-summary>' \
@@ -277,15 +277,17 @@ Before publishing, record and compare:
 
 ```bash
 git rev-parse HEAD
-git rev-parse macos-v2.0.0
+git rev-parse macos-v2.0.1
 git status --short
 ```
 
 The intended commit must contain the source, docs, manifest, and release build
 instructions; the worktree must be clean. The tag, GitHub Release target,
 packaged plist version, asset names, checksums, and manifest URLs must all agree.
-Publishing, tagging, pushing, or moving a tag is a separate authorized release
-operation and is not performed by the build script.
+Publishing an asset, creating or moving a tag, and changing the update manifest
+are separately authorized release operations and are not performed by the build
+script. A reviewed source branch may be pushed independently without announcing
+an installable public release.
 
 ## Rollback
 

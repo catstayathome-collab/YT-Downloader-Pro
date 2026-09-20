@@ -13,7 +13,7 @@ Generate the macOS file deterministically with:
 
 ```bash
 python3 scripts/create_macos_manifest.py \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --minimum-macos 13.0.0 \
   --release-url https://example.invalid/releases/macos-example \
   --download-url https://example.invalid/macos-example.zip \

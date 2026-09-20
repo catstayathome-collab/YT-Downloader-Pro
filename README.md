@@ -46,13 +46,13 @@ Windows 使用者應從公開 GitHub Release 下載 ZIP 與 SHA-256 檔案、完
 ```bash
 python3 -m unittest tests.test_swift_bundle -v
 ./scripts/build_swift_2.sh \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --architectures arm64 \
-  --sbom-created 2026-08-27T00:00:00Z \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --unsigned-test
 python3 scripts/check_swift_bundle.py \
   'dist/YT Downloader Pro 2.app' \
-  --expected-version 2.0.0 \
+  --expected-version 2.0.1 \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 ```
