@@ -262,6 +262,10 @@ Verbal assurances and screenshots of general account enablement are not enough.
 - [ ] The owner approves measured waitlist demand and a conservative cost model.
 - [ ] The macOS release is Developer ID signed, notarized, stapled, and tested on
       clean supported Macs; the Windows release has an explicit signing plan.
+- [ ] The exact macOS release candidate has a completed internal evidence
+      packet covering hashes, SBOM/license checks, source-availability status,
+      clean-Mac smoke tests, public-copy review, rollback, and final owner
+      disposition.
 - [ ] Privacy threat model, deletion/export flow, credential rotation, backup,
       incident response, refund, cancellation, and service shutdown are tested.
 - [ ] The owner signs a final Go decision that links to all evidence above.
@@ -301,6 +305,9 @@ This decision is implemented by the following reviewable documents:
   cancellation, complaint, and public-claim draft requirements.
 - `PUBLIC_COPY_LOCALIZATION_REVIEW.md`: internal public-copy inventory,
   Traditional Chinese/English consistency checks, and publication gates.
+- `RELEASE_CANDIDATE_REVIEW.md`: internal candidate identity, signing,
+  notarization, clean-Mac, SBOM/license, source-availability, rollback, and
+  owner-disposition evidence gates.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
   grant contracts; implementation remains blocked by launch gates.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and

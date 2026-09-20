@@ -73,6 +73,9 @@ The current technical evidence set includes:
 - `THIRD_PARTY_NOTICES.md` for human-readable helper notices;
 - `SOURCE_AVAILABILITY.md` for a technical source index that is explicitly
   incomplete for public or paid distribution.
+- `RELEASE_CANDIDATE_REVIEW.md` for the internal release-candidate evidence
+  packet, including exact artifact identity, hashes, clean-Mac results, and
+  source-availability disposition metadata.
 
 ## 3. Known License Concerns For Review
 
@@ -134,6 +137,7 @@ Before final Go, counsel should review current versions of:
 - `REPOSITORY_AND_SUPPORT_STRATEGY.md`.
 - `THIRD_PARTY_NOTICES.md`.
 - `SOURCE_AVAILABILITY.md`.
+- `RELEASE_CANDIDATE_REVIEW.md`.
 - `docs/swift-2.0/SBOM_AND_LICENSES.md`.
 - `tools/macos-helper-inventory.json`.
 - `tools/FFMPEG_BUILD_INFO.md` and `tools/QUICKJS_BUILD_INFO.md`.

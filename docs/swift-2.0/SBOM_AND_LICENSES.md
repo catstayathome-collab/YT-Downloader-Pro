@@ -125,6 +125,11 @@ not described as a legal written offer. Counsel must determine whether hosting
 source archives, providing an offer, or another delivery mechanism is required
 for the planned distribution.
 
+`RELEASE_CANDIDATE_REVIEW.md` tracks the internal candidate evidence packet
+that must pair the generated SBOM with exact artifact hashes, signing,
+notarization, clean-Mac smoke results, public-copy checks, rollback evidence,
+and source-availability disposition before any publication decision.
+
 ## Commercial Release Gate
 
 Do not enable paid distribution until all of the following are written and

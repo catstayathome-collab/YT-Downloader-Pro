@@ -204,7 +204,9 @@ cancellation, complaint, and marketing-claim drafting gates are governed by
 `PUBLIC_POLICY_DRAFTS.md`, with localized launch copy and screenshot wording
 checked through `PUBLIC_COPY_LOCALIZATION_REVIEW.md`. Helper-bundle, SBOM,
 notice, and source-delivery review gates are governed by
-`LICENSE_REVIEW_BRIEF.md`.
+`LICENSE_REVIEW_BRIEF.md`. Exact artifact identity, hashes, notarization,
+clean-Mac, rollback, and source-availability disposition gates are governed by
+`RELEASE_CANDIDATE_REVIEW.md`.
 
 ## 8. Public Issue Tracker Boundary
 
@@ -220,13 +222,14 @@ confidential support channel.
 ## 9. Delivery Sequence
 
 1. Complete legal, payment-provider, privacy, and license reviews.
-2. Inventory the live GitHub repository and all public dependencies.
-3. Define public release/support hosting and test both update manifests.
-4. Create private development and public release/support boundaries.
-5. Implement the feedback UI against a non-production test endpoint.
-6. Add local redaction, preview, deletion, routing, retention, and abuse tests.
-7. Pilot support with closed testers and measure support cost.
-8. Obtain owner approval before repository visibility changes or public launch.
+2. Complete the internal macOS release-candidate evidence packet.
+3. Inventory the live GitHub repository and all public dependencies.
+4. Define public release/support hosting and test both update manifests.
+5. Create private development and public release/support boundaries.
+6. Implement the feedback UI against a non-production test endpoint.
+7. Add local redaction, preview, deletion, routing, retention, and abuse tests.
+8. Pilot support with closed testers and measure support cost.
+9. Obtain owner approval before repository visibility changes or public launch.
 
 ## 10. Acceptance Criteria
 

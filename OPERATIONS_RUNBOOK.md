@@ -207,6 +207,7 @@ Maintain an internal evidence register before paid launch:
 | Accounting review | Registration, invoice, refund, reconciliation, and retention guidance |
 | License review | Helper bundle, SBOM, notices, source-delivery, and re-review triggers |
 | Public-copy localization review | Traditional Chinese/English consistency and claim evidence |
+| Release-candidate review | Candidate hashes, signing, notarization, clean-Mac smoke tests, rollback, and source-availability status |
 | Shutdown drill | Trigger, public notice draft, cancellation/export/deletion sequence |
 
 The register must not store secret values, full payment data, media URLs,

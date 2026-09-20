@@ -113,6 +113,9 @@ Before publication, record evidence for:
 - licensing disposition for helper-bundle notices, source-availability copy,
   warranty disclaimers, and release notes;
 - owner approval of the exact versions to publish.
+- release-candidate review metadata proving the referenced app version,
+  screenshots, release notes, source-availability text, and support copy match
+  the exact internal candidate under review.
 
 Keep privileged advice and confidential provider responses in the restricted
 evidence store. This repository should retain only review metadata, version
