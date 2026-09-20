@@ -338,10 +338,19 @@ final class DownloadStore: ObservableObject {
 
     func submitURLInput(_ input: String) async -> URLInputSubmissionResult {
         let parsed = MediaURLInputParser.parse(input)
+        var activeKeys = Set(jobs.compactMap { job -> String? in
+            guard !job.status.isTerminal else { return nil }
+            return MediaURLInputParser.deduplicationKey(for: job.sourceURL)
+        })
+        let acceptedURLs = parsed.urls.filter { url in
+            guard let key = MediaURLInputParser.deduplicationKey(for: url) else { return false }
+            return activeKeys.insert(key).inserted
+        }
+        let activeDuplicateCount = parsed.urls.count - acceptedURLs.count
         let submission = URLInputSubmissionResult(
-            acceptedCount: parsed.urls.count,
+            acceptedCount: acceptedURLs.count,
             rejectedCount: parsed.rejectedCount,
-            duplicateCount: parsed.duplicateCount
+            duplicateCount: parsed.duplicateCount + activeDuplicateCount
         )
         guard !isPreparingToQuit else { return submission }
         guard !parsed.urls.isEmpty else {
@@ -351,14 +360,15 @@ final class DownloadStore: ObservableObject {
             ))
             return submission
         }
+        guard !acceptedURLs.isEmpty else { return submission }
 
-        if parsed.urls.count == 1, let url = parsed.urls.first {
+        if parsed.urls.count == 1, let url = acceptedURLs.first {
             await analyzeURL(url)
             return submission
         }
 
         let createdAt = Date.now
-        let placeholders = parsed.urls.enumerated().map { index, url in
+        let placeholders = acceptedURLs.enumerated().map { index, url in
             DownloadJob(
                 sourceURL: url,
                 title: L10n.string(.downloadCenterBatchAnalyzingTitle, locale: settings.locale),

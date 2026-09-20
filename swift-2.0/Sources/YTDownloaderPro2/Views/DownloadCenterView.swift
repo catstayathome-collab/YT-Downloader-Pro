@@ -236,11 +236,11 @@ enum URLInputPresentation {
     }
 
     static func shouldClearInput(after result: URLInputSubmissionResult) -> Bool {
-        result.acceptedCount > 0
+        result.acceptedCount > 0 || result.duplicateCount > 0
     }
 
     static func feedback(for result: URLInputSubmissionResult, locale: Locale) -> String? {
-        guard result.acceptedCount > 0 else {
+        guard result.acceptedCount > 0 || result.duplicateCount > 0 else {
             return L10n.string(.downloadCenterInputNoValidURL, locale: locale)
         }
 

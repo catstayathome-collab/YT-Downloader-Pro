@@ -49,16 +49,30 @@ final class MediaURLInputParserTests: XCTestCase {
         XCTAssertEqual(result.duplicateCount, 2)
     }
 
-    func testRetainsDistinctQueryStrings() {
+    func testRetainsDistinctQueryStringsForNonYouTubeURLs() {
         let result = MediaURLInputParser.parse(
-            "https://youtu.be/one?si=alpha https://youtu.be/one?si=beta"
+            "https://media.example/one?token=alpha https://media.example/one?token=beta"
         )
 
         XCTAssertEqual(result.urls, [
-            "https://youtu.be/one?si=alpha",
-            "https://youtu.be/one?si=beta"
+            "https://media.example/one?token=alpha",
+            "https://media.example/one?token=beta"
         ])
         XCTAssertEqual(result.duplicateCount, 0)
+    }
+
+    func testDeduplicatesEquivalentYouTubeVideoAndPlaylistURLs() {
+        let videos = MediaURLInputParser.parse(
+            "https://youtu.be/video123?si=first https://www.youtube.com/watch?v=video123&si=second"
+        )
+        let playlists = MediaURLInputParser.parse(
+            "https://www.youtube.com/playlist?list=playlist123 https://www.youtube.com/watch?v=video123&list=playlist123"
+        )
+
+        XCTAssertEqual(videos.urls, ["https://youtu.be/video123?si=first"])
+        XCTAssertEqual(videos.duplicateCount, 1)
+        XCTAssertEqual(playlists.urls, ["https://www.youtube.com/playlist?list=playlist123"])
+        XCTAssertEqual(playlists.duplicateCount, 1)
     }
 
     func testRejectsCredentialBearingAndNonHTTPLinks() {

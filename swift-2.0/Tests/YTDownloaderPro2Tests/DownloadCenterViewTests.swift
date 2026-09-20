@@ -188,6 +188,19 @@ final class DownloadCenterViewTests: XCTestCase {
         XCTAssertFalse(URLInputPresentation.shouldClearInput(after: result))
     }
 
+    func testDuplicateOnlyURLFeedbackReportsSkippedCountInsteadOfInvalidInput() throws {
+        let result = URLInputSubmissionResult(acceptedCount: 0, rejectedCount: 0, duplicateCount: 5)
+        let locale = Locale(identifier: "zh-Hant")
+        let feedback = try XCTUnwrap(URLInputPresentation.feedback(for: result, locale: locale))
+
+        XCTAssertTrue(feedback.contains("5"))
+        XCTAssertEqual(
+            feedback,
+            L10n.string(.downloadCenterInputDuplicateSkipped, locale: locale, 5)
+        )
+        XCTAssertTrue(URLInputPresentation.shouldClearInput(after: result))
+    }
+
     func testBulkToolbarExplainsDisabledCompletedOnlyStateAndKeepsClearHistoryAvailable() {
         let presentation = DownloadCenterBulkPresentation(jobs: [.fixture(status: .completed)])
 

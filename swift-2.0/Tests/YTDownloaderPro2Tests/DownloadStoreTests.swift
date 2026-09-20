@@ -389,6 +389,82 @@ final class DownloadStoreTests: XCTestCase {
         await fixture.store.cancelActiveAndWaiting()
     }
 
+    func testRepeatedFiveURLBatchSubmissionDoesNotCreateDuplicateJobs() async throws {
+        let fixture = try StoreFixture(coordinatorLimit: 5)
+        defer { fixture.cleanUp() }
+        let input = """
+        https://youtu.be/tdznAT137QI?si=A6CHNRZk4BEO7q_K
+        https://youtu.be/M-ATyBXMzg0?si=AeMN6HFAPVaFgNuN
+        https://youtu.be/8c7gycb7lnw?si=eqs8fgMrzfBz-oLZ
+        https://youtu.be/1EG4KLbSYo0?si=nd188AiYCrOm2h_F
+        https://youtu.be/OQ8sVPpZ0zI?si=33nx2hwilPnHCnmL
+        """
+
+        let first = await fixture.store.submitURLInput(input)
+        let repeated = await fixture.store.submitURLInput(input)
+
+        XCTAssertEqual(first, URLInputSubmissionResult(
+            acceptedCount: 5,
+            rejectedCount: 0,
+            duplicateCount: 0
+        ))
+        XCTAssertEqual(repeated, URLInputSubmissionResult(
+            acceptedCount: 0,
+            rejectedCount: 0,
+            duplicateCount: 5
+        ))
+        XCTAssertEqual(fixture.store.jobs.count, 5)
+        await fixture.store.cancelActiveAndWaiting()
+    }
+
+    func testBatchSubmissionTreatsCanonicalAndShortYouTubeURLsAsTheSameActiveVideo() async throws {
+        let active = DownloadJob.fixture(
+            sourceURL: "https://www.youtube.com/watch?v=tdznAT137QI",
+            status: .paused
+        )
+        let fixture = try StoreFixture(jobs: [active])
+        defer { fixture.cleanUp() }
+
+        let result = await fixture.store.submitURLInput("""
+        https://youtu.be/tdznAT137QI?si=A6CHNRZk4BEO7q_K
+        https://youtu.be/M-ATyBXMzg0?si=AeMN6HFAPVaFgNuN
+        """)
+
+        XCTAssertEqual(result, URLInputSubmissionResult(
+            acceptedCount: 1,
+            rejectedCount: 0,
+            duplicateCount: 1
+        ))
+        XCTAssertEqual(fixture.store.jobs.count, 2)
+        XCTAssertEqual(fixture.store.jobs.last?.sourceURL, "https://youtu.be/M-ATyBXMzg0?si=AeMN6HFAPVaFgNuN")
+        await fixture.store.cancelActiveAndWaiting()
+    }
+
+    func testCompletedYouTubeVideoCanBeSubmittedAgain() async throws {
+        let completed = DownloadJob.fixture(
+            sourceURL: "https://www.youtube.com/watch?v=tdznAT137QI",
+            status: .completed
+        )
+        let fixture = try StoreFixture(
+            jobs: [completed],
+            analysis: .video(.fixture(sourceURL: completed.sourceURL))
+        )
+        defer { fixture.cleanUp() }
+
+        let result = await fixture.store.submitURLInput(
+            "https://youtu.be/tdznAT137QI?si=A6CHNRZk4BEO7q_K"
+        )
+
+        XCTAssertEqual(result, URLInputSubmissionResult(
+            acceptedCount: 1,
+            rejectedCount: 0,
+            duplicateCount: 0
+        ))
+        guard case .video = fixture.store.analysisState else {
+            return XCTFail("Expected a completed video to remain eligible for a new download")
+        }
+    }
+
     func testBatchFailureDoesNotPreventFollowingURLAnalysis() async throws {
         let analysis = ControlledAnalysis()
         let fixture = try StoreFixture(
