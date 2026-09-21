@@ -9,7 +9,8 @@
 | Owner | Ta-Chou Weng |
 | Last reviewed | 2026-08-26 |
 | Owner approval | Approved on 2026-08-26 for Phase 1 validation work only |
-| Next review | After written payment-provider and legal responses |
+| Free release scope | Owner approved preparation of a no-account, no-payment macOS 2.0.1 release on 2026-09-21 |
+| Next review | Free release: after Apple, legal/platform, license, privacy, and clean-Mac evidence; paid release: after all section 10 evidence |
 
 This document is a product and engineering decision record. It is not legal,
 tax, accounting, or financial advice. A qualified Taiwan lawyer and accountant
@@ -133,6 +134,30 @@ redistribution obligations. A lawyer must review the final bundle composition.
 | Reliability over time | Medium | yt-dlp and YouTube behavior require continuous maintenance. |
 
 Overall status: **Conditional Go for validation; No-Go for paid public launch.**
+
+### 5.1 Free macOS 2.0.1 release lane
+
+The owner has separately approved preparation of a free public macOS 2.0.1
+release. This lane contains no production login, account backend, entitlement,
+checkout, recurring payment, analytics, cloud history, or external support
+submission. ECPay and paid-plan accounting evidence therefore do not block the
+free binary, but they remain mandatory before any paid claim or transaction.
+
+The free release remains No-Go until all of these release-specific gates pass:
+
+- Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper,
+  and clean-Mac installation for the exact artifact;
+- written legal review of the free product's platform, copyright, naming,
+  acceptable-use, privacy, support, and public download claims;
+- release-specific licensing approval and complete source-delivery evidence for
+  yt-dlp, FFmpeg, FFprobe, LAME, QuickJS, and every distributed dependency;
+- privacy and operations review confirming the local-only behavior and rollback
+  path represented by the candidate;
+- bilingual public-copy review and a final owner Go decision for the exact
+  artifact, checksum, release notes, and update manifest.
+
+The free release is not permission to advertise Pro, collect payment, activate
+real Google or Apple login, or publish subscription terms.
 
 ## 6. Revenue Model
 

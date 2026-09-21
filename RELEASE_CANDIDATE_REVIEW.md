@@ -8,7 +8,7 @@
 | Product owner | Ta-Chou Weng |
 | Prepared | 2026-09-20 |
 | Scope | macOS Swift 2.x release-candidate evidence only |
-| Launch rule | No public or paid release without dated professional and owner approval |
+| Launch rule | Free and paid candidates use separate dated evidence gates; neither ships without owner approval |
 
 This document defines the internal evidence packet needed before any macOS
 Swift 2.x release candidate can be treated as publishable. It is not legal
@@ -20,9 +20,11 @@ external account action.
 ## 1. Review Boundary
 
 Phase 1 may assemble local evidence, run tests, and record review metadata for
-internal release candidates only. A release candidate remains No-Go for public
-or paid distribution until all launch gates in `COMMERCIAL_FEASIBILITY.md` are
-closed with dated evidence and fresh owner approval.
+release candidates. A free candidate follows the free macOS release lane in
+`COMMERCIAL_FEASIBILITY.md`; it does not require payment-provider or paid-plan
+accounting evidence because it contains no payment or paid entitlement. A paid
+candidate remains No-Go until every paid launch gate is closed. Both lanes
+require dated evidence and fresh owner approval for the exact artifact.
 
 Windows commercial release work remains paused. Windows artifacts, helper
 updates, update manifests, signing plans, and public-support surfaces must not
@@ -81,10 +83,11 @@ Before external review or publication, collect evidence for:
 - rollback evidence proving the previous known-good artifact and update
   manifest remain available if publication is later approved.
 
-Passing a build, notarization, or SBOM check proves only that the internal
-candidate is technically assembled. It does not clear legal, accounting,
-payment-provider, license, privacy, localization, support, or owner-approval
-gates.
+Passing a build, notarization, or SBOM check proves only that the candidate is
+technically assembled. It does not clear the legal, license, privacy,
+localization, support, clean-install, or owner-approval gates. Accounting and
+payment-provider gates additionally apply whenever the candidate or its public
+copy enables or advertises payment, subscription, or paid entitlement.
 
 ## 4. Source Availability And License Check
 
@@ -140,8 +143,8 @@ Record only non-confidential review metadata in this repository:
 | Clean-Mac smoke tests | Not available |
 | License counsel disposition | Not started |
 | Taiwan legal disposition | Not started |
-| Accounting disposition | Not started |
-| Payment-provider disposition | Not started |
+| Accounting disposition | Not applicable to the no-payment free candidate; required for paid launch |
+| Payment-provider disposition | Not applicable to the no-payment free candidate; required for paid launch |
 | Public-copy/localization disposition | Not started |
 | Privacy/operations disposition | Not started |
 | Owner final decision | No-Go pending dated evidence |
@@ -156,8 +159,8 @@ reviewer roles, non-secret hashes, and non-confidential disposition summaries.
 The candidate must remain internal-only or be rejected if:
 
 - the source-availability or relinking plan remains incomplete;
-- counsel, accountant, payment provider, licensing counsel, privacy reviewer,
-  localization reviewer, or the owner has not approved the exact candidate;
+- every reviewer required by the candidate's free or paid release lane has not
+  approved the exact candidate;
 - notarization, stapling, Gatekeeper, bundle verification, strict tests, or
   clean-Mac smoke tests fail;
 - public copy implies official YouTube affiliation, guaranteed downloads,
@@ -171,7 +174,8 @@ The candidate must remain internal-only or be rejected if:
 
 ## 8. Open Gates
 
-The following remain blocked until fresh owner approval and dated evidence:
+The following remain blocked until fresh owner approval and the evidence
+required by the applicable free or paid release lane:
 
 - public or paid distribution of a macOS release candidate;
 - production checkout, recurring billing, ECPay setup, refund, or cancellation

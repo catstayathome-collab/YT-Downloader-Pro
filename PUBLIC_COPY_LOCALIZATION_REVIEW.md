@@ -8,7 +8,7 @@
 | Product owner | Ta-Chou Weng |
 | Prepared | 2026-09-19 |
 | Scope | macOS Swift 2.x public copy, Traditional Chinese, and English review |
-| Launch rule | No public publication without counsel, accountant, provider, localization, and owner approval |
+| Launch rule | Free and paid public copy use separate review gates; neither publishes without owner approval |
 
 This document defines the internal review criteria for landing-page copy,
 public policy summaries, app-facing purchase text, support text, launch posts,
@@ -19,19 +19,21 @@ repository visibility, accept payment, or release software.
 
 ## 1. Review Boundary
 
-Phase 1 may prepare review checklists, sample wording, and copy inventories
-only. Public Traditional Chinese or English text must not ship until:
+Phase 1 may prepare review checklists, sample wording, and copy inventories.
+Public Traditional Chinese or English text for a free release must not ship
+until:
 
 - Taiwan counsel approves the legal, copyright, privacy, consumer, complaint,
   cancellation, refund, and marketing claim wording;
-- an accountant approves any tax, invoice, seller identity, receipt, retention,
-  refund, and chargeback wording;
-- ECPay or the selected payment provider approves product, recurring billing,
-  cancellation, refund, fee, settlement, and merchant-category disclosures;
 - licensing counsel approves source-availability, notice, and third-party
   component statements for the exact release artifact;
 - a bilingual reviewer checks Traditional Chinese and English consistency;
 - the owner signs a final Go decision linking the dated evidence.
+
+Accountant and payment-provider approval become additional mandatory gates for
+pricing, checkout, renewal, subscription, cancellation, refund, receipt,
+entitlement, or other paid-plan copy. The free 2.0.1 release must not contain or
+advertise those paid surfaces.
 
 No localized copy may imply that a translation softened or expanded the
 approved English or Chinese commitment. If the two languages differ, the review
@@ -101,21 +103,23 @@ submission, cancellation, refund, export, or deletion decision.
 
 ## 5. Required Checks
 
-Before publication, record evidence for:
+Before publishing any free or paid copy, record evidence for:
 
 - side-by-side Traditional Chinese and English copy review;
 - counsel disposition for legal, platform, copyright, consumer, privacy,
   complaint, marketing, cancellation, refund, and shutdown claims;
-- accountant disposition for tax, invoice, seller identity, refund,
-  chargeback, settlement, and retention wording;
-- provider disposition for product description, recurring terms, cancellation,
-  refund, merchant category, fees, limits, settlement, and support disclosures;
 - licensing disposition for helper-bundle notices, source-availability copy,
   warranty disclaimers, and release notes;
 - owner approval of the exact versions to publish.
 - release-candidate review metadata proving the referenced app version,
   screenshots, release notes, source-availability text, and support copy match
   the exact internal candidate under review.
+
+Before publishing paid-plan copy, additionally record accountant disposition
+for tax, invoice, seller identity, refund, chargeback, settlement, and
+retention wording, plus provider disposition for product description,
+recurring terms, cancellation, refund, merchant category, fees, limits,
+settlement, and support disclosures.
 
 Keep privileged advice and confidential provider responses in the restricted
 evidence store. This repository should retain only review metadata, version
