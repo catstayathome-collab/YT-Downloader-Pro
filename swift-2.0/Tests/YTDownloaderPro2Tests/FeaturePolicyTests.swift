@@ -33,4 +33,98 @@ final class FeaturePolicyTests: XCTestCase {
         XCTAssertEqual(EntitlementSnapshot.syntheticPro.videoHeightPolicy, .unlimited)
         XCTAssertEqual(EntitlementSnapshot.syntheticPro.features, FeatureID.known)
     }
+
+    func testFreeVideoBoundaryAllows720AndDeniesUnknownOrHigherVideo() {
+        let policy = FeaturePolicy(snapshot: .syntheticFree)
+
+        XCTAssertEqual(policy.videoDecision(height: 720, isAudioOnly: false, isSourceQuality: false), .allowed)
+        XCTAssertEqual(
+            policy.videoDecision(height: 721, isAudioOnly: false, isSourceQuality: false).denial?.reason,
+            .videoHeightRequiresPro
+        )
+        XCTAssertEqual(
+            policy.videoDecision(height: nil, isAudioOnly: false, isSourceQuality: false).denial?.reason,
+            .unknownVideoHeight
+        )
+        XCTAssertEqual(policy.videoDecision(height: nil, isAudioOnly: true, isSourceQuality: false), .allowed)
+    }
+
+    func testProVideoPolicyAllowsHDSourceAndUnknownVideoHeight() {
+        let policy = FeaturePolicy(snapshot: .syntheticPro)
+
+        XCTAssertEqual(policy.videoDecision(height: 1080, isAudioOnly: false, isSourceQuality: false), .allowed)
+        XCTAssertEqual(policy.videoDecision(height: 2160, isAudioOnly: false, isSourceQuality: false), .allowed)
+        XCTAssertEqual(policy.videoDecision(height: nil, isAudioOnly: false, isSourceQuality: true), .allowed)
+        XCTAssertEqual(policy.videoDecision(height: nil, isAudioOnly: false, isSourceQuality: false), .allowed)
+    }
+
+    func testFreeAndProURLPlaylistSubtitleRetryAndHistoryMatrix() {
+        let free = FeaturePolicy(snapshot: .syntheticFree)
+        let pro = FeaturePolicy(snapshot: .syntheticPro)
+
+        XCTAssertEqual(free.urlSubmissionDecision(count: 1), .allowed)
+        XCTAssertEqual(free.urlSubmissionDecision(count: 2).denial?.requiredFeature, .queueBatch)
+        XCTAssertEqual(free.urlSubmissionDecision(count: 0).denial?.reason, .invalidRequest)
+        XCTAssertEqual(free.playlistExpansionDecision().denial?.requiredFeature, .playlistExpand)
+        XCTAssertEqual(pro.urlSubmissionDecision(count: 10), .allowed)
+        XCTAssertEqual(pro.playlistExpansionDecision(), .allowed)
+        XCTAssertEqual(free.subtitleDecision(languageCount: 1, usesAdvancedMode: false), .allowed)
+        XCTAssertEqual(
+            free.subtitleDecision(languageCount: 2, usesAdvancedMode: false).denial?.requiredFeature,
+            .subtitleAdvanced
+        )
+        XCTAssertEqual(free.subtitleDecision(languageCount: -1, usesAdvancedMode: false).denial?.reason, .invalidRequest)
+        XCTAssertEqual(free.decision(for: .recoveryManual), .allowed)
+        XCTAssertEqual(free.decision(for: .recoveryFull).denial?.requiredFeature, .recoveryFull)
+        XCTAssertEqual(free.decision(for: .historyLocal), .allowed)
+        XCTAssertEqual(free.decision(for: .historySync).denial?.requiredFeature, .historySync)
+        XCTAssertEqual(free.decision(for: .formatPresets).denial?.requiredFeature, .formatPresets)
+        XCTAssertEqual(free.decision(for: .supportStandard), .allowed)
+        XCTAssertEqual(free.decision(for: .supportPriority).denial?.requiredFeature, .supportPriority)
+    }
+
+    func testUnsupportedSchemaAndUnknownFeaturesFallBackToFree() {
+        let snapshot = EntitlementSnapshot(
+            schemaVersion: 99,
+            plan: .pro,
+            features: FeatureID.known.union([FeatureID(rawValue: "future.capability")]),
+            videoHeightPolicy: .unlimited,
+            subscriptionState: .active
+        )
+        let policy = FeaturePolicy(snapshot: snapshot)
+
+        XCTAssertEqual(policy.fallbackReason, .unsupportedSchema)
+        XCTAssertEqual(
+            policy.videoDecision(height: 1080, isAudioOnly: false, isSourceQuality: false).denial?.requiredFeature,
+            .videoHD
+        )
+        XCTAssertFalse(policy.grantedFeatures.contains(FeatureID(rawValue: "future.capability")))
+    }
+
+    func testUnknownFeatureOnSupportedSchemaDoesNotGrantAccess() {
+        let unknown = FeatureID(rawValue: "future.capability")
+        let snapshot = EntitlementSnapshot(
+            schemaVersion: EntitlementSnapshot.supportedSchemaVersion,
+            plan: .free,
+            features: EntitlementSnapshot.syntheticFree.features.union([unknown]),
+            videoHeightPolicy: .limited(720),
+            subscriptionState: .none
+        )
+        let policy = FeaturePolicy(snapshot: snapshot)
+
+        XCTAssertFalse(policy.grantedFeatures.contains(unknown))
+        XCTAssertEqual(policy.decision(for: unknown).denial?.reason, .featureUnavailable)
+    }
+
+    func testPublicCompatibilityAllowsWithoutPretendingToBePro() {
+        let context = FeaturePolicyContext.publicCompatibility
+
+        XCTAssertFalse(context.isEnforced)
+        XCTAssertNil(context.plan)
+        XCTAssertEqual(context.urlSubmissionDecision(count: 5), .allowed)
+        XCTAssertEqual(
+            context.videoDecision(height: nil, isAudioOnly: false, isSourceQuality: true),
+            .allowed
+        )
+    }
 }
