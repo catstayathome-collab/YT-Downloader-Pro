@@ -73,7 +73,11 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
     private var terminationTask: Task<Void, Never>?
 
     override convenience init() {
-        self.init(store: DownloadStore.live(), accountSessionStore: .live())
+        let featurePolicyResolution = FeaturePolicyEnvironmentResolution.resolve()
+        self.init(
+            store: DownloadStore.live(featurePolicyResolution: featurePolicyResolution),
+            accountSessionStore: .live()
+        )
     }
 
     init(store: DownloadStore, accountSessionStore: AccountSessionStore? = nil) {

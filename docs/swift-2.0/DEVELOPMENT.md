@@ -107,6 +107,31 @@ entitlement; `errSecMissingEntitlement` is expected there. Use the ordinary
 in-memory vault tests for deterministic local development, and reserve live
 save/restore/delete evidence for the provisioned Developer ID test host.
 
+### Local Feature Policy F1
+
+Use the exact development values below to exercise the local synthetic Free and
+Pro matrices:
+
+```bash
+YTDP_FEATURE_POLICY_MODE=mock-free swift run --package-path swift-2.0 YTDownloaderPro2
+YTDP_FEATURE_POLICY_MODE=mock-pro swift run --package-path swift-2.0 YTDownloaderPro2
+```
+
+With the variable unset, empty, padded, differently cased, or set to any other
+value, the app uses public compatibility and preserves the current 2.0.1
+features. Unsupported values produce only a fixed, sanitized local diagnostic;
+the supplied value is not logged.
+
+These modes are synthetic policy fixtures. They are not account login,
+purchase simulation, token verification, subscription state, or proof of
+entitlement. They do not contact Google, Apple, ECPay, a backend, analytics,
+email, or support services. Authentication mock labels and feature-policy mock
+grants are deliberately independent.
+
+When changing the capability matrix, update the pure policy tests, Store command
+admission tests, all three denial localizations, and both mock modes. Normal
+public-compatibility regressions must remain in the same focused suite.
+
 Strict macOS 13 arm64 release compile:
 
 ```bash

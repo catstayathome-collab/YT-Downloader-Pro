@@ -27,6 +27,20 @@ backend, billing, entitlement delivery, paid feature enforcement, or external
 submission is implemented. See `AUTHENTICATION.md` for the exact Keychain,
 diagnostic, state, and future-provider contracts.
 
+### Implemented Local Feature Policy F1
+
+The `Entitlements/` directory owns stable feature identifiers, immutable local
+snapshots, pure Free/Pro decisions, exact development-environment resolution,
+and localized denial presentation. `DownloadStore` enforces synthetic policy at
+the multi-URL, playlist, and selected-quality command boundaries. Views use the
+same context to choose a Free-safe default and explain a rejected selection.
+
+The default is explicit `publicCompatibility`, which preserves the existing
+2.0.1 batch, playlist, and highest-quality behavior. Only exact development
+values `YTDP_FEATURE_POLICY_MODE=mock-free` and `mock-pro` enable synthetic
+enforcement. These values are local fixtures, not account state, payment,
+signed entitlement verification, or permission to launch paid features.
+
 ## Module Boundaries
 
 | Area | Owner | May depend on | Must not own |
@@ -35,6 +49,7 @@ diagnostic, state, and future-provider contracts.
 | `Views/` | Rendering, dialogs, focus, accessibility, user intent | `DownloadStore`, presentation values | Process launch or shared mutable job state |
 | `Stores/` | Main-actor UI source of truth and command routing | Actors and value services | Raw process handles |
 | `Models/` | Codable and Sendable domain values, localization keys | Foundation | UI or process execution |
+| `Entitlements/` | Pure capability identifiers, snapshots, policy decisions, environment adapter, denial presentation | Foundation and model localization keys | Network, persistence, accounts, billing, media identity, or helper execution |
 | `Process/` | Foundation `Process`, dual-pipe streaming, interruption | Foundation | Download policy |
 | `Services/` | One behavior per actor/value service | Models and process protocols | View composition |
 | `Resources/` | String catalog and metadata | SwiftPM | Writable application state |
@@ -65,6 +80,8 @@ mutable scheduling, file, process, cache, and diagnostic state.
 ```mermaid
 flowchart LR
     View["SwiftUI views"] -->|intent| Store["DownloadStore MainActor"]
+    Policy["FeaturePolicyContext"] -->|pure admission decisions| Store
+    Policy -->|eligible default and denial copy| View
     Store -->|analyze| Probe["MetadataProbe"]
     Probe -->|absolute path| YTDLP["Contents/Helpers/yt-dlp_macos"]
     Probe -->|typed analysis| Store

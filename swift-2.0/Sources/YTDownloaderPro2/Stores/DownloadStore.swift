@@ -273,6 +273,7 @@ final class DownloadStore: ObservableObject {
         let toolchain = (try? Toolchain.resolve(bundle: bundle.bundleURL)) ?? Self.unavailableToolchain()
         let probe = MetadataProbe(toolchain: toolchain)
         let toolchainValidator = ToolchainValidationGate(toolchain: toolchain)
+        let diagnostics = DiagnosticsLogger(root: root)
         let runner = DownloadRunner(
             toolchain: toolchain,
             allocator: OutputNameAllocator(
@@ -287,15 +288,32 @@ final class DownloadStore: ObservableObject {
             coordinator: coordinator,
             persistence: PersistenceController(root: root),
             thumbnailCache: ThumbnailCache(root: root),
-            diagnostics: DiagnosticsLogger(root: root),
+            diagnostics: diagnostics,
             settingsStore: settingsStore,
             metadataAnalyzer: probe,
             toolchainValidator: toolchainValidator,
             featurePolicyContext: featurePolicyResolution.context
         )
         Task { _ = try? await toolchainValidator.validate(force: false) }
+        Task {
+            await recordFeaturePolicyEnvironmentDiagnostic(
+                featurePolicyResolution,
+                diagnostics: diagnostics
+            )
+        }
         store.restorePersistedJobsInBackground()
         return store
+    }
+
+    static func recordFeaturePolicyEnvironmentDiagnostic(
+        _ resolution: FeaturePolicyEnvironmentResolution,
+        diagnostics: DiagnosticsLogger
+    ) async {
+        guard let detail = resolution.diagnosticDetail else { return }
+        try? await diagnostics.record(DiagnosticEvent(
+            stage: "feature-policy-environment",
+            technicalDetail: detail
+        ))
     }
 
     /// Replaces any prior URL analysis; only the latest generation may publish a result.

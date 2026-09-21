@@ -20,7 +20,7 @@ struct FeatureDenial: Equatable, Sendable, Identifiable {
     }
 }
 
-enum FeatureDenialReason: String, Equatable, Sendable {
+enum FeatureDenialReason: String, CaseIterable, Equatable, Sendable {
     case videoHeightRequiresPro
     case sourceQualityRequiresPro
     case unknownVideoHeight

@@ -16,12 +16,20 @@ accounts, payment orders, secrets, or checkout.
 
 ## Implemented Phase 1 Boundary
 
-The current macOS Swift 2.x app contains only a local mock authentication
-skeleton. It has synthetic Google- and Apple-labelled providers, local
-Keychain restoration, and presentation-only mock plan labels behind the exact
-`YTDP_AUTH_MODE=mock` development gate. It has no real identity provider,
-account, backend, billing, subscription state, entitlement delivery, paid
-feature enforcement, or external submission.
+The current macOS Swift 2.x app contains a local mock authentication skeleton
+and the separately gated local Feature Policy F1 implementation. Authentication
+has synthetic Google- and Apple-labelled providers, local Keychain restoration,
+and presentation-only mock plan labels behind the exact `YTDP_AUTH_MODE=mock`
+development gate. Feature Policy F1 has pure capability decisions and synthetic
+Free/Pro fixtures behind the exact `YTDP_FEATURE_POLICY_MODE=mock-free` and
+`mock-pro` development gates. The normal launch remains in public compatibility.
+
+The binding F1 design is
+[`docs/superpowers/specs/2026-09-22-swift-feature-policy-f1-design.md`](docs/superpowers/specs/2026-09-22-swift-feature-policy-f1-design.md).
+F1 verifies local policy and Store-boundary behavior only. It has no real
+identity provider, account, backend, billing, subscription state, entitlement
+delivery, production token verification, helper-execution enforcement, or
+external submission, and it does not change any launch gate in this document.
 
 Apple is a future identity-provider candidate alongside Google. Neither real
 Sign in with Apple nor real Google sign-in is implemented; the current labels

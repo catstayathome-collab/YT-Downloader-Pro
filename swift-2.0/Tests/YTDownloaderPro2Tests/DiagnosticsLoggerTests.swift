@@ -3,6 +3,30 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DiagnosticsLoggerTests: XCTestCase {
+    func testFeaturePolicyEnvironmentFallbackDiagnosticOmitsRawValueAndSupportedModes() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logger = DiagnosticsLogger(root: root)
+        let rawValue = " mock-free /Users/private/path account@example.com "
+        let unsupported = FeaturePolicyEnvironmentResolution.resolve(
+            from: ["YTDP_FEATURE_POLICY_MODE": rawValue]
+        )
+        let supported = FeaturePolicyEnvironmentResolution.resolve(
+            from: ["YTDP_FEATURE_POLICY_MODE": "mock-free"]
+        )
+
+        await DownloadStore.recordFeaturePolicyEnvironmentDiagnostic(unsupported, diagnostics: logger)
+        await DownloadStore.recordFeaturePolicyEnvironmentDiagnostic(supported, diagnostics: logger)
+
+        let lines = try await logger.exportLines(maximumLines: 10)
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].contains("feature-policy-environment"))
+        XCTAssertTrue(lines[0].contains("Unsupported feature-policy mode; using public compatibility."))
+        XCTAssertFalse(lines[0].contains(rawValue))
+        XCTAssertFalse(lines[0].contains("private/path"))
+        XCTAssertFalse(lines[0].contains("account@example.com"))
+    }
+
     func testClearRemovesOnlyKnownLogsAndInterruptedRotationFiles() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

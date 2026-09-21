@@ -215,11 +215,16 @@ struct MediaOptionsSheet: View {
     init(
         analysis: VideoAnalysis,
         defaults: DownloadOptions,
+        featurePolicy: FeaturePolicyContext = .publicCompatibility,
         titleKey: L10n.Key = .mediaOptionsTitle,
         actionKey: L10n.Key = .commonAddToQueue,
         onConfirm: @escaping (DownloadOptions) -> Void
     ) {
-        let presentation = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
+        let presentation = MediaOptionsPresentation(
+            analysis: analysis,
+            defaults: defaults,
+            featurePolicy: featurePolicy
+        )
         self.titleKey = titleKey
         self.actionKey = actionKey
         identity = presentation.identity

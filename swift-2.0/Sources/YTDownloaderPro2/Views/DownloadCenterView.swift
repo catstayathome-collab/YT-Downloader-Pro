@@ -97,21 +97,27 @@ struct DownloadCenterBulkPresentation {
 
 enum DownloadCenterPresentedAlert: Equatable, Identifiable {
     case confirmation(DownloadConfirmation)
+    case featurePolicy(FeatureDenial)
     case automaticUpdate(UpdateNotice)
 
     var id: String {
         switch self {
         case let .confirmation(confirmation): "confirmation-\(confirmation.id)"
+        case let .featurePolicy(denial): "feature-policy-\(denial.id)"
         case let .automaticUpdate(notice): "automatic-update-\(notice.id)"
         }
     }
 
     static func resolve(
         confirmation: DownloadConfirmation?,
-        automaticUpdate: UpdateNotice?
+        automaticUpdate: UpdateNotice?,
+        featurePolicyDenial: FeatureDenial? = nil
     ) -> DownloadCenterPresentedAlert? {
         if let confirmation {
             return .confirmation(confirmation)
+        }
+        if let featurePolicyDenial {
+            return .featurePolicy(featurePolicyDenial)
         }
         if let automaticUpdate {
             return .automaticUpdate(automaticUpdate)
@@ -369,6 +375,7 @@ struct DownloadCenterView: View {
                     MediaOptionsSheet(
                         analysis: session.analysis,
                         defaults: session.options,
+                        featurePolicy: store.featurePolicyContext,
                         titleKey: .mediaEditDownload,
                         actionKey: .commonSave
                     ) { options in
@@ -392,6 +399,7 @@ struct DownloadCenterView: View {
                     MediaOptionsSheet(
                         analysis: session.analysis,
                         defaults: session.options,
+                        featurePolicy: store.featurePolicyContext,
                         titleKey: .mediaEditAndRetry,
                         actionKey: .downloadActionRetry
                     ) { options in
@@ -405,7 +413,11 @@ struct DownloadCenterView: View {
             LocalizedSheetRoot(locale: locale) {
                 switch sheet {
                 case let .video(analysis):
-                    MediaOptionsSheet(analysis: analysis, defaults: store.settings.defaultOptions) { options in
+                    MediaOptionsSheet(
+                        analysis: analysis,
+                        defaults: store.settings.defaultOptions,
+                        featurePolicy: store.featurePolicyContext
+                    ) { options in
                         analysisSheet = nil
                         Task { await store.addVideo(options: options) }
                     }
@@ -431,7 +443,7 @@ struct DownloadCenterView: View {
         .alert(item: presentedAlert) { alert in
             switch alert {
             case let .confirmation(confirmation):
-                Alert(
+                return Alert(
                     title: Text(confirmation.title(locale: locale)),
                     message: Text(confirmation.message(locale: locale)),
                     primaryButton: .destructive(Text(confirmation.destructiveButtonTitle(locale: locale))) {
@@ -440,7 +452,16 @@ struct DownloadCenterView: View {
                     secondaryButton: .cancel(Text(L10n.string(.commonCancel, locale: locale)))
                 )
             case let .automaticUpdate(notice):
-                UpdateAlertFactory.make(notice: notice, locale: locale)
+                return UpdateAlertFactory.make(notice: notice, locale: locale)
+            case let .featurePolicy(denial):
+                let presentation = FeaturePolicyDenialPresentation(denial: denial)
+                return Alert(
+                    title: Text(L10n.string(presentation.titleKey, locale: locale)),
+                    message: Text(L10n.string(presentation.messageKey, locale: locale)),
+                    dismissButton: .default(Text(L10n.string(.commonClose, locale: locale))) {
+                        store.dismissFeaturePolicyDenial()
+                    }
+                )
             }
         }
         .onChange(of: store.analysisState) { state in
@@ -473,13 +494,16 @@ struct DownloadCenterView: View {
             get: {
                 DownloadCenterPresentedAlert.resolve(
                     confirmation: pendingConfirmation,
-                    automaticUpdate: store.automaticUpdateNotice
+                    automaticUpdate: store.automaticUpdateNotice,
+                    featurePolicyDenial: store.featurePolicyDenial
                 )
             },
             set: { alert in
                 guard alert == nil else { return }
                 if pendingConfirmation != nil {
                     pendingConfirmation = nil
+                } else if store.featurePolicyDenial != nil {
+                    store.dismissFeaturePolicyDenial()
                 } else if let id = store.automaticUpdateNotice?.id {
                     store.dismissAutomaticUpdateNotice(id: id)
                 }

@@ -2,6 +2,53 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
+    func testDefaultLivePolicyResolutionKeepsPublicCompatibility() {
+        let resolution = FeaturePolicyEnvironmentResolution.resolve(from: [:])
+
+        XCTAssertFalse(resolution.context.isEnforced)
+        XCTAssertEqual(resolution.mode, .publicCompatibility)
+    }
+
+    func testPolicyDenialPresentationMapsEveryReason() {
+        for reason in FeatureDenialReason.allCases {
+            let denial = FeatureDenial(
+                requiredFeature: nil,
+                reason: reason,
+                canChooseFreeAlternative: false
+            )
+            let presentation = FeaturePolicyDenialPresentation(denial: denial)
+
+            XCTAssertFalse(presentation.titleKey.rawValue.isEmpty)
+            XCTAssertFalse(presentation.messageKey.rawValue.isEmpty)
+        }
+    }
+
+    func testFeaturePolicyDenialAlertPrecedesAutomaticUpdateButNotConfirmation() {
+        let denial = FeatureDenial(
+            requiredFeature: .videoHD,
+            reason: .videoHeightRequiresPro,
+            canChooseFreeAlternative: true
+        )
+        let notice = UpdateNotice(id: 7, result: .upToDate, origin: .automatic)
+
+        XCTAssertEqual(
+            DownloadCenterPresentedAlert.resolve(
+                confirmation: nil,
+                automaticUpdate: notice,
+                featurePolicyDenial: denial
+            ),
+            .featurePolicy(denial)
+        )
+        XCTAssertEqual(
+            DownloadCenterPresentedAlert.resolve(
+                confirmation: .clearHistory,
+                automaticUpdate: notice,
+                featurePolicyDenial: denial
+            ),
+            .confirmation(.clearHistory)
+        )
+    }
+
     func testAccountFocusPolicySelectsOnlyControlsRenderedByResultingPresentation() {
         let google = AccountSettingsFocusInitiator(control: .google, provider: .google)
         let appleRetry = AccountSettingsFocusInitiator(control: .retry, provider: .apple)
