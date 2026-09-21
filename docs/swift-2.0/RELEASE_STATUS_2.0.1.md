@@ -41,6 +41,30 @@ for local bundle-integrity testing.
 | Public update manifest | Blocked | `updates/macos.json` remains a non-release placeholder until the final signed artifact and checksum exist |
 | `macos-v2.0.1` tag and GitHub Release | Blocked | Create only after every prior gate passes and the owner gives final Go |
 
+## Apple-Independent Release Preparation
+
+The following work is complete on `codex/public-macos-2.0.1`:
+
+- `tools/macos-source-archives.json` pins the four top-level source archives,
+  HTTPS locations, SHA-256 values, evidence files, and unresolved limitations;
+- `scripts/create_macos_source_review_packet.py` creates deterministic,
+  explicitly internal-only metadata or archive review packets and rejects
+  missing or modified source inputs;
+- `scripts/check_macos_public_release_readiness.py` reports the
+  machine-verifiable release gates without leaking raw credential or Keychain
+  errors;
+- all four pinned top-level source archives were downloaded from their recorded
+  HTTPS locations and matched the inventory SHA-256 values;
+- `dist/YT-Downloader-Pro-2.0.1-source-review.zip` was generated locally with
+  all four archives and SHA-256
+  `d5e35ee450343bc6d6421616dd02055b3b9bb338c364579b8119bc985ef6ede4`;
+- the preflight correctly remains blocked by the placeholder manifest, missing
+  source-distribution approval, Developer ID identity, and notary profile.
+
+These controls reduce accidental publication risk. They do not resolve the
+legal, source-delivery, Apple signing, notarization, or clean-Mac gates.
+The generated ZIP is ignored by Git and must remain an internal review artifact.
+
 ## Next Actions
 
 1. Enroll or add an active paid Apple Developer Program team in Xcode, then

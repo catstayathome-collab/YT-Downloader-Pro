@@ -125,6 +125,46 @@ The SBOM and source index are technical release evidence, not legal approval.
 Before a commercial release, complete the legal gate in
 `docs/swift-2.0/SBOM_AND_LICENSES.md` and the repository's legal review brief.
 
+## Apple-Independent Public Release Preflight
+
+Run the machine-verifiable preflight before requesting a Developer ID build:
+
+```bash
+python3 scripts/check_macos_public_release_readiness.py \
+  --version 2.0.1 \
+  --output dist/macos-2.0.1-readiness.json
+```
+
+The command exits nonzero while any checked gate is blocked. It currently
+checks versioned release notes, the non-placeholder update manifest, the
+release-specific source-distribution approval reference, a Developer ID
+Application identity, and the `YTDP_NOTARY` Keychain profile. The JSON report
+contains summaries only and never includes raw Keychain or command errors.
+
+`ready_for_signed_candidate` means only that these machine-verifiable inputs
+are available. It does not replace notarization, Gatekeeper, clean-Mac, legal,
+privacy, localization, or final owner review.
+
+Create a deterministic metadata-only source review packet without downloading
+or representing that source obligations are complete:
+
+```bash
+python3 scripts/create_macos_source_review_packet.py \
+  --archive-root build/macos-source-archives \
+  --output dist/YT-Downloader-Pro-2.0.1-source-review-metadata.zip \
+  --metadata-only
+```
+
+To include source archives, download the exact four files listed in
+`tools/macos-source-archives.json` into `build/macos-source-archives`, then omit
+`--metadata-only`. The generator rejects missing files, checksum mismatches,
+credential-bearing URLs, unsafe paths, and incomplete review metadata. Both
+packet modes include `INTERNAL_REVIEW_ONLY.json` with
+`publicDistributionReady: false`; neither may be uploaded or repurposed as a
+public source package. After a dated legal disposition exists, create and
+review a separate release-specific public source-delivery path and update the
+approved inventory before publication.
+
 Prove the unsupported request fails before assembly:
 
 ```bash

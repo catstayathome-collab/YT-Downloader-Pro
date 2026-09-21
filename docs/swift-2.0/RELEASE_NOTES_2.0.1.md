@@ -28,6 +28,15 @@ and source-availability gates in `RELEASE.md` and `SBOM_AND_LICENSES.md` pass.
 - Traditional Chinese and Japanese resources remain independently selectable.
 - MP4 downloads are checked for Apple playback compatibility.
 
+## Release Engineering
+
+- Add a fail-closed macOS public-release preflight that reports placeholder
+  manifest, source-distribution approval, Developer ID, and notarization-profile
+  blockers without exposing raw Keychain errors.
+- Add a deterministic source-review packet generator backed by an exact archive
+  inventory. Generated packets remain explicitly internal-only until the
+  documented transitive-source and relinking questions receive dated approval.
+
 ## Distribution Gate
 
 The internal arm64 ZIP is for local testing only and is ad-hoc signed. Do not

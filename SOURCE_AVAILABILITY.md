@@ -12,6 +12,13 @@ helper executables bundled with YT Downloader Pro 2 for macOS. It is intended to
 make release provenance reproducible. It is not a substitute for legal review or
 for any source-distribution obligation that may apply to a particular release.
 
+`tools/macos-source-archives.json` is the machine-readable archive inventory for
+the 2.0.1 review packet. `scripts/create_macos_source_review_packet.py` validates
+its HTTPS locations and SHA-256 values and can assemble either a metadata-only
+packet or a packet containing locally supplied source archives. Every generated
+packet remains marked `publicDistributionReady: false`; it is evidence for
+review, not a public source offer or a legal-compliance claim.
+
 ## yt-dlp macOS standalone 2026.07.04
 
 - Binary: <https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp_macos>
