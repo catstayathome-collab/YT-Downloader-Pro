@@ -69,6 +69,40 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.selectedVideoID, "720")
     }
 
+    func testMockFreePreservesExplicitHighVideoSelectionForStructuredDenial() {
+        let high = format(
+            id: "1080",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1080
+        )
+        let low = format(
+            id: "720",
+            label: "720p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 720
+        )
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let defaults = DownloadOptions(
+            videoQuality: .format(id: high.id, label: high.label),
+            selectedVideoFormat: PersistedFormatPresentation(high)
+        )
+
+        let model = MediaOptionsPresentation(
+            analysis: videoAnalysis(videoFormats: [high, low], audioFormats: []),
+            defaults: defaults,
+            featurePolicy: policy
+        )
+
+        XCTAssertEqual(model.selectedVideoID, "1080")
+        XCTAssertEqual(
+            model.decisionForSelectedOptions(in: policy).denial?.reason,
+            .videoHeightRequiresPro
+        )
+    }
+
     func testPublicCompatibilityStillDefaultsToHighestCompatibleVideo() {
         let analysis = videoAnalysis(videoFormats: [
             format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),

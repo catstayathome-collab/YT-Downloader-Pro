@@ -88,7 +88,7 @@ struct MediaOptionsPresentation: Equatable {
         let selectableAudioFormats = defaults.outputKind == .mp4
             ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
             : analysis.audioFormats
-        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: defaultVideoFormats)
+        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: compatibleVideoFormats)
             ?? defaultVideoFormats.first?.id
         selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
             ?? selectableAudioFormats.first?.id
