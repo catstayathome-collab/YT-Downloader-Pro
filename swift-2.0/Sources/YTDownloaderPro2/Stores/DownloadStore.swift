@@ -47,6 +47,7 @@ final class DownloadStore: ObservableObject {
     @Published var selection: Set<UUID>
     @Published var sidebarSection: DownloadStatus.SidebarSection
     @Published private(set) var analysisState: AnalysisState
+    @Published private(set) var featurePolicyDenial: FeatureDenial?
     @Published private(set) var updateResult: UpdateResult?
     @Published private(set) var automaticUpdateNotice: UpdateNotice?
     @Published private(set) var manualUpdateNotice: UpdateNotice?
@@ -97,6 +98,7 @@ final class DownloadStore: ObservableObject {
     private let metadataAnalyzer: any MetadataAnalyzing
     private let updateChecker: any UpdateChecking
     private let toolchainValidator: (any ToolchainHealthValidating)?
+    let featurePolicyContext: FeaturePolicyContext
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
@@ -133,12 +135,14 @@ final class DownloadStore: ObservableObject {
         outputDirectoryBookmarks: OutputDirectoryBookmarkService = .live,
         metadataAnalyzer: any MetadataAnalyzing,
         updateChecker: any UpdateChecking = UpdateChecker.live(),
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) {
         self.jobs = Self.recoveredJobs(from: jobs)
         self.selection = selection
         self.sidebarSection = sidebarSection
         self.analysisState = analysisState
+        featurePolicyDenial = nil
         self.settings = settings.clampedForPersistence()
         self.coordinator = coordinator
         self.persistence = persistence
@@ -149,6 +153,7 @@ final class DownloadStore: ObservableObject {
         self.metadataAnalyzer = metadataAnalyzer
         self.updateChecker = updateChecker
         self.toolchainValidator = toolchainValidator
+        self.featurePolicyContext = featurePolicyContext
         consumeCoordinatorEvents()
         enqueueRecoveredBatchPlaceholders()
     }
@@ -261,7 +266,8 @@ final class DownloadStore: ObservableObject {
     static func live(
         bundle: Bundle = .main,
         applicationSupportRoot: URL? = nil,
-        settingsStore: AppSettingsStore = AppSettingsStore()
+        settingsStore: AppSettingsStore = AppSettingsStore(),
+        featurePolicyResolution: FeaturePolicyEnvironmentResolution = .resolve(from: [:])
     ) -> DownloadStore {
         let root = applicationSupportRoot ?? Self.defaultApplicationSupportRoot()
         let toolchain = (try? Toolchain.resolve(bundle: bundle.bundleURL)) ?? Self.unavailableToolchain()
@@ -284,7 +290,8 @@ final class DownloadStore: ObservableObject {
             diagnostics: DiagnosticsLogger(root: root),
             settingsStore: settingsStore,
             metadataAnalyzer: probe,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            featurePolicyContext: featurePolicyResolution.context
         )
         Task { _ = try? await toolchainValidator.validate(force: false) }
         store.restorePersistedJobsInBackground()
@@ -327,7 +334,11 @@ final class DownloadStore: ObservableObject {
             case let .video(video):
                 analysisState = .video(video)
             case let .playlist(playlist):
-                analysisState = .playlist(playlist)
+                if deny(featurePolicyContext.playlistExpansionDecision()) {
+                    analysisState = .idle
+                } else {
+                    analysisState = .playlist(playlist)
+                }
             }
         case let .failure(error):
             let failure = failure(from: error)
@@ -347,11 +358,20 @@ final class DownloadStore: ObservableObject {
             return activeKeys.insert(key).inserted
         }
         let activeDuplicateCount = parsed.urls.count - acceptedURLs.count
-        let submission = URLInputSubmissionResult(
+        var submission = URLInputSubmissionResult(
             acceptedCount: acceptedURLs.count,
             rejectedCount: parsed.rejectedCount,
             duplicateCount: parsed.duplicateCount + activeDuplicateCount
         )
+        if !acceptedURLs.isEmpty,
+           deny(featurePolicyContext.urlSubmissionDecision(count: acceptedURLs.count)) {
+            submission = URLInputSubmissionResult(
+                acceptedCount: 0,
+                rejectedCount: submission.rejectedCount,
+                duplicateCount: submission.duplicateCount
+            )
+            return submission
+        }
         guard !isPreparingToQuit else { return submission }
         guard !parsed.urls.isEmpty else {
             analysisState = .failed(DownloadFailure(
@@ -387,6 +407,8 @@ final class DownloadStore: ObservableObject {
 
     func addVideo(options: DownloadOptions) async {
         guard case let .video(video) = analysisState, !isPreparingToQuit else { return }
+        let presentation = MediaOptionsPresentation(options: options)
+        guard !deny(presentation.decisionForSelectedOptions(in: featurePolicyContext)) else { return }
         let job = DownloadJob(
             sourceURL: video.sourceURL,
             title: video.title,
@@ -404,6 +426,7 @@ final class DownloadStore: ObservableObject {
 
     func addPlaylistEntries(selectedIDs: Set<String>, options: DownloadOptions) async {
         guard case let .playlist(playlist) = analysisState, !isPreparingToQuit else { return }
+        guard !deny(featurePolicyContext.playlistExpansionDecision()) else { return }
         let newJobs = playlist.entries.compactMap { entry -> (DownloadJob, URL?)? in
             guard selectedIDs.contains(entry.id), entry.isAvailable else { return nil }
             return (
@@ -577,6 +600,12 @@ final class DownloadStore: ObservableObject {
         guard let index = jobs.firstIndex(where: {
             $0.id == jobID && $0.status == .analyzing && $0.awaitsBatchAnalysis
         }) else { return }
+        if deny(featurePolicyContext.playlistExpansionDecision()) {
+            jobs.remove(at: index)
+            selection.remove(jobID)
+            await persist(flush: true)
+            return
+        }
         let placeholder = jobs[index]
         let entries = playlist.entries.filter(\.isAvailable)
         guard !entries.isEmpty else {
@@ -622,6 +651,16 @@ final class DownloadStore: ObservableObject {
         transitionJob(at: index, to: .failed)
         await persist(flush: true)
         await recordDiagnostic(jobID: jobID, stage: "batch-analysis", detail: failure.technicalDetail)
+    }
+
+    func dismissFeaturePolicyDenial() {
+        featurePolicyDenial = nil
+    }
+
+    private func deny(_ decision: FeatureDecision) -> Bool {
+        guard case let .denied(denial) = decision else { return false }
+        featurePolicyDenial = denial
+        return true
     }
 
     func start(_ jobID: UUID) async {

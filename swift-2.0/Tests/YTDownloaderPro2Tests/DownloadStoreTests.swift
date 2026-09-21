@@ -341,6 +341,150 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(video.title, "Single video")
     }
 
+    func testMockFreeRejectsBatchBeforeCreatingJobsOrAnalyzing() async throws {
+        let recorder = AnalysisRecorder(result: .video(.fixture()))
+        let fixture = try StoreFixture(
+            analysis: { try await recorder.analyze(url: $0, options: $1) },
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+
+        let result = await fixture.store.submitURLInput(
+            "https://youtube.test/a\nhttps://youtube.test/b"
+        )
+        let recordedURLs = await recorder.recordedURLs()
+
+        XCTAssertEqual(result.acceptedCount, 0)
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(recordedURLs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .batchRequiresPro)
+    }
+
+    func testMockFreeRejectsSinglePlaylistBeforePublishingSheetOrChildren() async throws {
+        let fixture = try StoreFixture(
+            analysis: .playlist(.fixture(entryCount: 2)),
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.store.submitURLInput("https://youtube.test/playlist")
+
+        XCTAssertEqual(fixture.store.analysisState, .idle)
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .playlistRequiresPro)
+    }
+
+    func testMockFreeRejectsHighVideoBeforeCreatingOrStartingJob() async throws {
+        let fixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+        await fixture.store.analyzeURL("https://youtube.test/video")
+        var options = DownloadOptions.defaults
+        options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1080
+        ))
+
+        await fixture.store.addVideo(options: options)
+        let startedIDs = await fixture.runner.startedIDs()
+
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(startedIDs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
+    }
+
+    func testMockFreeAcceptsSingle720pVideoAndMP3() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let videoFixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: policy
+        )
+        defer { videoFixture.cleanUp() }
+        await videoFixture.store.analyzeURL("https://youtube.test/video")
+        var videoOptions = DownloadOptions.defaults
+        videoOptions.selectVideoFormat(MediaFormat(
+            id: "22",
+            label: "720p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 720
+        ))
+
+        await videoFixture.store.addVideo(options: videoOptions)
+
+        XCTAssertEqual(videoFixture.store.jobs.count, 1)
+        XCTAssertNil(videoFixture.store.featurePolicyDenial)
+
+        let audioFixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: policy
+        )
+        defer { audioFixture.cleanUp() }
+        await audioFixture.store.analyzeURL("https://youtube.test/audio")
+
+        await audioFixture.store.addVideo(options: DownloadOptions(outputKind: .mp3))
+
+        XCTAssertEqual(audioFixture.store.jobs.count, 1)
+        XCTAssertNil(audioFixture.store.featurePolicyDenial)
+    }
+
+    func testMockProPreservesBatchAndPlaylistFlows() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticPro))
+        let controlled = ControlledAnalysis()
+        let batchFixture = try StoreFixture(
+            analysis: { try await controlled.analyze(url: $0, options: $1) },
+            featurePolicyContext: policy
+        )
+        defer { batchFixture.cleanUp() }
+
+        let result = await batchFixture.store.submitURLInput(
+            "https://youtube.test/a\nhttps://youtube.test/b"
+        )
+
+        XCTAssertEqual(result.acceptedCount, 2)
+        XCTAssertEqual(batchFixture.store.jobs.count, 2)
+        XCTAssertNil(batchFixture.store.featurePolicyDenial)
+
+        let playlistFixture = try StoreFixture(
+            analysis: .playlist(.fixture(entryCount: 2)),
+            featurePolicyContext: policy
+        )
+        defer { playlistFixture.cleanUp() }
+        await playlistFixture.store.analyzeURL("https://youtube.test/playlist")
+        await playlistFixture.store.addPlaylistEntries(selectedIDs: ["1", "2"], options: .defaults)
+
+        XCTAssertEqual(playlistFixture.store.jobs.count, 2)
+        XCTAssertNil(playlistFixture.store.featurePolicyDenial)
+        await batchFixture.store.cancelActiveAndWaiting()
+        await playlistFixture.store.cancelActiveAndWaiting()
+    }
+
+    func testDeniedDirectPlaylistAddCreatesNoJobsAndDismissClearsOnlyDenial() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let playlist = PlaylistAnalysis.fixture(entryCount: 2)
+        let fixture = try StoreFixture(
+            analysisState: .playlist(playlist),
+            featurePolicyContext: policy
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.addPlaylistEntries(selectedIDs: ["1", "2"], options: .defaults)
+
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(fixture.store.analysisState, .playlist(playlist))
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .playlistRequiresPro)
+
+        fixture.store.dismissFeaturePolicyDenial()
+
+        XCTAssertNil(fixture.store.featurePolicyDenial)
+        XCTAssertEqual(fixture.store.analysisState, .playlist(playlist))
+    }
+
     func testBatchSubmissionCreatesPlaceholdersThenAnalyzesFIFOAndStartsFirstSuccess() async throws {
         let analysis = ControlledAnalysis()
         let fixture = try StoreFixture(
@@ -1999,7 +2143,9 @@ private final class StoreFixture {
         settings: AppSettings = .defaults,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         try self.init(
             root: temporaryDirectory(),
@@ -2011,7 +2157,9 @@ private final class StoreFixture {
             settings: settings,
             settingsStore: settingsStore,
             updateChecker: updateChecker,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            analysisState: analysisState,
+            featurePolicyContext: featurePolicyContext
         )
     }
 
@@ -2019,14 +2167,18 @@ private final class StoreFixture {
         jobs: [DownloadJob] = [],
         analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
         coordinatorLimit: Int = 1,
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         try self.init(
             root: temporaryDirectory(),
             jobs: jobs,
             analysis: analysis,
             coordinatorLimit: coordinatorLimit,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            analysisState: analysisState,
+            featurePolicyContext: featurePolicyContext
         )
     }
 
@@ -2044,7 +2196,9 @@ private final class StoreFixture {
         settings: AppSettings = .defaults,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         self.root = root
         runner = StoreRunner()
@@ -2053,6 +2207,7 @@ private final class StoreFixture {
         thumbnailCache = ThumbnailCache(root: root, loader: thumbnailLoader)
         store = DownloadStore(
             jobs: jobs,
+            analysisState: analysisState,
             settings: settings,
             coordinator: coordinator,
             persistence: persistence,
@@ -2062,7 +2217,8 @@ private final class StoreFixture {
             outputDirectoryBookmarks: bookmarks,
             metadataAnalyzer: ClosureMetadataAnalyzer(analysis),
             updateChecker: updateChecker,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            featurePolicyContext: featurePolicyContext
         )
     }
 
