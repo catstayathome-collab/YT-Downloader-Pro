@@ -1973,6 +1973,78 @@
         }
       }
     },
+    "featurePolicy.advancedSubtitlesRequirePro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Advanced subtitles are part of the planned Pro policy. One basic subtitle language remains available in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "高度な字幕機能は、予定されている Pro ポリシーの対象です。開発テストモードでも基本字幕は 1 言語利用できます。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "進階字幕屬於規劃中的 Pro 政策；開發測試模式仍可使用一種基本字幕語言。" } }
+      }
+    },
+    "featurePolicy.batchRequiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Multiple URLs are part of the planned Pro policy. Submit one URL in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "複数 URL は、予定されている Pro ポリシーの対象です。開発テストモードでは URL を 1 件ずつ送信してください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "多網址屬於規劃中的 Pro 政策；請在開發測試模式中一次提交一個網址。" } }
+      }
+    },
+    "featurePolicy.development.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Development Feature Policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開発用機能ポリシー" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開發功能政策" } }
+      }
+    },
+    "featurePolicy.featureUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This planned capability is unavailable under the current development policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この予定機能は、現在の開発用ポリシーでは利用できません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這項規劃中的功能無法在目前的開發政策下使用。" } }
+      }
+    },
+    "featurePolicy.invalidRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The development feature-policy request was invalid. No download was added." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開発用機能ポリシーへの要求が無効です。ダウンロードは追加されませんでした。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開發功能政策請求無效，因此未新增下載項目。" } }
+      }
+    },
+    "featurePolicy.playlistRequiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Playlist expansion is part of the planned Pro policy. This restriction is active only in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレイリストの展開は、予定されている Pro ポリシーの対象です。この制限は開発テストモードでのみ有効です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "播放清單展開屬於規劃中的 Pro 政策；此限制只在開發測試模式中生效。" } }
+      }
+    },
+    "featurePolicy.sourceQualityRequiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "4K or source-quality video is part of the planned Pro policy. This restriction is active only in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "4K またはソース品質の動画は、予定されている Pro ポリシーの対象です。この制限は開発テストモードでのみ有効です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "4K 或來源畫質影片屬於規劃中的 Pro 政策；此限制只在開發測試模式中生效。" } }
+      }
+    },
+    "featurePolicy.unknownVideoHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This video's resolution cannot be verified as 720p or lower. Choose a known Free-compatible format in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この動画が 720p 以下か確認できません。開発テストモードでは、無料版に対応する解像度が確認できる形式を選択してください。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法確認這個影片是否為 720p 以下；請在開發測試模式中選擇可確認符合免費版的格式。" } }
+      }
+    },
+    "featurePolicy.videoHeightRequiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video above 720p is part of the planned Pro policy. This restriction is active only in development test mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "720p を超える動画は、予定されている Pro ポリシーの対象です。この制限は開発テストモードでのみ有効です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "超過 720p 的影片屬於規劃中的 Pro 政策；此限制只在開發測試模式中生效。" } }
+      }
+    },
     "media.audioFormat": {
       "extractionState": "manual",
       "localizations": {

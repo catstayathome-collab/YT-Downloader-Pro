@@ -64,19 +64,32 @@ struct MediaOptionsPresentation: Equatable {
     }
 
     // MetadataProbe sorts typed formats highest-first, so the first usable choice is the reviewed default.
-    init(analysis: VideoAnalysis, defaults: DownloadOptions) {
+    init(
+        analysis: VideoAnalysis,
+        defaults: DownloadOptions,
+        featurePolicy: FeaturePolicyContext = .publicCompatibility
+    ) {
         identity = MediaIdentityPresentation(analysis: analysis)
         videoChoices = analysis.videoFormats
         audioChoices = analysis.audioFormats
         options = defaults.normalizedForExecution()
-        let selectableVideoFormats = defaults.outputKind == .mp4
+        let compatibleVideoFormats = defaults.outputKind == .mp4
             ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
             : analysis.videoFormats
+        let defaultVideoFormats = featurePolicy.isEnforced
+            ? compatibleVideoFormats.filter {
+                featurePolicy.videoDecision(
+                    height: $0.height,
+                    isAudioOnly: defaults.outputKind == .mp3,
+                    isSourceQuality: Self.isSourceQuality($0)
+                ) == .allowed
+            }
+            : compatibleVideoFormats
         let selectableAudioFormats = defaults.outputKind == .mp4
             ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
             : analysis.audioFormats
-        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: selectableVideoFormats)
-            ?? selectableVideoFormats.first?.id
+        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: defaultVideoFormats)
+            ?? defaultVideoFormats.first?.id
         selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
             ?? selectableAudioFormats.first?.id
         applySelectedFormats()
@@ -100,6 +113,14 @@ struct MediaOptionsPresentation: Equatable {
     mutating func selectAudio(_ id: String?) {
         selectedAudioID = id
         applySelectedFormats()
+    }
+
+    func decisionForSelectedOptions(in featurePolicy: FeaturePolicyContext) -> FeatureDecision {
+        featurePolicy.videoDecision(
+            height: options.selectedVideoFormat?.height,
+            isAudioOnly: options.outputKind == .mp3,
+            isSourceQuality: options.selectedVideoFormat.map(Self.isSourceQuality) ?? false
+        )
     }
 
     private static func selectedID(for quality: VideoQuality, in choices: [MediaFormat]) -> String? {
@@ -148,6 +169,20 @@ struct MediaOptionsPresentation: Equatable {
             language: nil,
             estimatedFileSize: nil
         )
+    }
+
+    private static func isSourceQuality(_ format: MediaFormat) -> Bool {
+        isSourceQuality(height: format.height, note: format.note, resolution: format.resolution)
+    }
+
+    private static func isSourceQuality(_ format: PersistedFormatPresentation) -> Bool {
+        isSourceQuality(height: format.height, note: format.note, resolution: format.resolution)
+    }
+
+    private static func isSourceQuality(height: Int?, note: String?, resolution: String?) -> Bool {
+        height.map({ $0 >= 2_160 }) == true
+            || note?.localizedCaseInsensitiveContains("source") == true
+            || resolution?.localizedCaseInsensitiveContains("4k") == true
     }
 
     private mutating func applySelectedFormats() {

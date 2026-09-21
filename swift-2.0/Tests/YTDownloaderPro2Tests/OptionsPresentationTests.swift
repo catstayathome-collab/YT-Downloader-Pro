@@ -52,6 +52,61 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.options.selectedAudioFormat, analysis.audioFormats.first.map(PersistedFormatPresentation.init))
     }
 
+    func testMockFreeDefaultsToHighestQuickTimeCompatibleVideoAtOrBelow720p() {
+        let analysis = videoAnalysis(videoFormats: [
+            format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),
+            format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+        ], audioFormats: [])
+
+        let model = MediaOptionsPresentation(
+            analysis: analysis,
+            defaults: .defaults,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+
+        XCTAssertEqual(model.videoChoices.map(\.id), ["2160", "1080", "720"])
+        XCTAssertEqual(model.selectedVideoID, "720")
+    }
+
+    func testPublicCompatibilityStillDefaultsToHighestCompatibleVideo() {
+        let analysis = videoAnalysis(videoFormats: [
+            format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+        ], audioFormats: [])
+
+        XCTAssertEqual(
+            MediaOptionsPresentation(analysis: analysis, defaults: .defaults).selectedVideoID,
+            "2160"
+        )
+    }
+
+    func testSelectedVideoDecisionUsesStructuredHeightAndMP3RemainsAllowed() {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let analysis = videoAnalysis(videoFormats: [
+            format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+        ], audioFormats: [])
+        var videoModel = MediaOptionsPresentation(
+            analysis: analysis,
+            defaults: .defaults,
+            featurePolicy: policy
+        )
+        videoModel.selectVideo("1080")
+
+        XCTAssertEqual(
+            videoModel.decisionForSelectedOptions(in: policy).denial?.reason,
+            .videoHeightRequiresPro
+        )
+
+        let audioModel = MediaOptionsPresentation(
+            analysis: analysis,
+            defaults: DownloadOptions(outputKind: .mp3),
+            featurePolicy: policy
+        )
+        XCTAssertEqual(audioModel.decisionForSelectedOptions(in: policy), .allowed)
+    }
+
     func testMP4DefaultsSkipWebMCodecsAndChooseTheHighestQuickTimeCompatiblePair() {
         let vp9 = MediaFormat(
             id: "248",
@@ -425,7 +480,8 @@ final class OptionsPresentationTests: XCTestCase {
         label: String,
         videoCodec: String? = nil,
         audioCodec: String? = nil,
-        container: String? = nil
+        container: String? = nil,
+        height: Int? = nil
     ) -> MediaFormat {
         MediaFormat(
             id: id,
@@ -435,7 +491,7 @@ final class OptionsPresentationTests: XCTestCase {
             audioCodec: audioCodec,
             container: container,
             width: nil,
-            height: nil,
+            height: height,
             resolution: nil,
             framesPerSecond: nil,
             bitrate: nil,

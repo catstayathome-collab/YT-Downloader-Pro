@@ -37,6 +37,17 @@ final class LocalizationTests: XCTestCase {
         "dataAction.history.retained", "dataAction.diagnostics.retained",
         "dataAction.settings.retained", "dataAction.media.retained"
     ]
+    private let featurePolicyKeys: Set<String> = [
+        "featurePolicy.development.title",
+        "featurePolicy.videoHeightRequiresPro",
+        "featurePolicy.sourceQualityRequiresPro",
+        "featurePolicy.unknownVideoHeight",
+        "featurePolicy.batchRequiresPro",
+        "featurePolicy.playlistRequiresPro",
+        "featurePolicy.advancedSubtitlesRequirePro",
+        "featurePolicy.featureUnavailable",
+        "featurePolicy.invalidRequest"
+    ]
     private let maintainedRegionalMessages = [
         "Video is region restricted",
         "This video is restricted in your region",
@@ -97,13 +108,23 @@ final class LocalizationTests: XCTestCase {
             "update.checking", "update.dismiss", "update.failed.message", "update.failed.title",
             "update.openRelease", "update.unsupported.message", "update.unsupported.title",
             "update.upToDate.message", "update.upToDate.title"
-        ]).union(supportAndDataKeys)
+        ]).union(supportAndDataKeys).union(featurePolicyKeys)
 
         XCTAssertEqual(Set(L10n.Key.allCases.map(\.rawValue)), expected)
     }
 
     func testSupportAndDataKeysResolveWithoutRawFallbacksInEveryLocale() {
         for key in supportAndDataKeys {
+            for localeIdentifier in localeIdentifiers {
+                let value = L10n.string(key, localeIdentifier: localeIdentifier)
+                XCTAssertFalse(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Empty \(localeIdentifier) value for \(key)")
+                XCTAssertNotEqual(value, key, "Raw key fallback for \(key) in \(localeIdentifier)")
+            }
+        }
+    }
+
+    func testFeaturePolicyKeysResolveWithoutRawFallbacksInEveryLocale() {
+        for key in featurePolicyKeys {
             for localeIdentifier in localeIdentifiers {
                 let value = L10n.string(key, localeIdentifier: localeIdentifier)
                 XCTAssertFalse(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Empty \(localeIdentifier) value for \(key)")
