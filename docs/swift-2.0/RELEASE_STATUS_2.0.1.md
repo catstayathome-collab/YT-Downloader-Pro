@@ -13,14 +13,14 @@ Last reviewed: 2026-09-21
 
 | Evidence | Result |
 | --- | --- |
-| Baseline source commit | `96678c8e04679e3e82b8fd37d723985cb0476560` |
+| Baseline source commit | `deeb12b719b015e5dc60f5296479bce5c13b2954` |
 | Internal app version | `2.0.1` |
 | Architecture | Apple Silicon `arm64`; bundled yt-dlp is universal |
 | Swift strict suite | 461 tests, 1 skipped, 0 failures |
-| Python suite | 245 tests, 0 failures |
+| Python suite | 257 tests, 0 failures |
 | Independent bundle verifier | Passed with no errors |
 | Strict bundle signature check | Passed for the ad-hoc internal candidate |
-| Internal ZIP SHA-256 | `b7b705dd8b3ed4884bb2b1279c01100b4f7634577c3235ff44e84f9b074a9f0c` |
+| Internal ZIP SHA-256 | `afbd30e421ac86fee084420aae92ef91e248cddb9b7fc500ff5b7fa42e0475c3` |
 
 The internal ZIP is not a public artifact. Its ad-hoc signature is useful only
 for local bundle-integrity testing.
