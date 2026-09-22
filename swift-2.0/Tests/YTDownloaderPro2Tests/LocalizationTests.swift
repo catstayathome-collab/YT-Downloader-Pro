@@ -113,7 +113,9 @@ final class LocalizationTests: XCTestCase {
             "plan.comparison.value.basicSubtitles", "plan.comparison.value.advancedSubtitles",
             "plan.comparison.value.localHistory", "plan.comparison.value.historySync",
             "plan.comparison.value.standardSupport", "plan.comparison.value.prioritySupport",
-            "plan.comparison.unavailable",
+            "plan.comparison.unavailable", "plan.development.title", "plan.development.mode",
+            "plan.development.disclaimer", "plan.development.reset",
+            "plan.selectionAdjusted.title", "plan.selectionAdjusted.message",
             "settings.automaticUpdates", "settings.concurrentDownloads", "settings.defaultOptions", "settings.downloads",
             "settings.language", "settings.language.en", "settings.language.ja", "settings.language.system",
             "settings.language.zhHant", "settings.preferences", "settings.updates",
@@ -176,6 +178,33 @@ final class LocalizationTests: XCTestCase {
             "account.error.storageUnavailable": ["en": "The account session could not be saved securely on this Mac.", "zh-Hant": "無法在這台 Mac 上安全儲存帳號工作階段。", "ja": "この Mac にアカウントセッションを安全に保存できませんでした。"],
             "account.error.removalFailed": ["en": "The saved account session could not be removed. Try the cleanup again.", "zh-Hant": "無法移除儲存的帳號工作階段，請再次嘗試清除。", "ja": "保存されたアカウントセッションを削除できませんでした。削除をもう一度お試しください。"],
             "account.error.signInFailed": ["en": "Sign-in could not be completed. Try again.", "zh-Hant": "無法完成登入，請重試。", "ja": "サインインを完了できませんでした。もう一度お試しください。"]
+        ]
+
+        let catalog = try loadCatalog()
+        for (key, values) in expected {
+            let entry = try XCTUnwrap(catalog.strings[key], "Missing key: \(key)")
+            for locale in localeIdentifiers {
+                XCTAssertEqual(entry.localizations[locale]?.stringUnit?.value, values[locale], "Unexpected \(locale) value for \(key)")
+            }
+        }
+    }
+
+    func testPlanSwitchingCatalogUsesTheSpecifiedTranslations() throws {
+        let expected: [String: [String: String]] = [
+            "plan.development.title": ["en": "Development Testing", "zh-Hant": "開發測試", "ja": "開発テスト"],
+            "plan.development.mode": ["en": "Internal test mode", "zh-Hant": "內部測試模式", "ja": "内部テストモード"],
+            "plan.development.disclaimer": [
+                "en": "This changes local test access only. It is not a login, purchase, or subscription.",
+                "zh-Hant": "這只會變更本機測試權限，不代表登入、購買或訂閱。",
+                "ja": "これはローカルのテスト用アクセスだけを変更します。ログイン、購入、サブスクリプションではありません。"
+            ],
+            "plan.development.reset": ["en": "Reset to Free", "zh-Hant": "重設為免費版", "ja": "無料版にリセット"],
+            "plan.selectionAdjusted.title": ["en": "Quality adjusted", "zh-Hant": "已調整畫質", "ja": "画質を調整しました"],
+            "plan.selectionAdjusted.message": [
+                "en": "The selected quality was changed to the highest Free option available.",
+                "zh-Hant": "已將所選畫質改為免費版可用的最高畫質。",
+                "ja": "選択した画質を、利用可能な無料版の最高画質に変更しました。"
+            ]
         ]
 
         let catalog = try loadCatalog()

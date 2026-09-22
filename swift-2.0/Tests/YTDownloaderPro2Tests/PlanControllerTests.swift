@@ -135,5 +135,25 @@ final class PlanControllerTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: InternalTestPlanStore.key))
         XCTAssertEqual(store.loadPlan(), .free)
     }
+
+    func testRapidInternalSelectionsPublishNewestPlanAndSurviveRestart() throws {
+        let suiteName = "PlanControllerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = PlanController.live(defaults: defaults)
+        var received: [AppPlan] = []
+        let observation = controller.$currentPlan.sink { received.append($0) }
+        defer { observation.cancel() }
+
+        controller.selectInternalPlan(.testPro)
+        controller.selectInternalPlan(.free)
+        controller.selectInternalPlan(.testPro)
+
+        let restarted = PlanController.live(defaults: defaults)
+        XCTAssertEqual(received, [.free, .testPro, .free, .testPro])
+        XCTAssertEqual(controller.currentPlan, .testPro)
+        XCTAssertEqual(restarted.currentPlan, .testPro)
+        XCTAssertEqual(defaults.object(forKey: InternalTestPlanStore.key) as? String, "test-pro")
+    }
 #endif
 }

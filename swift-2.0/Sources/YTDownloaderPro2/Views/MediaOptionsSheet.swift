@@ -321,6 +321,7 @@ struct DownloadOptionsEditor: View {
 
     @State private var folderError: String?
     @State private var requestedUpgradeRoute: UpgradePresentationRoute?
+    @State private var planChangeNotice: PlanChangeNotice?
 
     var body: some View {
         Group {
@@ -397,6 +398,16 @@ struct DownloadOptionsEditor: View {
                     .environmentObject(planController)
             }
         }
+        .alert(item: $planChangeNotice) { _ in
+            Alert(
+                title: Text(L10n.string(.planSelectionAdjustedTitle, locale: locale)),
+                message: Text(L10n.string(.planSelectionAdjustedMessage, locale: locale)),
+                dismissButton: .default(Text(L10n.string(.commonDone, locale: locale)))
+            )
+        }
+        .onChange(of: planController.currentPlan) { _ in
+            reconcileVideoSelectionForPlanChange()
+        }
     }
 
     private var viewState: DownloadOptionsViewState {
@@ -466,6 +477,13 @@ struct DownloadOptionsEditor: View {
         options.selectVideoFormat(format)
     }
 
+    private func reconcileVideoSelectionForPlanChange() {
+        let reconciliation = videoFormatPresentation.selectionReconciliation()
+        guard reconciliation.didNormalize else { return }
+        selectVideoFormat(id: reconciliation.selectedID)
+        planChangeNotice = .videoQualityAdjusted
+    }
+
     private var audioSelection: Binding<String?> {
         Binding(
             get: {
@@ -499,6 +517,12 @@ struct DownloadOptionsEditor: View {
             folderError = L10n.string(.mediaFolderSaveFailed, locale: locale)
         }
     }
+}
+
+private enum PlanChangeNotice: String, Identifiable {
+    case videoQualityAdjusted
+
+    var id: String { rawValue }
 }
 
 enum OutputFolderPicker {

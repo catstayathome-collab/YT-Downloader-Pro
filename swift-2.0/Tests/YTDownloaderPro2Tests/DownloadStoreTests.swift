@@ -589,6 +589,124 @@ final class DownloadStoreTests: XCTestCase {
         XCTAssertEqual(startedIDs, [])
     }
 
+    func testDowngradeRestrictsOnlyNonactiveProJobsAndLeavesActiveWorkRunning() async throws {
+        let format = MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        )
+        var queued = DownloadJob.fixture(status: .queued)
+        queued.options.selectVideoFormat(format)
+        var paused = DownloadJob.fixture(status: .paused)
+        paused.options.selectVideoFormat(format)
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.failure = DownloadFailure(category: .downloadFailed)
+        failed.options.selectVideoFormat(format)
+        var downloading = DownloadJob.fixture(status: .queued)
+        downloading.options.selectVideoFormat(format)
+        var merging = DownloadJob.fixture(status: .queued)
+        merging.options.selectVideoFormat(format)
+        let fixture = try StoreFixture(
+            jobs: [downloading, merging, queued, paused, failed],
+            coordinatorLimit: 2,
+            featurePolicyContext: AppPlan.testPro.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: downloading.id)
+        try await fixture.runner.waitForStart(of: merging.id)
+        await fixture.runner.emit(.phase(.downloading), for: downloading.id)
+        await fixture.runner.emit(.phase(.merging), for: merging.id)
+        try await waitUntil("two jobs become active") {
+            fixture.store.jobs.first(where: { $0.id == downloading.id })?.status == .downloading
+                && fixture.store.jobs.first(where: { $0.id == merging.id })?.status == .merging
+        }
+
+        fixture.planController.setPlanForTesting(.free)
+        try await waitUntil("latest Free plan reconciles nonactive jobs") {
+            fixture.store.jobs.first(where: { $0.id == queued.id })?.accessRequirement != nil
+                && fixture.store.jobs.first(where: { $0.id == paused.id })?.accessRequirement != nil
+                && fixture.store.jobs.first(where: { $0.id == failed.id })?.accessRequirement != nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == queued.id })?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == paused.id })?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == failed.id })?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == downloading.id })?.status, .downloading)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == merging.id })?.status, .merging)
+        XCTAssertNil(fixture.store.jobs.first(where: { $0.id == downloading.id })?.accessRequirement)
+        XCTAssertNil(fixture.store.jobs.first(where: { $0.id == merging.id })?.accessRequirement)
+        let startedIDs = await fixture.runner.startedIDs()
+        let cancelledIDs = await fixture.runner.cancelledIDs()
+        XCTAssertEqual(Set(startedIDs), [downloading.id, merging.id])
+        XCTAssertEqual(cancelledIDs, [])
+        await fixture.store.cancelActiveAndWaiting()
+    }
+
+    func testUpgradeClearsRestrictionButKeepsJobPausedUntilManualResume() async throws {
+        var restricted = DownloadJob.fixture(status: .paused)
+        restricted.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        XCTAssertNotNil(fixture.store.jobs.first?.accessRequirement)
+
+        fixture.planController.setPlanForTesting(.testPro)
+        try await waitUntil("Test Pro clears the cached access requirement") {
+            fixture.store.jobs.first?.accessRequirement == nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        let startsBeforeResume = await fixture.runner.startedIDs()
+        XCTAssertEqual(startsBeforeResume, [])
+
+        await fixture.store.resume(restricted.id)
+        try await fixture.runner.waitForStart(of: restricted.id)
+        let startsAfterResume = await fixture.runner.startedIDs()
+        XCTAssertEqual(startsAfterResume, [restricted.id])
+    }
+
+    func testRapidPlanChangesApplyOnlyNewestPlanWithoutAutoStart() async throws {
+        var queued = DownloadJob.fixture(status: .queued)
+        queued.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [queued],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertNotNil(fixture.store.jobs.first?.accessRequirement)
+
+        fixture.planController.setPlanForTesting(.testPro)
+        fixture.planController.setPlanForTesting(.free)
+        fixture.planController.setPlanForTesting(.testPro)
+        try await waitUntil("newest Test Pro state clears the restriction") {
+            fixture.store.jobs.first?.accessRequirement == nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertNil(fixture.store.jobs.first?.accessRequirement)
+        let startedIDs = await fixture.runner.startedIDs()
+        XCTAssertEqual(startedIDs, [])
+    }
+
     func testQueuedEditUsesLatestPlanControllerStateWithoutMutatingJob() async throws {
         let original = DownloadJob.fixture(status: .queued)
         let fixture = try StoreFixture(

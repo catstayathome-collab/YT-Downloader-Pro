@@ -186,6 +186,26 @@ struct VideoFormatMenuPresentation: Equatable, Sendable {
     var highestAllowedID: String? {
         accesses.first(where: \.isAllowed)?.id
     }
+
+    func selectionReconciliation() -> VideoFormatSelectionReconciliation {
+        guard let selectedID,
+              let selectedAccess = accesses.first(where: { $0.id == selectedID }),
+              !selectedAccess.isAllowed else {
+            return VideoFormatSelectionReconciliation(
+                selectedID: selectedID,
+                didNormalize: false
+            )
+        }
+        return VideoFormatSelectionReconciliation(
+            selectedID: highestAllowedID,
+            didNormalize: true
+        )
+    }
+}
+
+struct VideoFormatSelectionReconciliation: Equatable, Sendable {
+    let selectedID: String?
+    let didNormalize: Bool
 }
 
 enum VideoFormatMenuInteraction {

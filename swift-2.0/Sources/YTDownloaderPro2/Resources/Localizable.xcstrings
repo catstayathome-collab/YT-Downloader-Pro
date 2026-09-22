@@ -3268,6 +3268,54 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "升級功能尚未開放。" } }
       }
     },
+    "plan.development.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Development Testing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開発テスト" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開發測試" } }
+      }
+    },
+    "plan.development.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Internal test mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内部テストモード" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "內部測試模式" } }
+      }
+    },
+    "plan.development.disclaimer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This changes local test access only. It is not a login, purchase, or subscription." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "これはローカルのテスト用アクセスだけを変更します。ログイン、購入、サブスクリプションではありません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這只會變更本機測試權限，不代表登入、購買或訂閱。" } }
+      }
+    },
+    "plan.development.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Free" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無料版にリセット" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重設為免費版" } }
+      }
+    },
+    "plan.selectionAdjusted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quality adjusted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画質を調整しました" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已調整畫質" } }
+      }
+    },
+    "plan.selectionAdjusted.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The selected quality was changed to the highest Free option available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択した画質を、利用可能な無料版の最高画質に変更しました。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已將所選畫質改為免費版可用的最高畫質。" } }
+      }
+    },
     "settings.automaticUpdates": {
       "extractionState": "manual",
       "localizations": {

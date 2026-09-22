@@ -33,6 +33,30 @@ struct SettingsView: View {
                 .accessibilityLabel(L10n.string(.planViewProFeatures, locale: locale))
             }
 
+#if YTDP_INTERNAL_TEST
+            Section(L10n.string(.planDevelopmentTitle, locale: locale)) {
+                Picker(
+                    L10n.string(.planDevelopmentMode, locale: locale),
+                    selection: internalPlanSelection
+                ) {
+                    Text(L10n.string(.accountFreePlan, locale: locale))
+                        .tag(AppPlan.free.rawValue)
+                    Text(L10n.string(.accountTestProPlan, locale: locale))
+                        .tag(AppPlan.testPro.rawValue)
+                }
+                .pickerStyle(.segmented)
+
+                Text(L10n.string(.planDevelopmentDisclaimer, locale: locale))
+                    .font(.caption)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+
+                Button(L10n.string(.planDevelopmentReset, locale: locale)) {
+                    planController.resetInternalPlanToFree()
+                }
+                .disabled(planController.currentPlan == .free)
+            }
+#endif
+
             let accountPresentation = AccountSettingsPresentation.make(
                 environment: accountSessionStore.environment,
                 state: accountSessionStore.state,
@@ -178,6 +202,18 @@ struct SettingsView: View {
             set: { value in updateSettings { $0.automaticallyCheckForUpdates = value } }
         )
     }
+
+#if YTDP_INTERNAL_TEST
+    private var internalPlanSelection: Binding<String> {
+        Binding(
+            get: { planController.currentPlan.rawValue },
+            set: { rawValue in
+                guard let plan = AppPlan(rawValue: rawValue) else { return }
+                planController.selectInternalPlan(plan)
+            }
+        )
+    }
+#endif
 
     private var manualUpdateNotice: Binding<UpdateNotice?> {
         Binding(

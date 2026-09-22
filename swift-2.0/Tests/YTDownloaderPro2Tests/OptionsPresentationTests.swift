@@ -265,6 +265,31 @@ final class OptionsPresentationTests: XCTestCase {
         )
     }
 
+    func testDowngradeReconciliationSelectsHighestAllowedFormatOnlyOnce() {
+        let formats = [
+            format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1_080),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720),
+            format(id: "480", label: "480p", videoCodec: "avc1", container: "mp4", height: 480)
+        ]
+        let downgraded = VideoFormatMenuPresentation(
+            formats: formats,
+            selectedID: "1080",
+            outputKind: .mp4,
+            featurePolicy: AppPlan.free.featurePolicyContext
+        ).selectionReconciliation()
+
+        XCTAssertEqual(downgraded, VideoFormatSelectionReconciliation(selectedID: "720", didNormalize: true))
+
+        let alreadyNormalized = VideoFormatMenuPresentation(
+            formats: formats,
+            selectedID: downgraded.selectedID,
+            outputKind: .mp4,
+            featurePolicy: AppPlan.free.featurePolicyContext
+        ).selectionReconciliation()
+
+        XCTAssertEqual(alreadyNormalized, VideoFormatSelectionReconciliation(selectedID: "720", didNormalize: false))
+    }
+
     func testLockedAccessibilityLabelIncludesQualityAndProRequirement() throws {
         let presentation = VideoFormatMenuPresentation(
             formats: [format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080)],

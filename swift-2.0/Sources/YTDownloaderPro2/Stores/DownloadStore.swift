@@ -1,4 +1,4 @@
-import Combine
+@preconcurrency import Combine
 import Foundation
 
 enum AnalysisState: Equatable {
@@ -100,6 +100,9 @@ final class DownloadStore: ObservableObject {
     private let toolchainValidator: (any ToolchainHealthValidating)?
     let planController: PlanController
     var featurePolicyContext: FeaturePolicyContext { planController.featurePolicyContext }
+    private var planObservation: AnyCancellable?
+    private var planReconciliationTask: Task<Void, Never>?
+    private var planReconciliationGeneration: UInt64 = 0
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
@@ -160,6 +163,7 @@ final class DownloadStore: ObservableObject {
         self.toolchainValidator = toolchainValidator
         consumeCoordinatorEvents()
         enqueueRecoveredBatchPlaceholders()
+        observePlanChanges()
     }
 
     func optionsBySelectingOutputDirectory(_ directory: URL, in options: DownloadOptions) throws -> DownloadOptions {
@@ -240,6 +244,8 @@ final class DownloadStore: ObservableObject {
     }
 
     deinit {
+        planObservation?.cancel()
+        planReconciliationTask?.cancel()
         eventConsumptionTask?.cancel()
         analysisTask?.cancel()
         batchAnalysisRequestTask?.cancel()
@@ -263,6 +269,76 @@ final class DownloadStore: ObservableObject {
             for task in thumbnails {
                 await task.value
             }
+        }
+    }
+
+    private func observePlanChanges() {
+        planObservation = planController.$currentPlan
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.schedulePlanReconciliation()
+            }
+    }
+
+    private func schedulePlanReconciliation() {
+        planReconciliationGeneration &+= 1
+        let generation = planReconciliationGeneration
+        planReconciliationTask?.cancel()
+        planReconciliationTask = Task { @MainActor [weak self] in
+            // Coalesce synchronous test-plan changes before mutating retained work.
+            await Task.yield()
+            await self?.reconcileJobsForCurrentPlan(generation: generation)
+        }
+    }
+
+    private func reconcileJobsForCurrentPlan(generation: UInt64) async {
+        guard !isPreparingToQuit,
+              !Task.isCancelled,
+              generation == planReconciliationGeneration else { return }
+
+        let policy = featurePolicyContext
+        var changed = false
+        var managedQueuedIDsToPause: [UUID] = []
+
+        for index in jobs.indices {
+            guard !jobs[index].status.isActive,
+                  [.queued, .paused, .failed].contains(jobs[index].status) else { continue }
+            var jobChanged = false
+
+            switch jobs[index].options.featurePolicyDecision(in: policy) {
+            case .allowed:
+                if jobs[index].accessRequirement != nil {
+                    jobs[index].accessRequirement = nil
+                    jobChanged = true
+                }
+            case let .denied(denial):
+                let requirement = DownloadAccessRequirement(denial: denial)
+                if jobs[index].accessRequirement != requirement {
+                    jobs[index].accessRequirement = requirement
+                    jobChanged = true
+                }
+                if jobs[index].status == .queued {
+                    if coordinatorManagedJobIDs.contains(jobs[index].id) {
+                        managedQueuedIDsToPause.append(jobs[index].id)
+                    }
+                    transitionJob(at: index, to: .paused)
+                    jobChanged = true
+                }
+            }
+
+            if jobChanged {
+                jobs[index].updatedAt = .now
+                changed = true
+            }
+        }
+
+        guard generation == planReconciliationGeneration else { return }
+        if changed {
+            await persist(flush: true)
+        }
+        for jobID in managedQueuedIDsToPause {
+            guard generation == planReconciliationGeneration, !Task.isCancelled else { return }
+            await coordinator.pause(jobID)
         }
     }
 
