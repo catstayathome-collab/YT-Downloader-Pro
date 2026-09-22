@@ -18,10 +18,9 @@ final class PlanController: ObservableObject {
 
     init(buildChannel: AppBuildChannel, provider: any PlanProviding) {
         self.buildChannel = buildChannel
-        if buildChannel == .internalTest,
-           let internalProvider = provider as? InternalTestPlanProvider {
-            internalStore = internalProvider.store
-            currentPlan = internalProvider.loadPlan()
+        if buildChannel == .internalTest {
+            internalStore = (provider as? InternalTestPlanProvider)?.store
+            currentPlan = provider.loadPlan()
         } else {
             internalStore = nil
             currentPlan = .free
@@ -53,6 +52,13 @@ final class PlanController: ObservableObject {
 
     func resetInternalPlanToFree() {
         selectInternalPlan(.free)
+    }
+#endif
+
+#if DEBUG
+    func setPlanForTesting(_ plan: AppPlan) {
+        guard buildChannel == .internalTest else { return }
+        currentPlan = plan
     }
 #endif
 }

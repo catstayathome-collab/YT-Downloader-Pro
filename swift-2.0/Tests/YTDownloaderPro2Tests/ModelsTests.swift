@@ -181,6 +181,39 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(decoded.awaitsBatchAnalysis)
     }
 
+    func testLegacyJobWithoutAccessRequirementDefaultsToNil() throws {
+        let job = DownloadJob.fixture(status: .paused)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as? [String: Any])
+        object.removeValue(forKey: "accessRequirement")
+
+        let decoded = try JSONDecoder().decode(
+            DownloadJob.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertNil(decoded.accessRequirement)
+    }
+
+    func testAccessRequirementRoundTripsOnlyStablePolicyValues() throws {
+        var job = DownloadJob.fixture(status: .paused)
+        job.accessRequirement = DownloadAccessRequirement(
+            feature: .videoHD,
+            reason: .videoHeightRequiresPro
+        )
+
+        let encoded = try JSONEncoder().encode(job)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let requirement = try XCTUnwrap(object["accessRequirement"] as? [String: Any])
+        let decoded = try JSONDecoder().decode(DownloadJob.self, from: encoded)
+
+        XCTAssertEqual(Set(requirement.keys), ["feature", "reason"])
+        XCTAssertEqual(requirement["feature"] as? String, "video.hd")
+        XCTAssertEqual(requirement["reason"] as? String, "videoHeightRequiresPro")
+        XCTAssertEqual(decoded.accessRequirement, job.accessRequirement)
+        XCTAssertFalse(String(data: try JSONEncoder().encode(job.accessRequirement), encoding: .utf8)!.contains(job.title))
+        XCTAssertFalse(String(data: try JSONEncoder().encode(job.accessRequirement), encoding: .utf8)!.contains(job.sourceURL))
+    }
+
     func testDownloadFailureRedactsEveryCookieHeaderValue() throws {
         let failure = DownloadFailure(
             category: .unknown,

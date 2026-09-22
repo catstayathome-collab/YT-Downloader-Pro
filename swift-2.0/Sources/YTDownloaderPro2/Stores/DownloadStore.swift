@@ -98,7 +98,8 @@ final class DownloadStore: ObservableObject {
     private let metadataAnalyzer: any MetadataAnalyzing
     private let updateChecker: any UpdateChecking
     private let toolchainValidator: (any ToolchainHealthValidating)?
-    let featurePolicyContext: FeaturePolicyContext
+    let planController: PlanController
+    var featurePolicyContext: FeaturePolicyContext { planController.featurePolicyContext }
     private var eventConsumptionTask: Task<Void, Never>?
     private var coordinatorManagedJobIDs: Set<UUID> = []
     private var didRestorePersistedJobs = false
@@ -136,9 +137,13 @@ final class DownloadStore: ObservableObject {
         metadataAnalyzer: any MetadataAnalyzing,
         updateChecker: any UpdateChecking = UpdateChecker.live(),
         toolchainValidator: (any ToolchainHealthValidating)? = nil,
-        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
+        planController: PlanController
     ) {
-        self.jobs = Self.recoveredJobs(from: jobs)
+        self.planController = planController
+        self.jobs = Self.recoveredJobs(
+            from: jobs,
+            featurePolicyContext: planController.featurePolicyContext
+        )
         self.selection = selection
         self.sidebarSection = sidebarSection
         self.analysisState = analysisState
@@ -153,7 +158,6 @@ final class DownloadStore: ObservableObject {
         self.metadataAnalyzer = metadataAnalyzer
         self.updateChecker = updateChecker
         self.toolchainValidator = toolchainValidator
-        self.featurePolicyContext = featurePolicyContext
         consumeCoordinatorEvents()
         enqueueRecoveredBatchPlaceholders()
     }
@@ -267,7 +271,8 @@ final class DownloadStore: ObservableObject {
         bundle: Bundle = .main,
         applicationSupportRoot: URL? = nil,
         settingsStore: AppSettingsStore = AppSettingsStore(),
-        featurePolicyResolution: FeaturePolicyEnvironmentResolution = .resolve(from: [:])
+        featurePolicyResolution: FeaturePolicyEnvironmentResolution = .resolve(from: [:]),
+        planController: PlanController = .live()
     ) -> DownloadStore {
         let root = applicationSupportRoot ?? Self.defaultApplicationSupportRoot()
         let toolchain = (try? Toolchain.resolve(bundle: bundle.bundleURL)) ?? Self.unavailableToolchain()
@@ -280,7 +285,10 @@ final class DownloadStore: ObservableObject {
                 lockDirectory: root.appendingPathComponent("Reservation Locks", isDirectory: true)
             ),
             metadataProbe: probe,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            featurePolicyContextProvider: { @MainActor in
+                planController.featurePolicyContext
+            }
         )
         let coordinator = DownloadCoordinator(limit: settingsStore.load().maximumConcurrentDownloads, runner: runner)
         let store = DownloadStore(
@@ -292,7 +300,7 @@ final class DownloadStore: ObservableObject {
             settingsStore: settingsStore,
             metadataAnalyzer: probe,
             toolchainValidator: toolchainValidator,
-            featurePolicyContext: featurePolicyResolution.context
+            planController: planController
         )
         Task { _ = try? await toolchainValidator.validate(force: false) }
         Task {
@@ -425,8 +433,7 @@ final class DownloadStore: ObservableObject {
 
     func addVideo(options: DownloadOptions) async {
         guard case let .video(video) = analysisState, !isPreparingToQuit else { return }
-        let presentation = MediaOptionsPresentation(options: options)
-        guard !deny(presentation.decisionForSelectedOptions(in: featurePolicyContext)) else { return }
+        guard !deny(options.featurePolicyDecision(in: featurePolicyContext)) else { return }
         let job = DownloadJob(
             sourceURL: video.sourceURL,
             title: video.title,
@@ -445,6 +452,7 @@ final class DownloadStore: ObservableObject {
     func addPlaylistEntries(selectedIDs: Set<String>, options: DownloadOptions) async {
         guard case let .playlist(playlist) = analysisState, !isPreparingToQuit else { return }
         guard !deny(featurePolicyContext.playlistExpansionDecision()) else { return }
+        guard !deny(options.featurePolicyDecision(in: featurePolicyContext)) else { return }
         let newJobs = playlist.entries.compactMap { entry -> (DownloadJob, URL?)? in
             guard selectedIDs.contains(entry.id), entry.isAvailable else { return nil }
             return (
@@ -474,7 +482,9 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].status == .queued else { return false }
+        guard !deny(options.featurePolicyDecision(in: featurePolicyContext)) else { return false }
         jobs[index].options = options
+        jobs[index].accessRequirement = nil
         jobs[index].updatedAt = .now
         await persist(flush: true)
         return true
@@ -518,8 +528,10 @@ final class DownloadStore: ObservableObject {
               currentQueuedEditGeneration[session.jobID] == session.generation,
               let index = jobs.firstIndex(where: { $0.id == session.jobID }),
               jobs[index].status == .queued else { return false }
+        guard !deny(options.featurePolicyDecision(in: featurePolicyContext)) else { return false }
         currentQueuedEditGeneration[session.jobID] = nil
         jobs[index].options = options
+        jobs[index].accessRequirement = nil
         jobs[index].updatedAt = .now
         await persist(flush: true)
         return true
@@ -528,7 +540,12 @@ final class DownloadStore: ObservableObject {
     /// Submits retained queued records that were restored or deliberately left waiting.
     func startAll() async {
         guard !isPreparingToQuit else { return }
-        let queuedJobs = jobs.filter { $0.status == .queued }
+        let (queuedJobs, restrictedAny) = admittedQueuedJobs(
+            jobs.filter { $0.status == .queued }
+        )
+        if restrictedAny {
+            await persist(flush: true)
+        }
         coordinatorManagedJobIDs.formUnion(queuedJobs.map(\.id))
         await coordinator.enqueue(queuedJobs)
     }
@@ -536,7 +553,12 @@ final class DownloadStore: ObservableObject {
     private func automaticallyStartNewJobs(_ newJobs: [DownloadJob]) async {
         guard !isPreparingToQuit else { return }
         let newJobIDs = Set(newJobs.map(\.id))
-        let queuedNewJobs = jobs.filter { newJobIDs.contains($0.id) && $0.status == .queued }
+        let (queuedNewJobs, restrictedAny) = admittedQueuedJobs(
+            jobs.filter { newJobIDs.contains($0.id) && $0.status == .queued }
+        )
+        if restrictedAny {
+            await persist(flush: true)
+        }
         guard !queuedNewJobs.isEmpty else { return }
         coordinatorManagedJobIDs.formUnion(queuedNewJobs.map(\.id))
         await coordinator.enqueue(queuedNewJobs)
@@ -606,6 +628,11 @@ final class DownloadStore: ObservableObject {
         jobs[index].options = jobs[index].options.replacingStaleSelections(with: video)
         jobs[index].failure = nil
         jobs[index].awaitsBatchAnalysis = false
+        if restrictJobIfNeeded(at: index, deniedStatus: .paused) {
+            await persist(flush: true)
+            cacheThumbnail(from: video.thumbnailURL, for: jobID)
+            return
+        }
         transitionJob(at: index, to: .queued)
         let job = jobs[index]
         await persist(flush: true)
@@ -681,10 +708,49 @@ final class DownloadStore: ObservableObject {
         return true
     }
 
+    private func restrictJobIfNeeded(
+        at index: Int,
+        deniedStatus: DownloadStatus? = nil
+    ) -> Bool {
+        let decision = jobs[index].options.featurePolicyDecision(in: featurePolicyContext)
+        guard case let .denied(denial) = decision else {
+            jobs[index].accessRequirement = nil
+            return false
+        }
+        featurePolicyDenial = denial
+        jobs[index].accessRequirement = DownloadAccessRequirement(denial: denial)
+        if let deniedStatus, jobs[index].status != deniedStatus {
+            transitionJob(at: index, to: deniedStatus)
+        } else {
+            jobs[index].updatedAt = .now
+        }
+        return true
+    }
+
+    private func admittedQueuedJobs(_ candidates: [DownloadJob]) -> ([DownloadJob], Bool) {
+        var admitted: [DownloadJob] = []
+        var restrictedAny = false
+        for candidate in candidates {
+            guard let index = jobs.firstIndex(where: { $0.id == candidate.id }),
+                  jobs[index].status == .queued else { continue }
+            if restrictJobIfNeeded(at: index, deniedStatus: .paused) {
+                restrictedAny = true
+            } else {
+                admitted.append(jobs[index])
+            }
+        }
+        return (admitted, restrictedAny)
+    }
+
     func start(_ jobID: UUID) async {
         guard !isPreparingToQuit,
-              let job = jobs.first(where: { $0.id == jobID }),
-              job.status == .queued else { return }
+              let index = jobs.firstIndex(where: { $0.id == jobID }),
+              jobs[index].status == .queued else { return }
+        if restrictJobIfNeeded(at: index, deniedStatus: .paused) {
+            await persist(flush: true)
+            return
+        }
+        let job = jobs[index]
         if coordinatorManagedJobIDs.contains(jobID) {
             await coordinator.startNow(jobID)
         } else {
@@ -708,9 +774,17 @@ final class DownloadStore: ObservableObject {
 
     func resumeAll() async {
         guard !isPreparingToQuit else { return }
-        let resumptions = jobs.compactMap { job -> (jobID: UUID, wasManaged: Bool)? in
-            guard job.status == .paused else { return nil }
-            return (job.id, coordinatorManagedJobIDs.contains(job.id))
+        var deniedAny = false
+        let resumptions = jobs.indices.compactMap { index -> (jobID: UUID, wasManaged: Bool)? in
+            guard jobs[index].status == .paused else { return nil }
+            if restrictJobIfNeeded(at: index) {
+                deniedAny = true
+                return nil
+            }
+            return (jobs[index].id, coordinatorManagedJobIDs.contains(jobs[index].id))
+        }
+        if deniedAny {
+            await persist(flush: true)
         }
         guard !resumptions.isEmpty else { return }
         for resumption in resumptions {
@@ -747,6 +821,10 @@ final class DownloadStore: ObservableObject {
         guard !isPreparingToQuit,
               let index = jobs.firstIndex(where: { $0.id == jobID }),
               jobs[index].status == .paused else { return }
+        if restrictJobIfNeeded(at: index) {
+            await persist(flush: true)
+            return
+        }
         let wasManaged = coordinatorManagedJobIDs.contains(jobID)
         transitionJob(at: index, to: .queued)
         await persist(flush: true)
@@ -860,6 +938,11 @@ final class DownloadStore: ObservableObject {
             guard ownsRetry(jobID: jobID, generation: generation),
                   let refreshedIndex = jobs.firstIndex(where: { $0.id == jobID }),
                   jobs[refreshedIndex].status == .failed else { return }
+            if restrictJobIfNeeded(at: refreshedIndex) {
+                currentRetryGeneration[jobID] = nil
+                await persist(flush: true)
+                return
+            }
             jobs[refreshedIndex].sourceURL = video.sourceURL
             jobs[refreshedIndex].title = video.title
             jobs[refreshedIndex].titleSource = video.titleSource
@@ -953,6 +1036,11 @@ final class DownloadStore: ObservableObject {
             )
             return false
         }
+        let policyDecision = options.featurePolicyDecision(in: featurePolicyContext)
+        if case let .denied(denial) = policyDecision {
+            featurePolicyDenial = denial
+            return false
+        }
 
         jobs[index].sourceURL = sanitizedAnalysis.sourceURL
         jobs[index].title = sanitizedAnalysis.title
@@ -960,6 +1048,7 @@ final class DownloadStore: ObservableObject {
         jobs[index].duration = sanitizedAnalysis.duration
         jobs[index].sourceMetadata = sanitizedAnalysis.sourceURL
         jobs[index].options = options
+        jobs[index].accessRequirement = nil
         jobs[index].failure = nil
         jobs[index].retryCount += 1
         jobs[index].progress = 0
@@ -1101,7 +1190,7 @@ final class DownloadStore: ObservableObject {
             startBatchAnalysisIfNeeded()
             return
         }
-        let replacement = DownloadJob(
+        var replacement = DownloadJob(
             sourceURL: job.sourceURL,
             playlistID: job.playlistID,
             title: job.title,
@@ -1110,6 +1199,13 @@ final class DownloadStore: ObservableObject {
             sourceMetadata: job.sourceMetadata,
             options: job.options
         )
+        if case let .denied(denial) = replacement.options.featurePolicyDecision(
+            in: featurePolicyContext
+        ) {
+            replacement.status = .paused
+            replacement.accessRequirement = DownloadAccessRequirement(denial: denial)
+            featurePolicyDenial = denial
+        }
         jobs.append(replacement)
         await persist(flush: true)
     }
@@ -1139,7 +1235,10 @@ final class DownloadStore: ObservableObject {
         guard !didRestorePersistedJobs, !isPreparingToQuit else { return }
         didRestorePersistedJobs = true
         do {
-            let restored = Self.recoveredJobs(from: try await persistence.loadJobs())
+            let restored = Self.recoveredJobs(
+                from: try await persistence.loadJobs(),
+                featurePolicyContext: featurePolicyContext
+            )
             guard !isPreparingToQuit else { return }
             jobs = restored
             selection = selection.intersection(Set(jobs.map(\.id)))
@@ -1173,6 +1272,13 @@ final class DownloadStore: ObservableObject {
             await persist(flush: true)
         case let .runnerEvent(jobID, event):
             await consumeRunnerEvent(event, for: jobID)
+        case let .policyDenied(jobID, denial):
+            guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+            jobs[index].accessRequirement = DownloadAccessRequirement(denial: denial)
+            jobs[index].failure = nil
+            jobs[index].updatedAt = .now
+            featurePolicyDenial = denial
+            await persist(flush: true)
         case let .failure(jobID, failure):
             guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
             jobs[index].failure = failure
@@ -1448,11 +1554,29 @@ final class DownloadStore: ObservableObject {
         }
     }
 
-    private static func recoveredJobs(from jobs: [DownloadJob]) -> [DownloadJob] {
+    private static func recoveredJobs(
+        from jobs: [DownloadJob],
+        featurePolicyContext: FeaturePolicyContext
+    ) -> [DownloadJob] {
         jobs.map { job in
             var restored = job.scrubbingRetainedMediaURLCredentials()
             if restored.status.isActive, !restored.awaitsBatchAnalysis {
                 restored.status = .paused
+                restored.updatedAt = .now
+            }
+            guard !restored.awaitsBatchAnalysis,
+                  ![DownloadStatus.completed, .cancelled].contains(restored.status) else {
+                restored.accessRequirement = nil
+                return restored
+            }
+            switch restored.options.featurePolicyDecision(in: featurePolicyContext) {
+            case .allowed:
+                restored.accessRequirement = nil
+            case let .denied(denial):
+                restored.accessRequirement = DownloadAccessRequirement(denial: denial)
+                if restored.status == .queued || restored.status.isActive {
+                    restored.status = .paused
+                }
                 restored.updatedAt = .now
             }
             return restored

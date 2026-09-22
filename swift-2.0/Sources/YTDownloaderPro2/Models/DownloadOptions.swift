@@ -189,6 +189,14 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         return normalized
     }
 
+    func featurePolicyDecision(in context: FeaturePolicyContext) -> FeatureDecision {
+        context.videoDecision(
+            height: selectedVideoFormat?.height,
+            isAudioOnly: outputKind == .mp3,
+            isSourceQuality: selectedVideoFormat.map(Self.isSourceQuality) ?? false
+        )
+    }
+
     func replacingStaleSelections(with analysis: VideoAnalysis) -> DownloadOptions {
         var refreshed = normalizedForExecution()
         let selectedVideoID = videoQuality.formatID
@@ -227,6 +235,12 @@ struct DownloadOptions: Codable, Equatable, Sendable {
                 }
             }
         }
+    }
+
+    private static func isSourceQuality(_ format: PersistedFormatPresentation) -> Bool {
+        format.height.map({ $0 >= 2_160 }) == true
+            || format.note?.localizedCaseInsensitiveContains("source") == true
+            || format.resolution?.localizedCaseInsensitiveContains("4k") == true
     }
 
     private static func legacyVideoFormat(for quality: VideoQuality) -> MediaFormat? {

@@ -116,11 +116,7 @@ struct MediaOptionsPresentation: Equatable {
     }
 
     func decisionForSelectedOptions(in featurePolicy: FeaturePolicyContext) -> FeatureDecision {
-        featurePolicy.videoDecision(
-            height: options.selectedVideoFormat?.height,
-            isAudioOnly: options.outputKind == .mp3,
-            isSourceQuality: options.selectedVideoFormat.map(Self.isSourceQuality) ?? false
-        )
+        options.featurePolicyDecision(in: featurePolicy)
     }
 
     private static func selectedID(for quality: VideoQuality, in choices: [MediaFormat]) -> String? {
@@ -172,10 +168,6 @@ struct MediaOptionsPresentation: Equatable {
     }
 
     private static func isSourceQuality(_ format: MediaFormat) -> Bool {
-        isSourceQuality(height: format.height, note: format.note, resolution: format.resolution)
-    }
-
-    private static func isSourceQuality(_ format: PersistedFormatPresentation) -> Bool {
         isSourceQuality(height: format.height, note: format.note, resolution: format.resolution)
     }
 

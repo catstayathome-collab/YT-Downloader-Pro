@@ -53,6 +53,7 @@ actor DownloadRunner: JobRunning {
     private let processLauncher: any ProcessLaunching
     private let bookmarks: OutputDirectoryBookmarkService
     private let toolchainValidator: (any ToolchainHealthValidating)?
+    private let featurePolicyContextProvider: @Sendable () async -> FeaturePolicyContext
     private let interruptGraceNanoseconds: UInt64
     private let parser = ProgressParser()
 
@@ -67,6 +68,9 @@ actor DownloadRunner: JobRunning {
         processLauncher: any ProcessLaunching = SystemProcessLauncher(),
         bookmarks: OutputDirectoryBookmarkService = .live,
         toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        featurePolicyContextProvider: @escaping @Sendable () async -> FeaturePolicyContext = {
+            .publicCompatibility
+        },
         interruptGraceNanoseconds: UInt64 = 2_000_000_000
     ) {
         self.toolchain = toolchain
@@ -75,6 +79,7 @@ actor DownloadRunner: JobRunning {
         self.processLauncher = processLauncher
         self.bookmarks = bookmarks
         self.toolchainValidator = toolchainValidator
+        self.featurePolicyContextProvider = featurePolicyContextProvider
         self.interruptGraceNanoseconds = interruptGraceNanoseconds
     }
 
@@ -201,6 +206,18 @@ actor DownloadRunner: JobRunning {
 
     private func prepareAndRun(jobID: UUID, attempt: Int) async {
         guard var activeDownload = active[jobID] else { return }
+
+        let featurePolicyContext = await featurePolicyContextProvider()
+        if case let .denied(denial) = activeDownload.job.options.featurePolicyDecision(
+            in: featurePolicyContext
+        ) {
+            await finish(
+                jobID: jobID,
+                error: DownloadPolicyDeniedError(denial: denial),
+                removeMarker: false
+            )
+            return
+        }
 
         guard MediaURLValidator.isSupported(activeDownload.job.sourceURL) else {
             await finish(

@@ -79,7 +79,10 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
         let featurePolicyResolution = FeaturePolicyEnvironmentResolution.resolve()
         let planController = PlanController.live()
         self.init(
-            store: DownloadStore.live(featurePolicyResolution: featurePolicyResolution),
+            store: DownloadStore.live(
+                featurePolicyResolution: featurePolicyResolution,
+                planController: planController
+            ),
             accountSessionStore: .live(),
             planController: planController
         )

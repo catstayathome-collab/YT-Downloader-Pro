@@ -56,6 +56,64 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertTrue(fixture.commandLog().isEmpty)
     }
 
+    func testFreePlanDeniesRestrictedVideoSelectionsBeforeAnySideEffect() async throws {
+        let cases: [(MediaFormat?, FeatureID, FeatureDenialReason)] = [
+            (
+                mediaFormat(id: "1080", height: 1_080),
+                .videoHD,
+                .videoHeightRequiresPro
+            ),
+            (
+                mediaFormat(id: "source", height: 720, note: "Source"),
+                .videoUHD,
+                .sourceQualityRequiresPro
+            ),
+            (
+                mediaFormat(id: "unknown", height: nil),
+                .videoHD,
+                .unknownVideoHeight
+            )
+        ]
+
+        for (format, feature, reason) in cases {
+            let fixture = try RunnerFixture(
+                mode: "success",
+                featurePolicyContext: AppPlan.free.featurePolicyContext
+            )
+
+            do {
+                _ = try await collect(fixture.runner.events(for: fixture.job(videoFormat: format)))
+                XCTFail("Expected Free policy denial for \(reason)")
+            } catch let denial as DownloadPolicyDeniedError {
+                XCTAssertEqual(denial.denial.requiredFeature, feature)
+                XCTAssertEqual(denial.denial.reason, reason)
+            }
+
+            XCTAssertEqual(fixture.scope.startCount, 0)
+            XCTAssertEqual(fixture.scope.stopCount, 0)
+            XCTAssertTrue(fixture.commandLog().isEmpty)
+            XCTAssertTrue(fixture.reservationMarkers().isEmpty)
+        }
+    }
+
+    func testFreePlanAllowsMP3BeforeRunnerSideEffectsProceed() async throws {
+        let fixture = try RunnerFixture(
+            mode: "success",
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        var job = fixture.job()
+        job.options.selectOutputKind(.mp3)
+
+        do {
+            _ = try await collect(fixture.runner.events(for: job))
+        } catch is DownloadFailure {
+            // The fixture always writes an MP4; reaching that verification proves policy admission.
+        }
+
+        XCTAssertEqual(fixture.scope.startCount, 1)
+        XCTAssertFalse(fixture.commandLog().isEmpty)
+    }
+
     func testExitZeroWithoutOwnedFinalOutputFailsInsteadOfCompleting() async throws {
         // Removing final-output verification would emit completed for this zero-exit process.
         let fixture = try RunnerFixture(mode: "no-final")
@@ -492,6 +550,29 @@ final class DownloadRunnerTests: XCTestCase {
         guard case let .reservedBasename(value) = event else { return nil }
         return value
     }
+
+    private func mediaFormat(
+        id: String,
+        height: Int?,
+        note: String? = nil
+    ) -> MediaFormat {
+        MediaFormat(
+            id: id,
+            label: id,
+            codec: nil,
+            videoCodec: "avc1",
+            audioCodec: nil,
+            container: "mp4",
+            width: nil,
+            height: height,
+            resolution: nil,
+            framesPerSecond: nil,
+            bitrate: nil,
+            language: nil,
+            estimatedFileSize: nil,
+            note: note
+        )
+    }
 }
 
 private final class RunnerFixture: @unchecked Sendable {
@@ -504,7 +585,8 @@ private final class RunnerFixture: @unchecked Sendable {
         mode: String,
         launchable: Bool = true,
         displayDirectory: String? = nil,
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         directory = try temporaryDirectory()
         let fixtureExecutable = try Self.copyFixtureScript(to: directory)
@@ -529,6 +611,7 @@ private final class RunnerFixture: @unchecked Sendable {
             metadataProbe: MetadataProbe(toolchain: toolchain, processRunner: SystemProcessLauncher()),
             bookmarks: bookmarks,
             toolchainValidator: toolchainValidator,
+            featurePolicyContextProvider: { featurePolicyContext },
             interruptGraceNanoseconds: 100_000_000
         )
         try "mode=\(mode)".write(to: directory.appendingPathComponent("fixture-mode"), atomically: true, encoding: .utf8)
@@ -548,12 +631,20 @@ private final class RunnerFixture: @unchecked Sendable {
     var foreignFragmentURL: URL { directory.appendingPathComponent("Example video2.f137.mp4.part-Frag1") }
     var analysisStartedURL: URL { directory.appendingPathComponent("analysis-started") }
 
-    func job(id: UUID = UUID(), reservedBasename: String? = nil, videoFormatID: String? = nil) -> DownloadJob {
+    func job(
+        id: UUID = UUID(),
+        reservedBasename: String? = nil,
+        videoFormatID: String? = nil,
+        videoFormat: MediaFormat? = nil
+    ) -> DownloadJob {
         var options = DownloadOptions.fixture()
         options.outputDirectoryBookmark = Data("fixture-bookmark".utf8)
         options.outputDirectoryDisplayPath = (try? String(contentsOf: directory.appendingPathComponent("fixture-display-directory"), encoding: .utf8)) ?? directory.path
         if let videoFormatID {
             options.videoQuality = .format(id: videoFormatID, label: "fixture")
+        }
+        if let videoFormat {
+            options.selectVideoFormat(videoFormat)
         }
         let mode = (try? String(contentsOf: directory.appendingPathComponent("fixture-mode"), encoding: .utf8))?.replacingOccurrences(of: "mode=", with: "").trimmingCharacters(in: .whitespacesAndNewlines) ?? "success"
         return DownloadJob(
@@ -581,6 +672,13 @@ private final class RunnerFixture: @unchecked Sendable {
 
     func commandLog() -> String {
         (try? String(contentsOf: directory.appendingPathComponent("Example video.fake-command"), encoding: .utf8)) ?? ""
+    }
+
+    func reservationMarkers() -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ))?.filter { $0.lastPathComponent.hasSuffix(".ytdp-reservation") } ?? []
     }
 
     func analysisTraceLines() -> [String] {

@@ -3,11 +3,18 @@ import Foundation
 enum CoordinatorEvent: Equatable, Sendable {
     case started(UUID)
     case runnerEvent(UUID, DownloadEvent)
+    case policyDenied(UUID, FeatureDenial)
     case failure(UUID, DownloadFailure)
     case stopped(UUID, DownloadStatus)
 }
 
 actor DownloadCoordinator {
+    private enum WorkerResult: Sendable {
+        case success
+        case policyDenied(FeatureDenial)
+        case failure(DownloadFailure)
+    }
+
     private enum RequestedStop: Equatable {
         case none
         case pause
@@ -262,11 +269,13 @@ actor DownloadCoordinator {
         let token = UUID()
         let runner = self.runner
         let task = Task { [weak self, runner, job] in
-            var result: Result<Void, DownloadFailure> = .success(())
+            var result: WorkerResult = .success
             do {
                 for try await event in runner.events(for: job) {
                     await self?.receive(event, for: job.id, token: token)
                 }
+            } catch let denial as DownloadPolicyDeniedError {
+                result = .policyDenied(denial.denial)
             } catch {
                 let failure = error as? DownloadFailure ?? DownloadFailure(
                     category: .downloadFailed,
@@ -291,7 +300,7 @@ actor DownloadCoordinator {
         continuation.yield(.runnerEvent(jobID, event))
     }
 
-    private func workerFinished(jobID: UUID, token: UUID, result: Result<Void, DownloadFailure>) async {
+    private func workerFinished(jobID: UUID, token: UUID, result: WorkerResult) async {
         guard let current = active[jobID], current.token == token else { return }
         if let pendingPause = current.pendingPause {
             _ = await settlePause(
@@ -318,6 +327,9 @@ actor DownloadCoordinator {
             switch result {
             case .success:
                 finalStatus = .completed
+            case let .policyDenied(denial):
+                finalStatus = .paused
+                continuation.yield(.policyDenied(jobID, denial))
             case let .failure(failure):
                 finalStatus = .failed
                 continuation.yield(.failure(jobID, failure))

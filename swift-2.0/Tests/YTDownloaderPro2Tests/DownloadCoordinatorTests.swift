@@ -182,6 +182,37 @@ final class DownloadCoordinatorTests: XCTestCase {
         ])
     }
 
+    func testPolicyDenialIsPausedAndNeverReportedAsOperationalFailure() async throws {
+        let runner = GatedRunner()
+        let coordinator = DownloadCoordinator(limit: 1, runner: runner)
+        let job = DownloadJob.fixture()
+        let recorder = CoordinatorEventRecorder()
+        let observer = Task {
+            for await event in coordinator.events {
+                await recorder.record(event)
+            }
+        }
+        let denial = FeatureDenial(
+            requiredFeature: .videoHD,
+            reason: .videoHeightRequiresPro,
+            canChooseFreeAlternative: true
+        )
+
+        await coordinator.enqueue(job)
+        try await runner.waitForStarted(count: 1)
+        await runner.deny(job.id, with: denial)
+        try await recorder.waitForStopped(job.id)
+        await coordinator.shutdown()
+        observer.cancel()
+
+        let events = await recorder.events
+        XCTAssertEqual(events, [
+            .started(job.id),
+            .policyDenied(job.id, denial),
+            .stopped(job.id, .paused)
+        ])
+    }
+
     func testDuplicateEnqueueAndControlCommandsAreIdempotent() async throws {
         let runner = GatedRunner()
         let coordinator = DownloadCoordinator(limit: 1, runner: runner)
@@ -759,6 +790,10 @@ private actor GatedRunner: JobRunning {
 
     func fail(_ jobID: UUID, with failure: DownloadFailure) {
         finish(jobID, error: failure)
+    }
+
+    func deny(_ jobID: UUID, with denial: FeatureDenial) {
+        finish(jobID, error: DownloadPolicyDeniedError(denial: denial))
     }
 
     private func start(job: DownloadJob, continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation) {

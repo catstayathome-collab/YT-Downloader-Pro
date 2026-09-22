@@ -20,7 +20,11 @@ struct FeatureDenial: Equatable, Sendable, Identifiable {
     }
 }
 
-enum FeatureDenialReason: String, CaseIterable, Equatable, Sendable {
+struct DownloadPolicyDeniedError: Error, Equatable, Sendable {
+    let denial: FeatureDenial
+}
+
+enum FeatureDenialReason: String, CaseIterable, Codable, Equatable, Sendable {
     case videoHeightRequiresPro
     case sourceQualityRequiresPro
     case unknownVideoHeight

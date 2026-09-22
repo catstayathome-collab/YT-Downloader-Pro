@@ -6,6 +6,21 @@ enum DownloadTransitionError: Error, Equatable, Sendable {
     case queuedJobCannotCompleteDirectly
 }
 
+struct DownloadAccessRequirement: Codable, Equatable, Sendable {
+    let feature: FeatureID
+    let reason: FeatureDenialReason
+
+    init(feature: FeatureID, reason: FeatureDenialReason) {
+        self.feature = feature
+        self.reason = reason
+    }
+
+    init?(denial: FeatureDenial) {
+        guard let feature = denial.requiredFeature else { return nil }
+        self.init(feature: feature, reason: denial.reason)
+    }
+}
+
 struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
     var id: UUID
     var sourceURL: String
@@ -25,6 +40,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
     var reservedOutputBasename: String?
     var outputURL: URL?
     var options: DownloadOptions
+    var accessRequirement: DownloadAccessRequirement?
     var failure: DownloadFailure?
     var retryCount: Int
     var createdAt: Date
@@ -50,6 +66,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         reservedOutputBasename: String? = nil,
         outputURL: URL? = nil,
         options: DownloadOptions = .defaults,
+        accessRequirement: DownloadAccessRequirement? = nil,
         failure: DownloadFailure? = nil,
         retryCount: Int = 0,
         awaitsBatchAnalysis: Bool = false,
@@ -76,6 +93,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         self.reservedOutputBasename = reservedOutputBasename
         self.outputURL = outputURL
         self.options = options
+        self.accessRequirement = accessRequirement
         self.failure = failure
         self.retryCount = retryCount
         self.createdAt = createdAt
@@ -103,6 +121,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         case reservedOutputBasename
         case outputURL
         case options
+        case accessRequirement
         case failure
         case retryCount
         case createdAt
@@ -131,6 +150,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         reservedOutputBasename = try container.decodeIfPresent(String.self, forKey: .reservedOutputBasename)
         outputURL = try container.decodeIfPresent(URL.self, forKey: .outputURL)
         options = try container.decode(DownloadOptions.self, forKey: .options)
+        accessRequirement = try container.decodeIfPresent(DownloadAccessRequirement.self, forKey: .accessRequirement)
         failure = try container.decodeIfPresent(DownloadFailure.self, forKey: .failure)
         retryCount = try container.decode(Int.self, forKey: .retryCount)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
@@ -159,6 +179,7 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
         try container.encodeIfPresent(reservedOutputBasename, forKey: .reservedOutputBasename)
         try container.encodeIfPresent(outputURL, forKey: .outputURL)
         try container.encode(options, forKey: .options)
+        try container.encodeIfPresent(accessRequirement, forKey: .accessRequirement)
         try container.encodeIfPresent(failure, forKey: .failure)
         try container.encode(retryCount, forKey: .retryCount)
         try container.encode(createdAt, forKey: .createdAt)
