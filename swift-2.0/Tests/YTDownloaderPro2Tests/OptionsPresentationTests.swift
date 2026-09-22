@@ -141,6 +141,144 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(audioModel.decisionForSelectedOptions(in: policy), .allowed)
     }
 
+    func testFreeVideoFormatAccessLocksOnlyAnalyzedProQualitiesAndDefaultsToHighestEligibleChoice() {
+        let formats = [
+            format(id: "source", label: "Source", videoCodec: "avc1", container: "mp4", note: "source"),
+            format(id: "1440", label: "1440p", videoCodec: "avc1", container: "mp4", height: 1440),
+            format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720),
+            format(id: "480", label: "480p", videoCodec: "avc1", container: "mp4", height: 480),
+            format(id: "unknown", label: "Unknown", videoCodec: "avc1", container: "mp4")
+        ]
+
+        let presentation = VideoFormatMenuPresentation(
+            formats: formats,
+            selectedID: nil,
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+
+        XCTAssertEqual(presentation.accesses.map(\.format.id), formats.map(\.id))
+        XCTAssertEqual(presentation.selectedID, "720")
+        XCTAssertEqual(presentation.accesses.map(\.denial?.reason), [
+            .sourceQualityRequiresPro,
+            .videoHeightRequiresPro,
+            .videoHeightRequiresPro,
+            nil,
+            nil,
+            .unknownVideoHeight
+        ])
+    }
+
+    func testFourKHeightAndSourceResolutionUseUHDPolicyWhileTestProUnlocksEveryActualChoice() {
+        let formats = [
+            format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),
+            format(id: "resolution-source", label: "Original", videoCodec: "avc1", container: "mp4", resolution: "4K source"),
+            format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+        ]
+        let free = VideoFormatMenuPresentation(
+            formats: formats,
+            selectedID: nil,
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+        let pro = VideoFormatMenuPresentation(
+            formats: formats,
+            selectedID: nil,
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticPro))
+        )
+
+        XCTAssertEqual(free.accesses.compactMap(\.denial?.reason), [
+            .sourceQualityRequiresPro,
+            .sourceQualityRequiresPro
+        ])
+        XCTAssertTrue(pro.accesses.allSatisfy(\.isAllowed))
+        XCTAssertEqual(pro.selectedID, "2160")
+    }
+
+    func testMP3PresentationDoesNotApplyVideoHeightLocks() {
+        let presentation = VideoFormatMenuPresentation(
+            formats: [
+                format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),
+                format(id: "unknown", label: "Unknown", videoCodec: "avc1", container: "mp4")
+            ],
+            selectedID: nil,
+            outputKind: .mp3,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+
+        XCTAssertTrue(presentation.accesses.allSatisfy(\.isAllowed))
+        XCTAssertEqual(presentation.selectedID, "2160")
+    }
+
+    func testLockedActivationPreservesSelectionAndEmitsOnlySanitizedDenial() throws {
+        let presentation = VideoFormatMenuPresentation(
+            formats: [
+                format(id: "1080", label: "Private title https://youtu.be/private", videoCodec: "avc1", container: "mp4", height: 1080),
+                format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+            ],
+            selectedID: "720",
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+        let locked = try XCTUnwrap(presentation.accesses.first)
+        var selectedID = presentation.selectedID
+        var emittedDenial: FeatureDenial?
+
+        VideoFormatMenuInteraction.activate(
+            locked,
+            onSelect: { selectedID = $0 },
+            onRequestUpgrade: { emittedDenial = $0 }
+        )
+
+        XCTAssertEqual(selectedID, "720")
+        XCTAssertEqual(emittedDenial?.requiredFeature, .videoHD)
+        XCTAssertEqual(emittedDenial?.reason, .videoHeightRequiresPro)
+        XCTAssertTrue(emittedDenial?.canChooseFreeAlternative == true)
+        XCTAssertFalse(String(describing: emittedDenial).contains("youtu.be"))
+        XCTAssertFalse(String(describing: emittedDenial).contains("Private title"))
+    }
+
+    func testAllowedActivationUsesTheSameSelectableActionForKeyboardAndPointer() throws {
+        let presentation = VideoFormatMenuPresentation(
+            formats: [format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)],
+            selectedID: nil,
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+        let allowed = try XCTUnwrap(presentation.accesses.first)
+        var selectedID: String?
+        var upgradeRequestCount = 0
+
+        VideoFormatMenuInteraction.activate(
+            allowed,
+            onSelect: { selectedID = $0 },
+            onRequestUpgrade: { _ in upgradeRequestCount += 1 }
+        )
+
+        XCTAssertEqual(selectedID, "720")
+        XCTAssertEqual(upgradeRequestCount, 0)
+        XCTAssertEqual(
+            allowed.accessibilityLabel(locale: Locale(identifier: "en")),
+            "720p - mp4"
+        )
+    }
+
+    func testLockedAccessibilityLabelIncludesQualityAndProRequirement() throws {
+        let presentation = VideoFormatMenuPresentation(
+            formats: [format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080)],
+            selectedID: nil,
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+        let locked = try XCTUnwrap(presentation.accesses.first)
+        let label = locked.accessibilityLabel(locale: Locale(identifier: "en"))
+
+        XCTAssertTrue(label.contains("1080p - mp4"))
+        XCTAssertTrue(label.contains("Pro"))
+    }
+
     func testMP4DefaultsSkipWebMCodecsAndChooseTheHighestQuickTimeCompatiblePair() {
         let vp9 = MediaFormat(
             id: "248",
@@ -515,7 +653,9 @@ final class OptionsPresentationTests: XCTestCase {
         videoCodec: String? = nil,
         audioCodec: String? = nil,
         container: String? = nil,
-        height: Int? = nil
+        height: Int? = nil,
+        resolution: String? = nil,
+        note: String? = nil
     ) -> MediaFormat {
         MediaFormat(
             id: id,
@@ -526,11 +666,12 @@ final class OptionsPresentationTests: XCTestCase {
             container: container,
             width: nil,
             height: height,
-            resolution: nil,
+            resolution: resolution,
             framesPerSecond: nil,
             bitrate: nil,
             language: nil,
-            estimatedFileSize: nil
+            estimatedFileSize: nil,
+            note: note
         )
     }
 

@@ -76,20 +76,16 @@ struct MediaOptionsPresentation: Equatable {
         let compatibleVideoFormats = defaults.outputKind == .mp4
             ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
             : analysis.videoFormats
-        let defaultVideoFormats = featurePolicy.isEnforced
-            ? compatibleVideoFormats.filter {
-                featurePolicy.videoDecision(
-                    height: $0.height,
-                    isAudioOnly: defaults.outputKind == .mp3,
-                    isSourceQuality: Self.isSourceQuality($0)
-                ) == .allowed
-            }
-            : compatibleVideoFormats
         let selectableAudioFormats = defaults.outputKind == .mp4
             ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
             : analysis.audioFormats
-        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: compatibleVideoFormats)
-            ?? defaultVideoFormats.first?.id
+        let videoPresentation = VideoFormatMenuPresentation(
+            formats: compatibleVideoFormats,
+            selectedID: Self.selectedID(for: defaults.videoQuality, in: compatibleVideoFormats),
+            outputKind: defaults.outputKind,
+            featurePolicy: featurePolicy
+        )
+        selectedVideoID = videoPresentation.selectedID
         selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
             ?? selectableAudioFormats.first?.id
         applySelectedFormats()
@@ -165,16 +161,6 @@ struct MediaOptionsPresentation: Equatable {
             language: nil,
             estimatedFileSize: nil
         )
-    }
-
-    private static func isSourceQuality(_ format: MediaFormat) -> Bool {
-        isSourceQuality(height: format.height, note: format.note, resolution: format.resolution)
-    }
-
-    private static func isSourceQuality(height: Int?, note: String?, resolution: String?) -> Bool {
-        height.map({ $0 >= 2_160 }) == true
-            || note?.localizedCaseInsensitiveContains("source") == true
-            || resolution?.localizedCaseInsensitiveContains("4k") == true
     }
 
     private mutating func applySelectedFormats() {
@@ -326,6 +312,7 @@ struct MediaOptionsSheet: View {
 
 struct DownloadOptionsEditor: View {
     @EnvironmentObject private var store: DownloadStore
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
     @Binding var options: DownloadOptions
 
@@ -333,6 +320,7 @@ struct DownloadOptionsEditor: View {
     let audioChoices: [MediaFormat]
 
     @State private var folderError: String?
+    @State private var requestedUpgradeDenial: FeatureDenial?
 
     var body: some View {
         Group {
@@ -343,14 +331,14 @@ struct DownloadOptionsEditor: View {
                 }
                 .pickerStyle(.segmented)
 
-                Picker(L10n.string(.mediaVideoFormat, locale: locale), selection: videoSelection) {
-                    Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(visibleVideoChoices) { format in
-                        Text(MediaFormatPresentation.label(for: format, locale: locale))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .tag(Optional(format.id))
-                    }
-                }
+                VideoFormatMenu(
+                    title: L10n.string(.mediaVideoFormat, locale: locale),
+                    emptySelectionLabel: L10n.string(.mediaHighestAvailable, locale: locale),
+                    accesses: videoFormatPresentation.accesses,
+                    selectedID: videoSelection.wrappedValue,
+                    onSelect: { videoSelection.wrappedValue = $0 },
+                    onRequestUpgrade: { requestedUpgradeDenial = $0 }
+                )
 
                 Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
                     Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
@@ -403,6 +391,14 @@ struct DownloadOptionsEditor: View {
                 }
             }
         }
+        .alert(item: $requestedUpgradeDenial) { denial in
+            let presentation = FeaturePolicyDenialPresentation(denial: denial)
+            return Alert(
+                title: Text(L10n.string(presentation.titleKey, locale: locale)),
+                message: Text(L10n.string(presentation.messageKey, locale: locale)),
+                dismissButton: .default(Text(L10n.string(.commonClose, locale: locale)))
+            )
+        }
     }
 
     private var viewState: DownloadOptionsViewState {
@@ -416,7 +412,7 @@ struct DownloadOptionsEditor: View {
                 options.selectOutputKind(kind)
                 guard kind == .mp4 else { return }
                 if !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat) {
-                    options.selectVideoFormat(visibleVideoChoices.first)
+                    selectVideoFormat(id: videoFormatPresentation.highestAllowedID)
                 }
                 if !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat) {
                     options.selectAudioFormat(visibleAudioChoices.first)
@@ -435,6 +431,15 @@ struct DownloadOptionsEditor: View {
         return audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
     }
 
+    private var videoFormatPresentation: VideoFormatMenuPresentation {
+        VideoFormatMenuPresentation(
+            formats: visibleVideoChoices,
+            selectedID: videoSelection.wrappedValue,
+            outputKind: options.outputKind,
+            featurePolicy: planController.featurePolicyContext
+        )
+    }
+
     private func subtitleModeLabel(_ mode: SubtitleMode) -> String {
         switch mode {
         case .none: L10n.string(.mediaSubtitleNone, locale: locale)
@@ -450,13 +455,17 @@ struct DownloadOptionsEditor: View {
                 return id
             },
             set: { selectedID in
-                guard let selectedID, let format = videoChoices.first(where: { $0.id == selectedID }) else {
-                    options.selectVideoFormat(nil)
-                    return
-                }
-                options.selectVideoFormat(format)
+                selectVideoFormat(id: selectedID)
             }
         )
+    }
+
+    private func selectVideoFormat(id: String?) {
+        guard let id, let format = videoChoices.first(where: { $0.id == id }) else {
+            options.selectVideoFormat(nil)
+            return
+        }
+        options.selectVideoFormat(format)
     }
 
     private var audioSelection: Binding<String?> {
