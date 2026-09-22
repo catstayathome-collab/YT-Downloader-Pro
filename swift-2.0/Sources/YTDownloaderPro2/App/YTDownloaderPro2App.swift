@@ -12,6 +12,7 @@ struct YTDownloaderPro2App: App {
             }
                 .environmentObject(appLifecycle.store)
                 .environmentObject(appLifecycle.accountSessionStore)
+                .environmentObject(appLifecycle.planController)
                 .frame(minWidth: 760, minHeight: 540)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
@@ -22,6 +23,7 @@ struct YTDownloaderPro2App: App {
             }
                 .environmentObject(appLifecycle.store)
                 .environmentObject(appLifecycle.accountSessionStore)
+                .environmentObject(appLifecycle.planController)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
     }
@@ -70,22 +72,33 @@ enum TerminationSafetyPolicy {
 final class AppLifecycle: NSObject, NSApplicationDelegate {
     let store: DownloadStore
     let accountSessionStore: AccountSessionStore
+    let planController: PlanController
     private var terminationTask: Task<Void, Never>?
 
     override convenience init() {
         let featurePolicyResolution = FeaturePolicyEnvironmentResolution.resolve()
+        let planController = PlanController.live()
         self.init(
             store: DownloadStore.live(featurePolicyResolution: featurePolicyResolution),
-            accountSessionStore: .live()
+            accountSessionStore: .live(),
+            planController: planController
         )
     }
 
-    init(store: DownloadStore, accountSessionStore: AccountSessionStore? = nil) {
+    init(
+        store: DownloadStore,
+        accountSessionStore: AccountSessionStore? = nil,
+        planController: PlanController? = nil
+    ) {
         self.store = store
         self.accountSessionStore = accountSessionStore ?? AccountSessionStore(
             environment: .disabled,
             vault: InMemoryCredentialVault(),
             providers: .init([])
+        )
+        self.planController = planController ?? PlanController(
+            buildChannel: .publicRelease,
+            provider: PublicFreePlanProvider()
         )
         super.init()
     }
