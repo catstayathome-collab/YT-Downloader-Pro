@@ -27,6 +27,7 @@ swift-2.0/
   Package.swift
   Sources/YTDownloaderPro2/
     App/        app lifecycle
+    Entitlements/ local plan providers and pure feature policy
     Models/     Codable and Sendable domain values
     Process/    Foundation Process boundary
     Services/   actors and focused value services
@@ -40,6 +41,7 @@ scripts/
   build_swift_2.sh
   check_swift_bundle.py
 tests/
+  test_build_swift_2_script.py
   test_swift_bundle.py
 tools/
   yt-dlp_macos ffmpeg ffprobe qjs
@@ -85,6 +87,16 @@ swift test --disable-sandbox \
   -Xswiftc -warnings-as-errors
 ```
 
+Internal-channel strict Swift suite:
+
+```bash
+env CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache-internal" \
+  swift test --package-path swift-2.0 --disable-sandbox \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warnings-as-errors \
+  -Xswiftc -DYTDP_INTERNAL_TEST
+```
+
 ### Local Authentication Skeleton
 
 The implemented authentication surface is development-only and local-only. Run
@@ -109,28 +121,25 @@ save/restore/delete evidence for the provisioned Developer ID test host.
 
 ### Local Feature Policy F1
 
-Use the exact development values below to exercise the local synthetic Free and
-Pro matrices:
+Normal development and every public compilation use enforced Free. To launch an
+internal Test Pro-capable debug executable, compile it explicitly:
 
 ```bash
-YTDP_FEATURE_POLICY_MODE=mock-free swift run --package-path swift-2.0 YTDownloaderPro2
-YTDP_FEATURE_POLICY_MODE=mock-pro swift run --package-path swift-2.0 YTDownloaderPro2
+swift run --package-path swift-2.0 \
+  -Xswiftc -DYTDP_INTERNAL_TEST \
+  YTDownloaderPro2
 ```
 
-With the variable unset, empty, padded, differently cased, or set to any other
-value, the app uses public compatibility and preserves the current 2.0.1
-features. Unsupported values produce only a fixed, sanitized local diagnostic;
-the supplied value is not logged.
-
-These modes are synthetic policy fixtures. They are not account login,
-purchase simulation, token verification, subscription state, or proof of
-entitlement. They do not contact Google, Apple, ECPay, a backend, analytics,
-email, or support services. Authentication mock labels and feature-policy mock
-grants are deliberately independent.
+The internal build still starts as Free. Use the clearly labelled Settings
+control to select Test Pro. That preference is local to the internal build and
+public compilation ignores it. Test Pro is not account login, purchase
+simulation, token verification, subscription state, or proof of entitlement.
+It does not contact Google, Apple, ECPay, a backend, analytics, email, or
+support services. Authentication mock labels and Test Pro remain independent.
 
 When changing the capability matrix, update the pure policy tests, Store command
-admission tests, all three denial localizations, and both mock modes. Normal
-public-compatibility regressions must remain in the same focused suite.
+admission tests, all three denial localizations, and both public/internal test
+variants. Free and Test Pro regressions must remain in the same focused suite.
 
 Strict macOS 13 arm64 release compile:
 
@@ -160,20 +169,43 @@ python3 -c 'import yaml'
 python3 -m unittest discover -s tests -v
 ```
 
-Build the internal app only after focused tests are green:
+Build both owner-test channels only after focused tests are green. Use the same
+candidate timestamp when comparing the two artifacts:
 
 ```bash
 ./scripts/build_swift_2.sh \
+  --app-channel public \
+  --version 2.0.1 \
+  --architectures arm64 \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
+  --unsigned-test
+
+./scripts/build_swift_2.sh \
+  --app-channel internal-test \
   --version 2.0.1 \
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --unsigned-test
 ```
 
-This command runs the strict Swift suite again, release-builds for
+Each command runs its channel's strict Swift suite, release-builds for
 `arm64-apple-macosx13.0`, assembles and ad-hoc signs the app, runs every helper,
-writes `dist/swift-2.0-bundle-report.json`, and creates the internal ZIP. It
-does not embed a provisioning profile or claim Keychain persistence.
+and creates an isolated report and ZIP:
+
+```text
+dist/swift-2.0/public/
+  YT Downloader Pro 2.app
+  swift-2.0-public-bundle-report.json
+  YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip
+dist/swift-2.0/internal-test/
+  YT Downloader Pro 2.app
+  swift-2.0-internal-test-bundle-report.json
+  YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip
+```
+
+Ad-hoc candidates do not embed a provisioning profile or claim Keychain
+persistence. Neither channel is permission to publish, advertise Pro, accept
+payment, or activate production login.
 
 ## Localization Build
 
@@ -314,12 +346,15 @@ issues, build first and run:
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
-  --inventory tools/macos-helper-inventory.json
+  --inventory tools/macos-helper-inventory.json \
+  --report dist/swift-2.0/public/swift-2.0-public-bundle-report.json \
+  --archive dist/swift-2.0/public/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip
 codesign --verify --deep --strict --verbose=2 \
-  'dist/YT Downloader Pro 2.app'
+  'dist/swift-2.0/public/YT Downloader Pro 2.app'
 ```
 
 Diagnose from the outer layer inward: UI intent, Store state, coordinator event,

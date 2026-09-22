@@ -14,13 +14,14 @@ toolchain.
 
 ## Deterministic Assembly
 
-The build script accepts a three-component version, an explicit signing mode,
-and an explicit RFC3339 UTC SBOM creation time. Use the actual candidate evidence
-timestamp; do not silently reuse the helper inventory date. For the current
-internal candidate:
+The build script accepts a three-component version, an explicit app channel, an
+explicit signing mode, and an explicit RFC3339 UTC SBOM creation time. Use the
+actual candidate evidence timestamp; do not silently reuse the helper inventory
+date. For the current internal candidate:
 
 ```bash
 ./scripts/build_swift_2.sh \
+  --app-channel internal-test \
   --version 2.0.1 \
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
@@ -33,9 +34,9 @@ ad-hoc signed so nested code and bundle integrity can be tested.
 Outputs:
 
 ```text
-dist/YT Downloader Pro 2.app
-dist/YT-Downloader-Pro-2.0.1-macOS-arm64-internal.zip
-dist/swift-2.0-bundle-report.json
+dist/swift-2.0/internal-test/YT Downloader Pro 2.app
+dist/swift-2.0/internal-test/YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip
+dist/swift-2.0/internal-test/swift-2.0-internal-test-bundle-report.json
 ```
 
 The script performs these steps in order:
@@ -89,30 +90,31 @@ YT Downloader Pro 2.app/
 ```
 
 `Info.plist` must contain short version and bundle version `2.0.1`, minimum
-macOS `13.0`, executable `YT Downloader Pro 2`, and identifier
-`com.tachouweng.ytdownloaderpro2`.
+macOS `13.0`, executable `YT Downloader Pro 2`, identifier
+`com.tachouweng.ytdownloaderpro2`, and the expected `YTDPBuildChannel`.
 
 ## Independent Internal Verification
 
 ```bash
 python3 -m unittest tests.test_swift_sbom tests.test_swift_bundle -v
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/internal-test/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel internal-test \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 codesign --verify --deep --strict --verbose=2 \
-  'dist/YT Downloader Pro 2.app'
-unzip -l 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64-internal.zip'
+  'dist/swift-2.0/internal-test/YT Downloader Pro 2.app'
+unzip -l 'dist/swift-2.0/internal-test/YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip'
 ```
 
 Execute the copied helpers, never the repository inputs, for final evidence:
 
 ```bash
-'dist/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos' --version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg' -version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/ffprobe' -version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/qjs' --help
+'dist/swift-2.0/internal-test/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos' --version
+'dist/swift-2.0/internal-test/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg' -version
+'dist/swift-2.0/internal-test/YT Downloader Pro 2.app/Contents/Helpers/ffprobe' -version
+'dist/swift-2.0/internal-test/YT Downloader Pro 2.app/Contents/Helpers/qjs' --help
 ```
 
 The verifier also checks lipo slices, deployment targets, system-only dynamic
@@ -169,6 +171,7 @@ Prove the unsupported request fails before assembly:
 
 ```bash
 ./scripts/build_swift_2.sh \
+  --app-channel public \
   --version 2.0.1 \
   --architectures universal \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
@@ -193,6 +196,7 @@ Build with hardened runtime and secure timestamps:
 
 ```bash
 ./scripts/build_swift_2.sh \
+  --app-channel public \
   --version 2.0.1 \
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
@@ -218,11 +222,11 @@ signature; `--deep` is a verification option here.
 Inspect and assess the candidate:
 
 ```bash
-codesign -dv --verbose=4 'dist/YT Downloader Pro 2.app'
-codesign -d --entitlements :- 'dist/YT Downloader Pro 2.app'
-security cms -D -i 'dist/YT Downloader Pro 2.app/Contents/embedded.provisionprofile'
-codesign --verify --deep --strict --verbose=2 'dist/YT Downloader Pro 2.app'
-spctl --assess --type execute --verbose=4 'dist/YT Downloader Pro 2.app'
+codesign -dv --verbose=4 'dist/swift-2.0/public/YT Downloader Pro 2.app'
+codesign -d --entitlements :- 'dist/swift-2.0/public/YT Downloader Pro 2.app'
+security cms -D -i 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/embedded.provisionprofile'
+codesign --verify --deep --strict --verbose=2 'dist/swift-2.0/public/YT Downloader Pro 2.app'
+spctl --assess --type execute --verbose=4 'dist/swift-2.0/public/YT Downloader Pro 2.app'
 ```
 
 Before notarization, `spctl` may reject an otherwise valid Developer ID build
@@ -237,25 +241,26 @@ Submit the exact ZIP produced by the Developer ID build:
 
 ```bash
 xcrun notarytool submit \
-  'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip' \
+  'dist/swift-2.0/public/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip' \
   --keychain-profile YTDP_NOTARY \
   --wait
-xcrun stapler staple 'dist/YT Downloader Pro 2.app'
-xcrun stapler validate 'dist/YT Downloader Pro 2.app'
+xcrun stapler staple 'dist/swift-2.0/public/YT Downloader Pro 2.app'
+xcrun stapler validate 'dist/swift-2.0/public/YT Downloader Pro 2.app'
 ```
 
 After stapling, regenerate the ZIP from the stapled app and rerun verification:
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json \
   --signing-mode developer-id \
   --expected-team-id "$TEAM_ID" \
-  --report dist/swift-2.0-bundle-report.json \
-  --archive dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip
+  --report dist/swift-2.0/public/swift-2.0-public-bundle-report.json \
+  --archive dist/swift-2.0/public/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip
 ```
 
 Do not publish unless `notarytool`, `stapler validate`, strict codesign, Gatekeeper
@@ -269,7 +274,7 @@ device acceptance, create and sign one explicitly:
 ```bash
 hdiutil create \
   -volname 'YT Downloader Pro 2' \
-  -srcfolder 'dist/YT Downloader Pro 2.app' \
+  -srcfolder 'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   -ov -format UDZO \
   'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.dmg'
 codesign --force --sign "$IDENTITY" --timestamp \
@@ -290,7 +295,7 @@ the installed copy. Record DMG and ZIP checksums separately.
 Choose the final published asset first, then compute its checksum:
 
 ```bash
-shasum -a 256 'dist/YT-Downloader-Pro-2.0.1-macOS-arm64.zip'
+shasum -a 256 'dist/swift-2.0/public/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip'
 ```
 
 Generate the checked-in manifest from explicit final values:
@@ -300,7 +305,7 @@ python3 scripts/create_macos_manifest.py \
   --version 2.0.1 \
   --minimum-macos 13.0.0 \
   --release-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/tag/macos-v2.0.1' \
-  --download-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.0.1/YT-Downloader-Pro-2.0.1-macOS-arm64.zip' \
+  --download-url 'https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.0.1/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip' \
   --sha256 '<64-lowercase-hex-from-shasum>' \
   --published-at '<UTC-RFC3339-timestamp>' \
   --release-notes '<short-release-summary>' \

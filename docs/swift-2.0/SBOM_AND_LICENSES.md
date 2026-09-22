@@ -89,8 +89,9 @@ compares each executable's reported version with the matching SPDX package.
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 ```

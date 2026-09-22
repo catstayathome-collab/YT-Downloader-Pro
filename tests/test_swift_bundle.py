@@ -169,6 +169,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
             "CFBundleShortVersionString": "2.0.0",
             "CFBundleVersion": "2.0.0",
             "LSMinimumSystemVersion": "13.0",
+            "YTDPBuildChannel": "public",
         }
         with (bundle / "Contents" / "Info.plist").open("wb") as handle:
             plistlib.dump(metadata, handle)
@@ -466,6 +467,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
         architectures=("arm64",),
         signing_mode="internal",
         expected_team_id=None,
+        app_channel="public",
     ):
         return self.checker.verify_bundle(
             bundle,
@@ -475,14 +477,106 @@ class SwiftBundleVerifierTests(unittest.TestCase):
             signing_mode=signing_mode,
             expected_team_id=expected_team_id,
             inventory_path=self.inventory,
+            expected_app_channel=app_channel,
         )
 
     def test_accepts_complete_arm64_bundle_and_qjs_exit_one(self):
         report = self.verify(self.fake_bundle())
 
         self.assertTrue(report.ok, report.errors)
+        self.assertEqual(report.app_channel, "public")
         self.assertEqual(report.architectures, ("arm64",))
         self.assertEqual(tuple(report.helper_versions), HELPERS)
+
+    def test_rejects_missing_unknown_and_mismatched_bundle_channels(self):
+        bundle = self.fake_bundle()
+        info_path = bundle / "Contents" / "Info.plist"
+        for actual_channel, expected_channel in (
+            (None, "public"),
+            ("preview", "public"),
+            ("public", "internal-test"),
+        ):
+            with self.subTest(actual_channel=actual_channel, expected_channel=expected_channel):
+                with info_path.open("rb") as handle:
+                    metadata = plistlib.load(handle)
+                if actual_channel is None:
+                    metadata.pop("YTDPBuildChannel")
+                else:
+                    metadata["YTDPBuildChannel"] = actual_channel
+                with info_path.open("wb") as handle:
+                    plistlib.dump(metadata, handle)
+
+                report = self.verify(bundle, app_channel=expected_channel)
+
+                self.assertFalse(report.ok)
+                self.assertEqual(report.app_channel, expected_channel)
+                self.assertTrue(
+                    any("YTDPBuildChannel" in error for error in report.errors),
+                    report.errors,
+                )
+
+    def test_expected_channel_is_required_and_rejects_unknown_values(self):
+        bundle = self.fake_bundle()
+        arguments = {
+            "expected_version": "2.0.0",
+            "expected_architectures": ("arm64",),
+            "command_runner": FakeCommandRunner(),
+            "signing_mode": "internal",
+            "inventory_path": self.inventory,
+        }
+
+        with self.assertRaisesRegex(ValueError, "expected_app_channel is required"):
+            self.checker.verify_bundle(bundle, **arguments)
+        with self.assertRaisesRegex(ValueError, "unsupported expected_app_channel"):
+            self.checker.verify_bundle(
+                bundle,
+                expected_app_channel="preview",
+                **arguments,
+            )
+
+    def test_report_and_archive_paths_must_use_the_expected_channel_directory(self):
+        public_root = self.root / "dist" / "swift-2.0" / "public"
+        self.checker.validate_output_channel_paths(
+            "public",
+            report_path=public_root / "bundle-report.json",
+            archive_path=public_root / "app.zip",
+        )
+
+        with self.assertRaisesRegex(ValueError, "report path must identify channel public"):
+            self.checker.validate_output_channel_paths(
+                "public",
+                report_path=self.root / "dist" / "swift-2.0" / "internal-test" / "bundle-report.json",
+            )
+        with self.assertRaisesRegex(ValueError, "archive path must identify channel internal-test"):
+            self.checker.validate_output_channel_paths(
+                "internal-test",
+                archive_path=self.root / "dist" / "swift-2.0" / "public" / "app.zip",
+            )
+        with self.assertRaisesRegex(ValueError, "report path must identify channel public"):
+            self.checker.validate_output_channel_paths(
+                "public",
+                report_path=(
+                    self.root
+                    / "dist"
+                    / "swift-2.0"
+                    / "public"
+                    / ".."
+                    / "internal-test"
+                    / "bundle-report.json"
+                ),
+            )
+        with self.assertRaisesRegex(ValueError, "report path must identify only channel public"):
+            self.checker.validate_output_channel_paths(
+                "public",
+                report_path=(
+                    self.root
+                    / "public"
+                    / "dist"
+                    / "swift-2.0"
+                    / "internal-test"
+                    / "bundle-report.json"
+                ),
+            )
 
     def test_requires_all_four_helpers(self):
         bundle = self.fake_bundle(helpers=("yt-dlp_macos", "ffmpeg", "ffprobe"))
@@ -851,6 +945,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
         second = self.verify(bundle).to_json()
 
         self.assertEqual(first, second)
+        self.assertEqual(json.loads(first)["app_channel"], "public")
         self.assertTrue(first.endswith("\n"))
 
     def test_internal_zip_is_byte_deterministic_and_preserves_executable_modes(self):
@@ -881,7 +976,9 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
         )
 
     def test_build_script_requires_explicit_sbom_timestamp_before_building(self):
-        result = self.run_build_script("--version", "2.0.0", "--unsigned-test")
+        result = self.run_build_script(
+            "--app-channel", "public", "--version", "2.0.0", "--unsigned-test"
+        )
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("--sbom-created", result.stderr)
@@ -889,6 +986,8 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
 
     def test_developer_id_build_requires_team_id_before_building(self):
         result = self.run_build_script(
+            "--app-channel",
+            "public",
             "--version",
             "2.0.0",
             "--sbom-created",
@@ -903,6 +1002,8 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
 
     def test_developer_id_build_requires_provisioning_profile_before_building(self):
         result = self.run_build_script(
+            "--app-channel",
+            "public",
             "--version",
             "2.0.0",
             "--sbom-created",
@@ -919,6 +1020,8 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
 
     def test_build_script_rejects_impossible_sbom_timestamp_before_building(self):
         result = self.run_build_script(
+            "--app-channel",
+            "public",
             "--version",
             "2.0.0",
             "--sbom-created",
@@ -943,7 +1046,7 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
         content = BUILD_SCRIPT.read_text(encoding="utf-8")
 
         preflight = content.index("preflight_helper_architectures")
-        assembly = content.index('rm -rf "$APP_PATH"')
+        assembly = content.index('rm -rf "$CHANNEL_DIST_DIR"')
         helper_signing = content.index('codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$helper_path"')
         sbom = content.index('generate_swift_sbom.py')
         app_signing = content.index('codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"')

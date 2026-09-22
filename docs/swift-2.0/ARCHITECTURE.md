@@ -30,16 +30,21 @@ diagnostic, state, and future-provider contracts.
 ### Implemented Local Feature Policy F1
 
 The `Entitlements/` directory owns stable feature identifiers, immutable local
-snapshots, pure Free/Pro decisions, exact development-environment resolution,
-and localized denial presentation. `DownloadStore` enforces synthetic policy at
-the multi-URL, playlist, and selected-quality command boundaries. Views use the
-same context to choose a Free-safe default and explain a rejected selection.
+snapshots, pure Free/Pro decisions, build-gated plan providers, and localized
+denial presentation. `PlanController` is the single runtime source of the
+current local plan. Public compilation always loads Free and does not compile
+the mutation controls. Compilation with `YTDP_INTERNAL_TEST` starts Free and
+adds a clearly labelled local Free/Test Pro switch for owner testing.
 
-The default is explicit `publicCompatibility`, which preserves the existing
-2.0.1 batch, playlist, and highest-quality behavior. Only exact development
-values `YTDP_FEATURE_POLICY_MODE=mock-free` and `mock-pro` enable synthetic
-enforcement. These values are local fixtures, not account state, payment,
-signed entitlement verification, or permission to launch paid features.
+`DownloadStore` and `DownloadRunner` enforce the controller's current policy at
+recovery, admission, retry, and the final pre-helper boundary. Views consume the
+same policy for Free-safe defaults and locked-quality presentation. A downgrade
+does not interrupt active work, but it pauses or restricts non-active Pro-only
+work; a later upgrade makes that work manually resumable without starting it.
+
+Test Pro is not an account, purchase, subscription, signed entitlement, or
+production Pro grant. No Google, Apple, ECPay, backend, or payment service is
+consulted. See `ENTITLEMENT_ARCHITECTURE.md` for the complete boundary.
 
 ## Module Boundaries
 
@@ -228,6 +233,23 @@ security-scoped bookmarks; stale or unreadable bookmarks require reselection.
 - Update transport requires HTTPS and the expected GitHub API origin/path after
   redirects, bounds the Contents response to 192 KiB and decoded manifest to 96
   KiB, and treats cancellation as terminal.
+
+## Packaging Channels
+
+`scripts/build_swift_2.sh` requires exactly one explicit app channel:
+
+- `public` compiles without `YTDP_INTERNAL_TEST`, writes
+  `YTDPBuildChannel=public`, and produces only the enforced Free experience.
+- `internal-test` compiles with `YTDP_INTERNAL_TEST`, writes
+  `YTDPBuildChannel=internal-test`, and includes the local Test Pro controls.
+
+Artifacts are isolated under `dist/swift-2.0/<channel>/`. The app, verification
+report, and ZIP cannot share a channel directory with the other compilation.
+`check_swift_bundle.py` requires the expected channel, rejects missing, unknown,
+or mismatched `YTDPBuildChannel`, and rejects report or archive paths that do not
+name that channel directory. Signing mode is independent from app channel;
+neither an ad-hoc nor Developer ID candidate becomes release evidence merely by
+using the `public` channel.
 
 ## Localization And Updates
 
