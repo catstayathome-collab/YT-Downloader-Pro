@@ -2988,6 +2988,286 @@
         }
       }
     },
+    "plan.settings.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "方案" } }
+      }
+    },
+    "plan.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のプラン" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前方案" } }
+      }
+    },
+    "plan.qualityAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quality access" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画質アクセス" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "畫質權限" } }
+      }
+    },
+    "plan.quality.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Up to 720p" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最大720p" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "最高 720p" } }
+      }
+    },
+    "plan.quality.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All supported qualities" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対応するすべての画質" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "所有支援的畫質" } }
+      }
+    },
+    "plan.viewProFeatures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Pro features" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pro 機能を見る" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "查看 Pro 功能" } }
+      }
+    },
+    "plan.proBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pro" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pro" } }
+      }
+    },
+    "plan.requiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Requires Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pro が必要" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要 Pro" } }
+      }
+    },
+    "plan.comparison.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compare Free and Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Free と Pro を比較" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "比較 Free 與 Pro" } }
+      }
+    },
+    "plan.comparison.reason.lockedQuality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Higher video quality requires Pro." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "より高い画質には Pro が必要です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "更高畫質需要 Pro。" } }
+      }
+    },
+    "plan.comparison.reason.batch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Batch downloads require Pro." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一括ダウンロードには Pro が必要です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "批次下載需要 Pro。" } }
+      }
+    },
+    "plan.comparison.reason.playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Playlist downloads require Pro." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレイリストのダウンロードには Pro が必要です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "播放清單下載需要 Pro。" } }
+      }
+    },
+    "plan.comparison.reason.advancedSubtitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Advanced subtitles require Pro." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "高度な字幕機能には Pro が必要です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "進階字幕需要 Pro。" } }
+      }
+    },
+    "plan.comparison.reason.restrictedJob": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This download requires a Pro feature." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このダウンロードには Pro 機能が必要です。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此下載需要 Pro 功能。" } }
+      }
+    },
+    "plan.comparison.reason.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compare the features available in Free and Pro." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Free と Pro で利用できる機能を比較します。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "比較 Free 與 Pro 可用的功能。" } }
+      }
+    },
+    "plan.comparison.column.feature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feature" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "機能" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "功能" } }
+      }
+    },
+    "plan.comparison.column.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無料版" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "免費版" } }
+      }
+    },
+    "plan.comparison.column.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pro" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pro" } }
+      }
+    },
+    "plan.comparison.row.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video quality" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "動画の画質" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "影片畫質" } }
+      }
+    },
+    "plan.comparison.row.urlInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URL input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL 入力" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "網址輸入" } }
+      }
+    },
+    "plan.comparison.row.playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Playlists" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレイリスト" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "播放清單" } }
+      }
+    },
+    "plan.comparison.row.subtitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Subtitles" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "字幕" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "字幕" } }
+      }
+    },
+    "plan.comparison.row.history": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "History" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "履歴" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "歷史紀錄" } }
+      }
+    },
+    "plan.comparison.row.support": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Support" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポート" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "支援" } }
+      }
+    },
+    "plan.comparison.value.singleURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One URL at a time" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL は1件ずつ" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "一次一個網址" } }
+      }
+    },
+    "plan.comparison.value.batchURLs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Batch URLs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "複数 URL" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "批次網址" } }
+      }
+    },
+    "plan.comparison.value.playlistUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not included" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用不可" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "不包含" } }
+      }
+    },
+    "plan.comparison.value.playlistExpansion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Playlist expansion" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレイリスト展開" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "播放清單展開" } }
+      }
+    },
+    "plan.comparison.value.basicSubtitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Basic subtitles" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "基本字幕" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "基本字幕" } }
+      }
+    },
+    "plan.comparison.value.advancedSubtitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Advanced subtitles" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "高度な字幕" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "進階字幕" } }
+      }
+    },
+    "plan.comparison.value.localHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Local history" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカル履歴" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "本機歷史紀錄" } }
+      }
+    },
+    "plan.comparison.value.historySync": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional future history sync" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "将来のオプション履歴同期" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未來可選用的歷史同步" } }
+      }
+    },
+    "plan.comparison.value.standardSupport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Standard support" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "標準サポート" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "標準支援" } }
+      }
+    },
+    "plan.comparison.value.prioritySupport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Priority support" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "優先サポート" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "優先支援" } }
+      }
+    },
+    "plan.comparison.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Upgrading is not available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アップグレードはまだ利用できません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "升級功能尚未開放。" } }
+      }
+    },
     "settings.automaticUpdates": {
       "extractionState": "manual",
       "localizations": {

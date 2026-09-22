@@ -3,13 +3,36 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
     @State private var showsSupportReport = false
     @State private var showsLocalExport = false
     @State private var showsLocalDataManagement = false
+    @State private var upgradeRoute: UpgradePresentationRoute?
 
     var body: some View {
         Form {
+            let planPresentation = PlanSettingsPresentation(plan: planController.currentPlan)
+            Section(L10n.string(.planSettingsTitle, locale: locale)) {
+                LabeledContent(
+                    L10n.string(.planCurrent, locale: locale),
+                    value: planPresentation.planName(locale: locale)
+                )
+                LabeledContent(
+                    L10n.string(.planQualityAccess, locale: locale),
+                    value: planPresentation.qualityAccess(locale: locale)
+                )
+                Button {
+                    upgradeRoute = .settings
+                } label: {
+                    Label(
+                        L10n.string(.planViewProFeatures, locale: locale),
+                        systemImage: "lock.open"
+                    )
+                }
+                .accessibilityLabel(L10n.string(.planViewProFeatures, locale: locale))
+            }
+
             let accountPresentation = AccountSettingsPresentation.make(
                 environment: accountSessionStore.environment,
                 state: accountSessionStore.state,
@@ -118,6 +141,12 @@ struct SettingsView: View {
             LocalizedSheetRoot(locale: locale) {
                 LocalDataManagementView()
                     .environmentObject(store)
+            }
+        }
+        .sheet(item: $upgradeRoute) { route in
+            LocalizedSheetRoot(locale: locale) {
+                PlanComparisonView(route: route)
+                    .environmentObject(planController)
             }
         }
     }

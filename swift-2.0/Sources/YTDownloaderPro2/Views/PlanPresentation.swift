@@ -1,5 +1,132 @@
 import Foundation
 
+enum UpgradePresentationRoute: Equatable, Identifiable, Sendable {
+    case lockedQuality(FeatureDenialReason)
+    case batchInput
+    case playlistExpansion
+    case advancedSubtitles
+    case restrictedJob(feature: FeatureID, reason: FeatureDenialReason)
+    case settings
+
+    init(denial: FeatureDenial) {
+        switch denial.reason {
+        case .videoHeightRequiresPro, .sourceQualityRequiresPro, .unknownVideoHeight:
+            self = .lockedQuality(denial.reason)
+        case .batchRequiresPro:
+            self = .batchInput
+        case .playlistRequiresPro:
+            self = .playlistExpansion
+        case .advancedSubtitlesRequirePro:
+            self = .advancedSubtitles
+        case .featureUnavailable, .invalidRequest:
+            self = .restrictedJob(
+                feature: denial.requiredFeature ?? FeatureID(rawValue: "unavailable"),
+                reason: denial.reason
+            )
+        }
+    }
+
+    init(requirement: DownloadAccessRequirement) {
+        self = .restrictedJob(feature: requirement.feature, reason: requirement.reason)
+    }
+
+    var id: String {
+        switch self {
+        case let .lockedQuality(reason): "locked-quality:\(reason.rawValue)"
+        case .batchInput: "batch-input"
+        case .playlistExpansion: "playlist-expansion"
+        case .advancedSubtitles: "advanced-subtitles"
+        case let .restrictedJob(feature, reason): "restricted-job:\(feature.rawValue):\(reason.rawValue)"
+        case .settings: "settings"
+        }
+    }
+
+    fileprivate var reasonKey: L10n.Key {
+        switch self {
+        case .lockedQuality: .planComparisonReasonLockedQuality
+        case .batchInput: .planComparisonReasonBatch
+        case .playlistExpansion: .planComparisonReasonPlaylist
+        case .advancedSubtitles: .planComparisonReasonAdvancedSubtitles
+        case .restrictedJob: .planComparisonReasonRestrictedJob
+        case .settings: .planComparisonReasonSettings
+        }
+    }
+}
+
+struct PlanSettingsPresentation: Equatable, Sendable {
+    let plan: AppPlan
+
+    func planName(locale: Locale) -> String {
+        L10n.string(plan == .free ? .accountFreePlan : .accountTestProPlan, locale: locale)
+    }
+
+    func qualityAccess(locale: Locale) -> String {
+        L10n.string(plan == .free ? .planQualityFree : .planQualityPro, locale: locale)
+    }
+}
+
+enum PlanComparisonRowID: Equatable, Sendable {
+    case quality
+    case urlInput
+    case playlist
+    case subtitles
+    case history
+    case support
+}
+
+struct LocalizedPlanComparisonRow: Equatable, Sendable {
+    let id: PlanComparisonRowID
+    let title: String
+    let freeValue: String
+    let proValue: String
+}
+
+enum PlanComparisonAction: Equatable, Sendable {
+    case close
+}
+
+struct PlanComparisonPresentation: Equatable, Sendable {
+    let currentPlan: AppPlan
+    let route: UpgradePresentationRoute
+
+    var actions: [PlanComparisonAction] { [.close] }
+    var externalURL: URL? { nil }
+
+    func reason(locale: Locale) -> String {
+        L10n.string(route.reasonKey, locale: locale)
+    }
+
+    func unavailableMessage(locale: Locale) -> String {
+        L10n.string(.planComparisonUnavailable, locale: locale)
+    }
+
+    func localizedRows(locale: Locale) -> [LocalizedPlanComparisonRow] {
+        [
+            row(.quality, .planComparisonRowQuality, .planQualityFree, .planQualityPro, locale: locale),
+            row(.urlInput, .planComparisonRowURLInput, .planComparisonValueSingleURL, .planComparisonValueBatchURLs, locale: locale),
+            row(.playlist, .planComparisonRowPlaylist, .planComparisonValuePlaylistUnavailable, .planComparisonValuePlaylistExpansion, locale: locale),
+            row(.subtitles, .planComparisonRowSubtitles, .planComparisonValueBasicSubtitles, .planComparisonValueAdvancedSubtitles, locale: locale),
+            row(.history, .planComparisonRowHistory, .planComparisonValueLocalHistory, .planComparisonValueHistorySync, locale: locale),
+            row(.support, .planComparisonRowSupport, .planComparisonValueStandardSupport, .planComparisonValuePrioritySupport, locale: locale)
+        ]
+    }
+
+    private func row(
+        _ id: PlanComparisonRowID,
+        _ titleKey: L10n.Key,
+        _ freeKey: L10n.Key,
+        _ proKey: L10n.Key,
+        locale: Locale
+    ) -> LocalizedPlanComparisonRow {
+        LocalizedPlanComparisonRow(
+            id: id,
+            title: L10n.string(titleKey, locale: locale),
+            freeValue: L10n.string(freeKey, locale: locale),
+            proValue: L10n.string(proKey, locale: locale)
+        )
+    }
+}
+
 enum VideoFormatAccess: Equatable, Sendable, Identifiable {
     case allowed(MediaFormat)
     case locked(MediaFormat, FeatureDenial)
@@ -22,9 +149,8 @@ enum VideoFormatAccess: Equatable, Sendable, Identifiable {
 
     func accessibilityLabel(locale: Locale) -> String {
         let quality = MediaFormatPresentation.label(for: format, locale: locale)
-        guard let denial else { return quality }
-        let denialPresentation = FeaturePolicyDenialPresentation(denial: denial)
-        return "\(quality), \(L10n.string(denialPresentation.messageKey, locale: locale))"
+        guard denial != nil else { return quality }
+        return "\(quality), \(L10n.string(.planRequiresPro, locale: locale))"
     }
 }
 

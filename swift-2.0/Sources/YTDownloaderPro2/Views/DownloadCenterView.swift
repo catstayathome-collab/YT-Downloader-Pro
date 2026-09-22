@@ -325,6 +325,7 @@ private enum DownloadOptionsSheet: Identifiable {
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
 
     @State private var url = ""
@@ -335,6 +336,7 @@ struct DownloadCenterView: View {
     @State private var playlistSelectAllToken = UUID()
     @State private var showsAnalysisErrorDetails = false
     @State private var urlInputFeedback: String?
+    @State private var upgradeRoute: UpgradePresentationRoute?
     @FocusState private var focusedField: FocusedField?
 
     private enum FocusedField: Hashable {
@@ -440,6 +442,12 @@ struct DownloadCenterView: View {
                 }
             }
         }
+        .sheet(item: $upgradeRoute) { route in
+            LocalizedSheetRoot(locale: locale) {
+                PlanComparisonView(route: route)
+                    .environmentObject(planController)
+            }
+        }
         .alert(item: presentedAlert) { alert in
             switch alert {
             case let .confirmation(confirmation):
@@ -453,16 +461,15 @@ struct DownloadCenterView: View {
                 )
             case let .automaticUpdate(notice):
                 return UpdateAlertFactory.make(notice: notice, locale: locale)
-            case let .featurePolicy(denial):
-                let presentation = FeaturePolicyDenialPresentation(denial: denial)
-                return Alert(
-                    title: Text(L10n.string(presentation.titleKey, locale: locale)),
-                    message: Text(L10n.string(presentation.messageKey, locale: locale)),
-                    dismissButton: .default(Text(L10n.string(.commonClose, locale: locale))) {
-                        store.dismissFeaturePolicyDenial()
-                    }
-                )
+            case .featurePolicy:
+                preconditionFailure("Feature policy denials are presented in the local plan comparison sheet.")
             }
+        }
+        .onAppear {
+            presentFeaturePolicyDenial(store.featurePolicyDenial)
+        }
+        .onChange(of: store.featurePolicyDenial) { denial in
+            presentFeaturePolicyDenial(denial)
         }
         .onChange(of: store.analysisState) { state in
             switch state {
@@ -495,15 +502,13 @@ struct DownloadCenterView: View {
                 DownloadCenterPresentedAlert.resolve(
                     confirmation: pendingConfirmation,
                     automaticUpdate: store.automaticUpdateNotice,
-                    featurePolicyDenial: store.featurePolicyDenial
+                    featurePolicyDenial: nil
                 )
             },
             set: { alert in
                 guard alert == nil else { return }
                 if pendingConfirmation != nil {
                     pendingConfirmation = nil
-                } else if store.featurePolicyDenial != nil {
-                    store.dismissFeaturePolicyDenial()
                 } else if let id = store.automaticUpdateNotice?.id {
                     store.dismissAutomaticUpdateNotice(id: id)
                 }
@@ -618,17 +623,24 @@ struct DownloadCenterView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(store.filteredJobs) { job in
-                            DownloadCardView(job: job, isSelected: store.selection.contains(job.id)) { job in
-                                if job.status == .failed {
-                                    optionsSheet = .failedPreflight(job)
-                                } else {
-                                    Task {
-                                        if let session = await store.prepareQueuedJobEdit(job.id) {
-                                            optionsSheet = .queued(session)
+                            DownloadCardView(
+                                job: job,
+                                isSelected: store.selection.contains(job.id),
+                                onEdit: { job in
+                                    if job.status == .failed {
+                                        optionsSheet = .failedPreflight(job)
+                                    } else {
+                                        Task {
+                                            if let session = await store.prepareQueuedJobEdit(job.id) {
+                                                optionsSheet = .queued(session)
+                                            }
                                         }
                                     }
+                                },
+                                onRequestUpgrade: { route in
+                                    upgradeRoute = route
                                 }
-                            }
+                            )
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     store.selection = [job.id]
@@ -642,6 +654,12 @@ struct DownloadCenterView: View {
         .background(DownloadCenterAppearance.palette.windowBackground.color)
         .foregroundStyle(DownloadCenterAppearance.palette.primaryText.color)
         .navigationTitle(sidebarTitle(for: store.sidebarSection, locale: locale))
+    }
+
+    private func presentFeaturePolicyDenial(_ denial: FeatureDenial?) {
+        guard let denial else { return }
+        upgradeRoute = UpgradePresentationRoute(denial: denial)
+        store.dismissFeaturePolicyDenial()
     }
 
     @ViewBuilder

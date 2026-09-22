@@ -320,7 +320,7 @@ struct DownloadOptionsEditor: View {
     let audioChoices: [MediaFormat]
 
     @State private var folderError: String?
-    @State private var requestedUpgradeDenial: FeatureDenial?
+    @State private var requestedUpgradeRoute: UpgradePresentationRoute?
 
     var body: some View {
         Group {
@@ -337,7 +337,7 @@ struct DownloadOptionsEditor: View {
                     accesses: videoFormatPresentation.accesses,
                     selectedID: videoSelection.wrappedValue,
                     onSelect: { videoSelection.wrappedValue = $0 },
-                    onRequestUpgrade: { requestedUpgradeDenial = $0 }
+                    onRequestUpgrade: { requestedUpgradeRoute = UpgradePresentationRoute(denial: $0) }
                 )
 
                 Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
@@ -391,13 +391,11 @@ struct DownloadOptionsEditor: View {
                 }
             }
         }
-        .alert(item: $requestedUpgradeDenial) { denial in
-            let presentation = FeaturePolicyDenialPresentation(denial: denial)
-            return Alert(
-                title: Text(L10n.string(presentation.titleKey, locale: locale)),
-                message: Text(L10n.string(presentation.messageKey, locale: locale)),
-                dismissButton: .default(Text(L10n.string(.commonClose, locale: locale)))
-            )
+        .sheet(item: $requestedUpgradeRoute) { route in
+            LocalizedSheetRoot(locale: locale) {
+                PlanComparisonView(route: route)
+                    .environmentObject(planController)
+            }
         }
     }
 

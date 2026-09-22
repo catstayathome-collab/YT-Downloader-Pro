@@ -52,7 +52,7 @@ struct VideoFormatMenu: View {
                 Image(systemName: "lock.fill")
                     .frame(width: 14)
                     .accessibilityHidden(true)
-                Text(verbatim: "Pro")
+                Text(L10n.string(.planProBadge, locale: locale))
                     .frame(width: 30, alignment: .leading)
                     .accessibilityHidden(true)
             } else {
@@ -74,7 +74,7 @@ struct VideoFormatMenu: View {
                 Image(systemName: "lock.fill")
                     .frame(width: 14)
                     .accessibilityHidden(true)
-                Text(verbatim: "Pro")
+                Text(L10n.string(.planProBadge, locale: locale))
                     .frame(width: 30, alignment: .leading)
                     .accessibilityHidden(true)
             }
