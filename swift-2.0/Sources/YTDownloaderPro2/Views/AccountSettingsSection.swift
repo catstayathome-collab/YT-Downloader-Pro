@@ -19,15 +19,15 @@ enum AccountSettingsFocusPolicy {
         guard presentation.isVisible else { return [] }
         return switch presentation.content {
         case .signedOut:
-            [.google, .apple]
+            providerControls(for: presentation.availableProviders)
         case .operation:
             []
         case .signedIn:
             [.signOut]
         case let .reauthentication(provider):
-            provider == nil ? [.google, .apple] : [.retry]
+            provider == nil ? providerControls(for: presentation.availableProviders) : [.retry]
         case let .failure(_, retriesCredentialRemoval):
-            retriesCredentialRemoval ? [.retry] : [.google, .apple]
+            retriesCredentialRemoval ? [.retry] : providerControls(for: presentation.availableProviders)
         }
     }
 
@@ -71,10 +71,18 @@ enum AccountSettingsFocusPolicy {
             initiator.control == .apple ? .apple : .google
         }
     }
+
+    private static func providerControls(
+        for providers: [AuthenticationProviderKind]
+    ) -> [AccountSettingsFocusControl] {
+        providers.map { $0 == .google ? .google : .apple }
+    }
 }
 
 struct AccountSettingsSection: View {
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var entitlementController: EntitlementController
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
 
     @FocusState private var focusedControl: AccountSettingsFocusControl?
@@ -85,6 +93,8 @@ struct AccountSettingsSection: View {
         AccountSettingsPresentation.make(
             environment: accountSessionStore.environment,
             state: accountSessionStore.state,
+            plan: planController.currentPlan,
+            entitlementStatus: entitlementController.status,
             locale: locale
         )
     }
@@ -107,7 +117,7 @@ struct AccountSettingsSection: View {
     private var accountContent: some View {
         switch presentation.content {
         case .signedOut:
-            planRow(.free)
+            planRow(presentation.plan)
             Text(L10n.string(.accountFreeNoSignIn, locale: locale))
                 .foregroundStyle(.secondary)
             providerButtons(disabled: false)
@@ -143,7 +153,29 @@ struct AccountSettingsSection: View {
                 L10n.string(summary.provider.localizationKey, locale: locale),
                 systemImage: summary.provider.systemImage
             )
-            planRow(.free)
+            planRow(presentation.plan)
+            if let maskedEmail = presentation.maskedEmail {
+                LabeledContent(
+                    L10n.string(.accountMaskedEmail, locale: locale),
+                    value: maskedEmail
+                )
+            }
+            if let entitlementDetail = presentation.entitlementDetail {
+                Text(entitlementDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                Task { await entitlementController.refresh(using: accountSessionStore) }
+            } label: {
+                Label(
+                    L10n.string(.accountRefreshEntitlement, locale: locale),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+            .disabled(!presentation.allowsEntitlementRefresh)
+            .accessibilityLabel(L10n.string(.accountRefreshEntitlement, locale: locale))
             Button {
                 beginSignOut(returningTo: .signOut, provider: summary.provider)
             } label: {
@@ -195,34 +227,26 @@ struct AccountSettingsSection: View {
 
     @ViewBuilder
     private func providerButtons(disabled: Bool) -> some View {
-        Button {
-            beginSignIn(with: .google, returningTo: .google)
-        } label: {
-            Label(
-                L10n.string(.accountSignInGoogle, locale: locale),
-                systemImage: AuthenticationProviderKind.google.systemImage
-            )
+        ForEach(presentation.availableProviders, id: \.self) { provider in
+            let control: AccountSettingsFocusControl = provider == .google ? .google : .apple
+            let labelKey: L10n.Key = provider == .google ? .accountSignInGoogle : .accountSignInApple
+            Button {
+                beginSignIn(with: provider, returningTo: control)
+            } label: {
+                Label(
+                    L10n.string(labelKey, locale: locale),
+                    systemImage: provider.systemImage
+                )
+            }
+            .disabled(disabled)
+            .focused($focusedControl, equals: control)
+            .accessibilityLabel(L10n.string(labelKey, locale: locale))
         }
-        .disabled(disabled)
-        .focused($focusedControl, equals: .google)
-        .accessibilityLabel(L10n.string(.accountSignInGoogle, locale: locale))
-
-        Button {
-            beginSignIn(with: .apple, returningTo: .apple)
-        } label: {
-            Label(
-                L10n.string(.accountSignInApple, locale: locale),
-                systemImage: AuthenticationProviderKind.apple.systemImage
-            )
-        }
-        .disabled(disabled)
-        .focused($focusedControl, equals: .apple)
-        .accessibilityLabel(L10n.string(.accountSignInApple, locale: locale))
     }
 
     private func planRow(_ plan: AppPlan) -> some View {
         LabeledContent(L10n.string(.accountCurrentPlan, locale: locale)) {
-            Text(L10n.string(plan == .free ? .accountFreePlan : .accountTestProPlan, locale: locale))
+            Text(plan.localizedName(locale: locale))
         }
     }
 
@@ -254,6 +278,8 @@ struct AccountSettingsSection: View {
         let resultingPresentation = AccountSettingsPresentation.make(
             environment: accountSessionStore.environment,
             state: state,
+            plan: planController.currentPlan,
+            entitlementStatus: entitlementController.status,
             locale: locale
         )
         let destination = AccountSettingsFocusPolicy.destination(

@@ -57,7 +57,7 @@ struct PlanSettingsPresentation: Equatable, Sendable {
     let plan: AppPlan
 
     func planName(locale: Locale) -> String {
-        L10n.string(plan == .free ? .accountFreePlan : .accountTestProPlan, locale: locale)
+        plan.localizedName(locale: locale)
     }
 
     func qualityAccess(locale: Locale) -> String {

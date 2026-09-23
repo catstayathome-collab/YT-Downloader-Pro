@@ -3,6 +3,20 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class SupabaseAuthConfigurationTests: XCTestCase {
+    func testBundledLoaderUsesTheSameStrictValidationAndFailsClosed() {
+        let loaded = SupabaseAuthConfiguration.loadBundled(
+            bundle: .module,
+            resourceName: "supabase-staging-configuration"
+        )
+        let missing = SupabaseAuthConfiguration.loadBundled(
+            bundle: .module,
+            resourceName: "missing-configuration"
+        )
+
+        XCTAssertEqual(loaded?.projectURL.absoluteString, "https://staging-ref.supabase.co")
+        XCTAssertNil(missing)
+    }
+
     func testValidStagingConfigurationDerivesExactTrustedEndpoints() throws {
         let configuration = try SupabaseAuthConfiguration.load(data: fixtureData())
 

@@ -119,6 +119,8 @@ final class DownloadCenterViewTests: XCTestCase {
             let presentation = AccountSettingsPresentation.make(
                 environment: .mock,
                 state: state,
+                plan: .free,
+                entitlementStatus: .free,
                 locale: locale
             )
 
@@ -144,6 +146,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .mock,
             state: .signedOut,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
 
@@ -164,6 +168,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .disabled,
             state: .disabled,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
 
@@ -179,6 +185,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .mock,
             state: .signedOut,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
         let footer = DownloadSidebarComposition.Region.accountFooter(presentation)

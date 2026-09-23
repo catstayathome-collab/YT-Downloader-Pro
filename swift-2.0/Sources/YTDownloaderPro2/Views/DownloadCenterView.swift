@@ -325,6 +325,7 @@ private enum DownloadOptionsSheet: Identifiable {
 struct DownloadCenterView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var entitlementController: EntitlementController
     @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
 
@@ -532,6 +533,8 @@ struct DownloadCenterView: View {
             accountPresentation: AccountSidebarPresentation.make(
                 environment: accountSessionStore.environment,
                 state: accountSessionStore.state,
+                plan: planController.currentPlan,
+                entitlementStatus: entitlementController.status,
                 locale: locale
             )
         )

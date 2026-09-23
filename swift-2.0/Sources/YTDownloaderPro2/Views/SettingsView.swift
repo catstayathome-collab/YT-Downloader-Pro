@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var entitlementController: EntitlementController
     @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
     @State private var showsSupportReport = false
@@ -60,6 +61,8 @@ struct SettingsView: View {
             let accountPresentation = AccountSettingsPresentation.make(
                 environment: accountSessionStore.environment,
                 state: accountSessionStore.state,
+                plan: planController.currentPlan,
+                entitlementStatus: entitlementController.status,
                 locale: locale
             )
             if accountPresentation.isVisible {

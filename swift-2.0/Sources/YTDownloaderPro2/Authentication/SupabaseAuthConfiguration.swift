@@ -18,6 +18,17 @@ struct SupabaseAuthConfiguration: Equatable, Sendable {
     let entitlementAudience: String
     let publicKeys: [String: Data]
 
+    static func loadBundled(
+        bundle: Bundle = .main,
+        resourceName: String = "SupabaseConfiguration"
+    ) -> SupabaseAuthConfiguration? {
+        guard let url = bundle.url(forResource: resourceName, withExtension: "json"),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? load(data: data)
+    }
+
     static func load(data: Data) throws -> SupabaseAuthConfiguration {
         let wire: Wire
         do {

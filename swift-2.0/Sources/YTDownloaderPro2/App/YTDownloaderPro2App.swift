@@ -12,6 +12,7 @@ struct YTDownloaderPro2App: App {
             }
                 .environmentObject(appLifecycle.store)
                 .environmentObject(appLifecycle.accountSessionStore)
+                .environmentObject(appLifecycle.entitlementController)
                 .environmentObject(appLifecycle.planController)
                 .frame(minWidth: 760, minHeight: 540)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
@@ -23,6 +24,7 @@ struct YTDownloaderPro2App: App {
             }
                 .environmentObject(appLifecycle.store)
                 .environmentObject(appLifecycle.accountSessionStore)
+                .environmentObject(appLifecycle.entitlementController)
                 .environmentObject(appLifecycle.planController)
                 .preferredColorScheme(DownloadCenterAppearance.preferredScheme)
         }
@@ -72,18 +74,28 @@ enum TerminationSafetyPolicy {
 final class AppLifecycle: NSObject, NSApplicationDelegate {
     let store: DownloadStore
     let accountSessionStore: AccountSessionStore
+    let entitlementController: EntitlementController
     let planController: PlanController
+    private let accountEntitlementBridge: AccountEntitlementBridge
     private var terminationTask: Task<Void, Never>?
 
     override convenience init() {
         let featurePolicyResolution = FeaturePolicyEnvironmentResolution.resolve()
+        let authConfiguration = SupabaseAuthConfiguration.loadBundled()
+        let authResolution = AuthEnvironmentResolution.resolve(configuration: authConfiguration)
         let planController = PlanController.live()
+        let accountSessionStore = AccountSessionStore.live(resolution: authResolution)
+        let entitlementController = EntitlementController.live(
+            resolution: authResolution,
+            planController: planController
+        )
         self.init(
             store: DownloadStore.live(
                 featurePolicyResolution: featurePolicyResolution,
                 planController: planController
             ),
-            accountSessionStore: .live(),
+            accountSessionStore: accountSessionStore,
+            entitlementController: entitlementController,
             planController: planController
         )
     }
@@ -91,25 +103,42 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
     init(
         store: DownloadStore,
         accountSessionStore: AccountSessionStore? = nil,
+        entitlementController: EntitlementController? = nil,
         planController: PlanController? = nil
     ) {
         self.store = store
-        self.accountSessionStore = accountSessionStore ?? AccountSessionStore(
+        let resolvedPlanController = planController ?? PlanController(
+            buildChannel: .publicRelease,
+            provider: PublicFreePlanProvider()
+        )
+        let resolvedAccountSessionStore = accountSessionStore ?? AccountSessionStore(
             environment: .disabled,
             vault: InMemoryCredentialVault(),
             providers: .init([])
         )
-        self.planController = planController ?? PlanController(
-            buildChannel: .publicRelease,
-            provider: PublicFreePlanProvider()
+        let resolvedEntitlementController = entitlementController ?? EntitlementController.live(
+            resolution: .init(environment: .disabled, configuration: nil),
+            planController: resolvedPlanController
+        )
+        self.accountSessionStore = resolvedAccountSessionStore
+        self.entitlementController = resolvedEntitlementController
+        self.planController = resolvedPlanController
+        self.accountEntitlementBridge = AccountEntitlementBridge(
+            account: resolvedAccountSessionStore,
+            entitlement: resolvedEntitlementController
         )
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .aqua)
+        accountEntitlementBridge.start()
         startAutomaticUpdateCheck()
         startAuthenticationRestoration()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        accountEntitlementBridge.stop()
     }
 
     func startAutomaticUpdateCheck() {

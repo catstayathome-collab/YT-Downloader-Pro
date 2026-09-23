@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 
 enum EntitlementStatus: Equatable, Sendable {
@@ -64,6 +65,42 @@ final class EntitlementController: ObservableObject {
         self.planController = planController
         self.now = now
         self.verificationContext = verificationContext
+    }
+
+    static func live(
+        resolution: AuthEnvironmentResolution,
+        planController: PlanController
+    ) -> EntitlementController {
+        let configuration = resolution.configuration
+        let keys = configuration?.publicKeys.reduce(into: [String: P256.Signing.PublicKey]()) {
+            result, entry in
+            if let key = try? P256.Signing.PublicKey(x963Representation: entry.value) {
+                result[entry.key] = key
+            }
+        } ?? [:]
+        let client: any EntitlementFetching = if let configuration {
+            EntitlementClient(endpoint: configuration.entitlementURL)
+        } else {
+            UnavailableEntitlementFetcher()
+        }
+
+        return EntitlementController(
+            environment: resolution.environment,
+            client: client,
+            verifier: EntitlementVerifier(),
+            store: VerifiedEntitlementStore(vault: KeychainEntitlementVault()),
+            planController: planController
+        ) { subject, now, acceptsCachedExpiry in
+            EntitlementVerificationContext(
+                issuer: configuration?.entitlementIssuer ?? "",
+                audience: configuration?.entitlementAudience ?? "",
+                subject: subject,
+                now: now,
+                allowedClockSkew: 5 * 60,
+                acceptedExpiryGrace: acceptsCachedExpiry ? VerifiedEntitlement.offlineGraceDuration : 0,
+                publicKeys: keys
+            )
+        }
     }
 
     func restore(subject: String) async {
@@ -296,3 +333,8 @@ final class EntitlementController: ObservableObject {
     }
 }
 
+private struct UnavailableEntitlementFetcher: EntitlementFetching {
+    func fetch(accessToken: String) async throws -> String {
+        throw EntitlementClientError.transportUnavailable
+    }
+}
