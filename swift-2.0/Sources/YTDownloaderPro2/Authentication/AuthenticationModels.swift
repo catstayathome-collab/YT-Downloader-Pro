@@ -3,6 +3,8 @@ import Foundation
 enum AuthEnvironment: String, Equatable, Hashable, Sendable {
     case disabled
     case mock
+    case staging
+    case production
 
     static func resolve(from environment: [String: String] = ProcessInfo.processInfo.environment) -> AuthEnvironment {
         environment["YTDP_AUTH_MODE"] == "mock" ? .mock : .disabled
