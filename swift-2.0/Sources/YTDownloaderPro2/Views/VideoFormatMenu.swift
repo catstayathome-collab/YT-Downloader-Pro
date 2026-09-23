@@ -38,10 +38,15 @@ struct VideoFormatMenu: View {
     @ViewBuilder
     private func rowLabel(for access: VideoFormatAccess) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: access.id == selectedID ? "checkmark" : "circle")
-                .opacity(access.id == selectedID ? 1 : 0)
-                .frame(width: 14)
-                .accessibilityHidden(true)
+            if let systemImage = access.leadingSystemImage(isSelected: access.id == selectedID) {
+                Image(systemName: systemImage)
+                    .frame(width: 14)
+                    .accessibilityHidden(true)
+            } else {
+                Color.clear
+                    .frame(width: 14, height: 1)
+                    .accessibilityHidden(true)
+            }
 
             Text(MediaFormatPresentation.label(for: access.format, locale: locale))
                 .lineLimit(2)
@@ -49,15 +54,12 @@ struct VideoFormatMenu: View {
             Spacer(minLength: 12)
 
             if access.denial != nil {
-                Image(systemName: "lock.fill")
-                    .frame(width: 14)
-                    .accessibilityHidden(true)
                 Text(L10n.string(.planProBadge, locale: locale))
                     .frame(width: 30, alignment: .leading)
                     .accessibilityHidden(true)
             } else {
                 Color.clear
-                    .frame(width: 52, height: 1)
+                    .frame(width: 30, height: 1)
                     .accessibilityHidden(true)
             }
         }

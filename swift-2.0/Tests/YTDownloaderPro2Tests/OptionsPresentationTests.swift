@@ -304,6 +304,28 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertTrue(label.contains("Pro"))
     }
 
+    func testVideoFormatMenuLeadingIndicatorDistinguishesSelectionLockAndAvailableRows() throws {
+        let presentation = VideoFormatMenuPresentation(
+            formats: [
+                format(id: "1080", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080),
+                format(id: "720", label: "720p", videoCodec: "avc1", container: "mp4", height: 720),
+                format(id: "480", label: "480p", videoCodec: "avc1", container: "mp4", height: 480)
+            ],
+            selectedID: "720",
+            outputKind: .mp4,
+            featurePolicy: .enforced(.init(snapshot: .syntheticFree))
+        )
+
+        let locked = try XCTUnwrap(presentation.accesses.first(where: { $0.id == "1080" }))
+        let selected = try XCTUnwrap(presentation.accesses.first(where: { $0.id == "720" }))
+        let available = try XCTUnwrap(presentation.accesses.first(where: { $0.id == "480" }))
+
+        XCTAssertEqual(locked.leadingSystemImage(isSelected: false), "lock.fill")
+        XCTAssertEqual(selected.leadingSystemImage(isSelected: true), "checkmark")
+        XCTAssertNil(available.leadingSystemImage(isSelected: false))
+        XCTAssertEqual(locked.leadingSystemImage(isSelected: true), "checkmark")
+    }
+
     func testMP4DefaultsSkipWebMCodecsAndChooseTheHighestQuickTimeCompatiblePair() {
         let vp9 = MediaFormat(
             id: "248",

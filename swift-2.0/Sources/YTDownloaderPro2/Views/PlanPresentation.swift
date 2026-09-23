@@ -147,6 +147,11 @@ enum VideoFormatAccess: Equatable, Sendable, Identifiable {
 
     var isAllowed: Bool { denial == nil }
 
+    func leadingSystemImage(isSelected: Bool) -> String? {
+        if isSelected { return "checkmark" }
+        return denial == nil ? nil : "lock.fill"
+    }
+
     func accessibilityLabel(locale: Locale) -> String {
         let quality = MediaFormatPresentation.label(for: format, locale: locale)
         guard denial != nil else { return quality }
