@@ -348,8 +348,9 @@ final class DownloadStore: ObservableObject {
         applicationSupportRoot: URL? = nil,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         featurePolicyResolution: FeaturePolicyEnvironmentResolution = .resolve(from: [:]),
-        planController: PlanController = .live()
+        planController: PlanController? = nil
     ) -> DownloadStore {
+        let planController = planController ?? .live()
         let root = applicationSupportRoot ?? Self.defaultApplicationSupportRoot()
         let toolchain = (try? Toolchain.resolve(bundle: bundle.bundleURL)) ?? Self.unavailableToolchain()
         let probe = MetadataProbe(toolchain: toolchain)
