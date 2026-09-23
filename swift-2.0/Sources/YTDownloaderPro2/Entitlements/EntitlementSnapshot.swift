@@ -42,4 +42,13 @@ struct EntitlementSnapshot: Codable, Equatable, Sendable {
         videoHeightPolicy: .unlimited,
         subscriptionState: .active
     )
+
+    var isCanonicalGrant: Bool {
+        switch plan {
+        case .free:
+            self == .syntheticFree
+        case .pro:
+            self == .syntheticPro
+        }
+    }
 }
