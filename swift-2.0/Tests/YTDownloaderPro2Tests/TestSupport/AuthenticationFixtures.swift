@@ -39,13 +39,18 @@ struct EntitlementTestSigner {
     let issuer = "https://accounts.ytdownloaderpro.example/staging"
     let audience = "com.tachouweng.ytdownloaderpro2"
 
-    func context(subject: String, now: Date) -> EntitlementVerificationContext {
+    func context(
+        subject: String,
+        now: Date,
+        acceptsCachedExpiry: Bool = false
+    ) -> EntitlementVerificationContext {
         EntitlementVerificationContext(
             issuer: issuer,
             audience: audience,
             subject: subject,
             now: now,
             allowedClockSkew: 5 * 60,
+            acceptedExpiryGrace: acceptsCachedExpiry ? VerifiedEntitlement.offlineGraceDuration : 0,
             publicKeys: [keyID: privateKey.publicKey]
         )
     }

@@ -51,14 +51,17 @@ export type EntitlementClaimsInput = Readonly<{
   grantRevision: number;
 }>;
 
-export function canonicalFreeEntitlement(_now: Date): EntitlementClaimsInput {
+export function canonicalFreeEntitlement(
+  _now: Date,
+  grantRevision = 0,
+): EntitlementClaimsInput {
   return {
     schema: 1,
     plan: "free",
     features: [...CANONICAL_FREE_FEATURES],
     maxVideoHeight: 720,
     subscriptionState: "none",
-    grantRevision: 0,
+    grantRevision,
   };
 }
 
@@ -67,7 +70,7 @@ export function deriveEntitlement(
   now: Date,
 ): EntitlementClaimsInput {
   if (!isConsistentActiveProGrant(grant, now)) {
-    return canonicalFreeEntitlement(now);
+    return canonicalFreeEntitlement(now, fallbackGrantRevision(grant, now));
   }
 
   return {
@@ -78,6 +81,18 @@ export function deriveEntitlement(
     subscriptionState: "active",
     grantRevision: grant.revision,
   };
+}
+
+function fallbackGrantRevision(grant: GrantRow | null, now: Date): number {
+  if (
+    grant === null ||
+    !Number.isFinite(now.getTime()) ||
+    !Number.isSafeInteger(grant.revision) ||
+    grant.revision <= 0
+  ) {
+    return 0;
+  }
+  return grant.revision;
 }
 
 function isConsistentActiveProGrant(

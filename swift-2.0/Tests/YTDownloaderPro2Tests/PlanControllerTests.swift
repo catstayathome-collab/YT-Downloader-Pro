@@ -48,6 +48,7 @@ final class PlanControllerTests: XCTestCase {
             (nil, .free),
             ("free", .free),
             ("test-pro", .testPro),
+            ("pro", .free),
             (" test-pro", .free),
             ("test-pro ", .free),
             ("TEST-PRO", .free),
@@ -62,6 +63,36 @@ final class PlanControllerTests: XCTestCase {
             }
             XCTAssertEqual(store.loadPlan(), testCase.expected, String(describing: testCase.stored))
         }
+    }
+
+    func testVerifiedServerProAppliesToPublicControllerAndClearReturnsToFree() {
+        let controller = PlanController(
+            buildChannel: .publicRelease,
+            provider: PublicFreePlanProvider()
+        )
+
+        controller.applyVerifiedEntitlement(.fixture(plan: .pro, revision: 4))
+
+        XCTAssertEqual(controller.currentPlan, .pro)
+        XCTAssertEqual(controller.featurePolicyContext.plan, .pro)
+
+        controller.clearVerifiedEntitlement()
+
+        XCTAssertEqual(controller.currentPlan, .free)
+        XCTAssertEqual(controller.featurePolicyContext.plan, .free)
+    }
+
+    func testVerifiedFreeImmediatelyDowngradesServerPro() {
+        let controller = PlanController(
+            buildChannel: .publicRelease,
+            provider: PublicFreePlanProvider()
+        )
+        controller.applyVerifiedEntitlement(.fixture(plan: .pro, revision: 4))
+
+        controller.applyVerifiedEntitlement(.fixture(plan: .free, revision: 0))
+
+        XCTAssertEqual(controller.currentPlan, .free)
+        XCTAssertEqual(controller.featurePolicyContext.plan, .free)
     }
 
     func testInternalProviderLoadsOnlyTheStoreResult() throws {
@@ -99,6 +130,35 @@ final class PlanControllerTests: XCTestCase {
         XCTAssertEqual(controller.featurePolicyContext.plan, .pro)
         XCTAssertEqual(received, [.free, .testPro])
         XCTAssertEqual(defaults.object(forKey: InternalTestPlanStore.key) as? String, "test-pro")
+    }
+
+    func testInternalTestProOverridesVerifiedServerFreeAndPro() throws {
+        let suiteName = "PlanControllerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = PlanController.live(defaults: defaults)
+        controller.selectInternalPlan(.testPro)
+
+        controller.applyVerifiedEntitlement(.fixture(plan: .free, revision: 0))
+        XCTAssertEqual(controller.currentPlan, .testPro)
+
+        controller.applyVerifiedEntitlement(.fixture(plan: .pro, revision: 8))
+        XCTAssertEqual(controller.currentPlan, .testPro)
+
+        controller.selectInternalPlan(.free)
+        XCTAssertEqual(controller.currentPlan, .pro)
+    }
+
+    func testInternalStoreRefusesToPersistRealServerPro() throws {
+        let suiteName = "PlanControllerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = InternalTestPlanStore(defaults: defaults)
+
+        store.savePlan(.pro)
+
+        XCTAssertNil(defaults.object(forKey: InternalTestPlanStore.key))
+        XCTAssertEqual(store.loadPlan(), .free)
     }
 
     func testResetInternalPlanReturnsToFreeAndPersistsIt() throws {
@@ -156,4 +216,17 @@ final class PlanControllerTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: InternalTestPlanStore.key) as? String, "test-pro")
     }
 #endif
+}
+
+private extension VerifiedEntitlement {
+    static func fixture(plan: EntitlementPlan, revision: Int64) -> VerifiedEntitlement {
+        VerifiedEntitlement(
+            compactToken: "header.payload.signature",
+            subject: "account-a",
+            grantRevision: revision,
+            issuedAt: Date(timeIntervalSince1970: 1_000),
+            expiresAt: Date(timeIntervalSince1970: 100_000),
+            snapshot: plan == .pro ? .syntheticPro : .syntheticFree
+        )
+    }
 }

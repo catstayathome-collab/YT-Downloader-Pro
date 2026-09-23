@@ -50,9 +50,15 @@ Deno.test("missing inactive or non-Pro grant derives canonical Free", () => {
 
   assertEquals(canonicalFreeEntitlement(now), expected);
   assertEquals(deriveEntitlement(null, now), expected);
-  assertEquals(deriveEntitlement(activeGrant({ status: "suspended" }), now), expected);
-  assertEquals(deriveEntitlement(activeGrant({ status: "none" }), now), expected);
-  assertEquals(deriveEntitlement(activeGrant({ plan: "free" }), now), expected);
+  for (
+    const grant of [
+      activeGrant({ status: "suspended" }),
+      activeGrant({ status: "none" }),
+      activeGrant({ plan: "free" }),
+    ]
+  ) {
+    assertEquals(deriveEntitlement(grant, now), { ...expected, grantRevision: 7 });
+  }
   assertEquals(CANONICAL_FREE_FEATURES, expected.features);
 });
 
@@ -66,6 +72,16 @@ Deno.test("only a consistent in-window Pro grant derives canonical Pro", () => {
     maxVideoHeight: null,
     subscriptionState: "active",
     grantRevision: 7,
+  });
+});
+
+Deno.test("a well-formed suspended grant keeps its monotonic revision while deriving Free", () => {
+  const now = new Date("2026-09-24T00:00:00.000Z");
+  const result = deriveEntitlement(activeGrant({ status: "suspended", revision: 8 }), now);
+
+  assertEquals(result, {
+    ...canonicalFreeEntitlement(now),
+    grantRevision: 8,
   });
 });
 
@@ -94,7 +110,13 @@ Deno.test("malformed inconsistent and out-of-window grants derive Free", () => {
   ];
 
   for (const grant of invalid) {
-    assertEquals(deriveEntitlement(grant, now), canonicalFreeEntitlement(now));
+    const revision = Number.isSafeInteger(grant.revision) && grant.revision > 0
+      ? grant.revision
+      : 0;
+    assertEquals(
+      deriveEntitlement(grant, now),
+      canonicalFreeEntitlement(now, revision),
+    );
   }
 });
 

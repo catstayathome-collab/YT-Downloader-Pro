@@ -7,7 +7,26 @@ struct EntitlementVerificationContext: Sendable {
     let subject: String
     let now: Date
     let allowedClockSkew: TimeInterval
+    let acceptedExpiryGrace: TimeInterval
     let publicKeys: [String: P256.Signing.PublicKey]
+
+    init(
+        issuer: String,
+        audience: String,
+        subject: String,
+        now: Date,
+        allowedClockSkew: TimeInterval,
+        acceptedExpiryGrace: TimeInterval = 0,
+        publicKeys: [String: P256.Signing.PublicKey]
+    ) {
+        self.issuer = issuer
+        self.audience = audience
+        self.subject = subject
+        self.now = now
+        self.allowedClockSkew = allowedClockSkew
+        self.acceptedExpiryGrace = acceptedExpiryGrace
+        self.publicKeys = publicKeys
+    }
 }
 
 enum EntitlementVerificationError: Error, Equatable, Sendable {
@@ -83,19 +102,22 @@ struct EntitlementVerifier: EntitlementVerifying {
     ) throws -> EntitlementSnapshot {
         let now = context.now.timeIntervalSince1970
         let skew = context.allowedClockSkew
+        let expiryGrace = context.acceptedExpiryGrace
         guard !context.issuer.isEmpty,
               !context.audience.isEmpty,
               !context.subject.isEmpty,
               now.isFinite,
               skew.isFinite,
               skew >= 0,
+              expiryGrace.isFinite,
+              expiryGrace >= 0,
               claims.iss == context.issuer,
               claims.aud == context.audience,
               claims.sub == context.subject,
               UUID(uuidString: claims.jti) != nil,
               TimeInterval(claims.iat) <= now + skew,
               TimeInterval(claims.nbf) <= now + skew,
-              TimeInterval(claims.exp) >= now - skew,
+              TimeInterval(claims.exp) >= now - skew - expiryGrace,
               claims.nbf <= claims.iat,
               claims.exp > claims.iat,
               claims.schema == EntitlementSnapshot.supportedSchemaVersion,
@@ -124,7 +146,7 @@ struct EntitlementVerifier: EntitlementVerifying {
             throw EntitlementVerificationError.invalidClaims
         }
         switch plan {
-        case .free where claims.grantRevision == 0:
+        case .free where claims.grantRevision >= 0:
             break
         case .pro where claims.grantRevision > 0:
             break

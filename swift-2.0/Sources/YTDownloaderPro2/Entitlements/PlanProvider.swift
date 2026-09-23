@@ -22,7 +22,8 @@ struct InternalTestPlanStore {
     func loadPlan() -> AppPlan {
         guard
             let rawValue = defaults.object(forKey: Self.key) as? String,
-            let plan = AppPlan(rawValue: rawValue)
+            let plan = AppPlan(rawValue: rawValue),
+            plan == .free || plan == .testPro
         else {
             return .free
         }
@@ -30,6 +31,7 @@ struct InternalTestPlanStore {
     }
 
     func savePlan(_ plan: AppPlan) {
+        guard plan == .free || plan == .testPro else { return }
         defaults.set(plan.rawValue, forKey: Self.key)
     }
 }

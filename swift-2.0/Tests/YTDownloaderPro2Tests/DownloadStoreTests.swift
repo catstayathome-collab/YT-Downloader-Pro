@@ -578,8 +578,16 @@ final class DownloadStoreTests: XCTestCase {
             featurePolicyContext: AppPlan.testPro.featurePolicyContext
         )
         defer { fixture.cleanUp() }
+        fixture.planController.setPlanForTesting(.pro)
         XCTAssertEqual(fixture.store.jobs.first?.status, .queued)
-        fixture.planController.setPlanForTesting(.free)
+        fixture.planController.applyVerifiedEntitlement(VerifiedEntitlement(
+            compactToken: "header.payload.signature",
+            subject: "account-a",
+            grantRevision: 8,
+            issuedAt: Date(timeIntervalSince1970: 1_000),
+            expiresAt: Date(timeIntervalSince1970: 100_000),
+            snapshot: .syntheticFree
+        ))
 
         await fixture.store.startAll()
         let startedIDs = await fixture.runner.startedIDs()
@@ -614,6 +622,7 @@ final class DownloadStoreTests: XCTestCase {
             featurePolicyContext: AppPlan.testPro.featurePolicyContext
         )
         defer { fixture.cleanUp() }
+        fixture.planController.setPlanForTesting(.pro)
 
         await fixture.store.startAll()
         try await fixture.runner.waitForStart(of: downloading.id)
@@ -625,7 +634,14 @@ final class DownloadStoreTests: XCTestCase {
                 && fixture.store.jobs.first(where: { $0.id == merging.id })?.status == .merging
         }
 
-        fixture.planController.setPlanForTesting(.free)
+        fixture.planController.applyVerifiedEntitlement(VerifiedEntitlement(
+            compactToken: "header.payload.signature",
+            subject: "account-a",
+            grantRevision: 8,
+            issuedAt: Date(timeIntervalSince1970: 1_000),
+            expiresAt: Date(timeIntervalSince1970: 100_000),
+            snapshot: .syntheticFree
+        ))
         try await waitUntil("latest Free plan reconciles nonactive jobs") {
             fixture.store.jobs.first(where: { $0.id == queued.id })?.accessRequirement != nil
                 && fixture.store.jobs.first(where: { $0.id == paused.id })?.accessRequirement != nil

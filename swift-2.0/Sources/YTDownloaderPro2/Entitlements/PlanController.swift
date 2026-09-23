@@ -7,9 +7,11 @@ final class PlanController: ObservableObject {
 
     let buildChannel: AppBuildChannel
     private let internalStore: InternalTestPlanStore?
+    private var internalOverride: AppPlan
+    private var serverSnapshot: EntitlementSnapshot?
 
     var featurePolicyContext: FeaturePolicyContext {
-        currentPlan.featurePolicyContext
+        .enforced(FeaturePolicy(snapshot: effectiveState.snapshot))
     }
 
     var internalSwitchingAvailable: Bool {
@@ -20,11 +22,13 @@ final class PlanController: ObservableObject {
         self.buildChannel = buildChannel
         if buildChannel == .internalTest {
             internalStore = (provider as? InternalTestPlanProvider)?.store
-            currentPlan = provider.loadPlan()
+            internalOverride = provider.loadPlan()
         } else {
             internalStore = nil
-            currentPlan = .free
+            internalOverride = .free
         }
+        serverSnapshot = nil
+        currentPlan = internalOverride == .testPro ? .testPro : .free
     }
 
     static func live(defaults: UserDefaults = .standard) -> PlanController {
@@ -44,10 +48,12 @@ final class PlanController: ObservableObject {
 
 #if YTDP_INTERNAL_TEST
     func selectInternalPlan(_ plan: AppPlan) {
-        guard buildChannel == .internalTest, let internalStore else { return }
+        guard buildChannel == .internalTest,
+              plan == .free || plan == .testPro,
+              let internalStore else { return }
         internalStore.savePlan(plan)
-        guard currentPlan != plan else { return }
-        currentPlan = plan
+        internalOverride = plan
+        publishEffectiveState()
     }
 
     func resetInternalPlanToFree() {
@@ -58,7 +64,43 @@ final class PlanController: ObservableObject {
 #if DEBUG
     func setPlanForTesting(_ plan: AppPlan) {
         guard buildChannel == .internalTest else { return }
-        currentPlan = plan
+        switch plan {
+        case .free:
+            internalOverride = .free
+            serverSnapshot = nil
+        case .pro:
+            internalOverride = .free
+            serverSnapshot = .syntheticPro
+        case .testPro:
+            internalOverride = .testPro
+        }
+        publishEffectiveState()
     }
 #endif
+
+    func applyVerifiedEntitlement(_ entitlement: VerifiedEntitlement) {
+        serverSnapshot = entitlement.snapshot
+        publishEffectiveState()
+    }
+
+    func clearVerifiedEntitlement() {
+        serverSnapshot = nil
+        publishEffectiveState()
+    }
+
+    private var effectiveState: (plan: AppPlan, snapshot: EntitlementSnapshot) {
+        if internalOverride == .testPro {
+            return (.testPro, .syntheticPro)
+        }
+        if let serverSnapshot, serverSnapshot.plan == .pro {
+            return (.pro, serverSnapshot)
+        }
+        return (.free, .syntheticFree)
+    }
+
+    private func publishEffectiveState() {
+        let plan = effectiveState.plan
+        guard currentPlan != plan else { return }
+        currentPlan = plan
+    }
 }

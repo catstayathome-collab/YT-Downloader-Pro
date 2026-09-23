@@ -15,6 +15,7 @@ enum AppBuildChannel: String, Equatable, Sendable {
 
 enum AppPlan: String, Codable, Equatable, Sendable {
     case free
+    case pro
     case testPro = "test-pro"
 
     var featurePolicyContext: FeaturePolicyContext {
