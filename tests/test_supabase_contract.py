@@ -1,10 +1,13 @@
 from pathlib import Path
+import json
 import re
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase" / "migrations" / "202609230001_account_entitlements.sql"
+DENO_CONFIG = ROOT / "supabase" / "deno.json"
+EDGE_INDEX = ROOT / "supabase" / "functions" / "entitlement" / "index.ts"
 
 
 class SupabaseContractTests(unittest.TestCase):
@@ -74,6 +77,27 @@ class SupabaseContractTests(unittest.TestCase):
         self.assertIn("reason_code varchar(64) not null", sql)
         for prohibited in ("token", "email", "media_url", "download_path", "cookie"):
             self.assertNotRegex(sql, rf"\b{prohibited}\b\s+(?:text|varchar|json|jsonb)")
+
+    def test_edge_runtime_uses_exact_pinned_client_and_required_secret_names(self):
+        config = json.loads(DENO_CONFIG.read_text(encoding="utf-8"))
+        self.assertIn("imports", config)
+        self.assertEqual(
+            config["imports"]["@supabase/supabase-js"],
+            "npm:@supabase/supabase-js@2.117.0",
+        )
+
+        source = EDGE_INDEX.read_text(encoding="utf-8")
+        for variable in (
+            "SUPABASE_URL",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "ENTITLEMENT_ES256_PRIVATE_KEY_PKCS8",
+            "ENTITLEMENT_ES256_KID",
+            "ENTITLEMENT_ISSUER",
+            "ENTITLEMENT_AUDIENCE",
+        ):
+            self.assertRegex(source, rf'get\(\s*"{variable}"\s*,?\s*\)')
+        self.assertNotIn("sb_secret_", source)
+        self.assertNotIn("BEGIN PRIVATE KEY", source)
 
 
 if __name__ == "__main__":
