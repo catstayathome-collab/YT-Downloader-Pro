@@ -47,10 +47,8 @@ final class FeaturePolicyEnvironmentTests: XCTestCase {
     }
 
     func testAuthenticationEnvironmentCannotChangeFeaturePolicy() {
-        let accountPreview = MockPlanPreview.pro
         let policy = FeaturePolicyEnvironmentResolution.resolve(from: [:]).context
 
-        XCTAssertEqual(accountPreview, .pro)
         XCTAssertFalse(policy.isEnforced)
         XCTAssertNil(policy.plan)
     }

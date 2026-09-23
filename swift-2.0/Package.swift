@@ -9,9 +9,18 @@ let package = Package(
     products: [
         .executable(name: "YTDownloaderPro2", targets: ["YTDownloaderPro2"])
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/supabase/supabase-swift.git",
+            exact: "2.55.2"
+        )
+    ],
     targets: [
         .executableTarget(
             name: "YTDownloaderPro2",
+            dependencies: [
+                .product(name: "Auth", package: "supabase-swift")
+            ],
             resources: [.process("Resources")]
         ),
         .testTarget(

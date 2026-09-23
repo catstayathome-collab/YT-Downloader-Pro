@@ -19,9 +19,9 @@ final class MockAuthenticationProviderTests: XCTestCase {
             XCTAssertEqual(session.summary.provider, kind)
             XCTAssertTrue(session.summary.accountID.hasPrefix("mock-"))
             XCTAssertFalse(session.summary.displayName.contains("@"))
+            XCTAssertNil(session.summary.maskedEmail)
             XCTAssertFalse(session.accessToken.isEmpty)
             XCTAssertFalse(session.refreshCredential.isEmpty)
-            XCTAssertEqual(session.summary.planPreview, .pro)
         }
     }
 
@@ -54,7 +54,7 @@ final class MockAuthenticationProviderTests: XCTestCase {
             provider: .google,
             accountID: "opaque-account",
             displayName: "Opaque Display Name",
-            planPreview: .pro,
+            maskedEmail: nil,
             expiresAt: now.addingTimeInterval(60)
         )
         let whitespaceOnly = " \t\n\r "
@@ -64,7 +64,7 @@ final class MockAuthenticationProviderTests: XCTestCase {
                     provider: .google,
                     accountID: whitespaceOnly,
                     displayName: validSummary.displayName,
-                    planPreview: validSummary.planPreview,
+                    maskedEmail: validSummary.maskedEmail,
                     expiresAt: validSummary.expiresAt
                 ),
                 refreshCredential: "opaque-refresh"
@@ -74,7 +74,7 @@ final class MockAuthenticationProviderTests: XCTestCase {
                     provider: .google,
                     accountID: validSummary.accountID,
                     displayName: whitespaceOnly,
-                    planPreview: validSummary.planPreview,
+                    maskedEmail: validSummary.maskedEmail,
                     expiresAt: validSummary.expiresAt
                 ),
                 refreshCredential: "opaque-refresh"

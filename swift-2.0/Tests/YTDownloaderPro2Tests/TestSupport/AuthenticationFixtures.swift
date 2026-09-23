@@ -413,7 +413,7 @@ extension AccountSummary {
             provider: provider,
             accountID: "mock-account",
             displayName: "Demo User",
-            planPreview: .pro,
+            maskedEmail: nil,
             expiresAt: Date(timeIntervalSince1970: 4_000_000_000)
         )
     }
@@ -433,7 +433,7 @@ extension AuthenticationSession {
                 provider: provider,
                 accountID: accountID,
                 displayName: displayName,
-                planPreview: .pro,
+                maskedEmail: nil,
                 expiresAt: expiresAt
             ),
             accessToken: accessToken,

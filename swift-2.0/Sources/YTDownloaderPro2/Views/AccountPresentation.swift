@@ -41,7 +41,7 @@ struct AccountSidebarPresentation: Equatable {
             )
         case let .signedIn(summary):
             let provider = L10n.string(summary.provider.localizationKey, locale: locale)
-            let plan = L10n.string(summary.planPreview.localizationKey, locale: locale)
+            let plan = L10n.string(.accountFreePlan, locale: locale)
             return .init(
                 isVisible: true,
                 title: summary.displayName,
@@ -143,12 +143,6 @@ extension AuthenticationProviderKind {
 
     var systemImage: String {
         self == .apple ? "apple.logo" : "person.crop.circle"
-    }
-}
-
-extension MockPlanPreview {
-    var localizationKey: L10n.Key {
-        self == .pro ? .accountTestProPlan : .accountFreePlan
     }
 }
 

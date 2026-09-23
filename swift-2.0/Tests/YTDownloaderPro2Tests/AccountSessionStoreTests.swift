@@ -33,6 +33,142 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(providerOperations, [.signIn])
     }
 
+    func testAuthenticatedContextExistsOnlyForAdoptedSignedInSession() async throws {
+        let session = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "account-a",
+            expiresAt: Date(timeIntervalSince1970: 4_000),
+            accessToken: "access-a"
+        )
+        let provider = ImmediateAuthenticationProvider(kind: .google, signInResult: .success(session))
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: RecordingCredentialVault(),
+            providers: .init([provider]),
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        XCTAssertNil(store.authenticatedContext())
+        await store.signIn(with: .google)
+
+        XCTAssertEqual(
+            store.authenticatedContext(),
+            AuthenticatedSessionContext(
+                accountID: "account-a",
+                accessToken: "access-a",
+                expiresAt: Date(timeIntervalSince1970: 4_000)
+            )
+        )
+    }
+
+    func testRefreshAuthenticatedSessionRotatesCredentialBeforePublishingContext() async throws {
+        let initial = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "account-a",
+            expiresAt: Date(timeIntervalSince1970: 4_000),
+            accessToken: "access-a",
+            refreshCredential: "refresh-a"
+        )
+        let rotated = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "account-a",
+            expiresAt: Date(timeIntervalSince1970: 5_000),
+            accessToken: "access-b",
+            refreshCredential: "refresh-b"
+        )
+        let vault = RecordingCredentialVault()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(initial),
+            restoreResult: .success(rotated)
+        )
+        let store = AccountSessionStore(
+            environment: .mock,
+            vault: vault,
+            providers: .init([provider]),
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        await store.signIn(with: .google)
+
+        let context = try await store.refreshAuthenticatedSession()
+
+        let operations = await vault.operations
+        let savedEnvelope = await vault.savedEnvelope
+        let providerOperations = await provider.counter.operations
+        XCTAssertEqual(
+            context,
+            AuthenticatedSessionContext(
+                accountID: "account-a",
+                accessToken: "access-b",
+                expiresAt: Date(timeIntervalSince1970: 5_000)
+            )
+        )
+        XCTAssertEqual(store.state, .signedIn(rotated.summary))
+        XCTAssertEqual(savedEnvelope, rotated.storedEnvelope)
+        XCTAssertEqual(operations, [.save(.mock), .save(.mock)])
+        XCTAssertEqual(providerOperations, [.signIn, .restore(initial.storedEnvelope)])
+    }
+
+    func testRefreshAuthenticatedSessionRejectsAccountReplacementWithoutSavingIt() async {
+        let initial = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "account-a",
+            refreshCredential: "refresh-a"
+        )
+        let replacement = AuthenticationSession.fixture(
+            provider: .google,
+            accountID: "account-b",
+            refreshCredential: "refresh-b"
+        )
+        let vault = RecordingCredentialVault()
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            signInResult: .success(initial),
+            restoreResult: .success(replacement)
+        )
+        let store = AccountSessionStore.fixture(provider: provider, vault: vault)
+        await store.signIn(with: .google)
+
+        do {
+            _ = try await store.refreshAuthenticatedSession()
+            XCTFail("Expected a mismatched account to be rejected")
+        } catch let error as AuthenticationProviderError {
+            XCTAssertEqual(error, .invalidSession)
+        } catch {
+            XCTFail("Unexpected error type")
+        }
+
+        let operations = await vault.operations
+        XCTAssertNil(store.authenticatedContext())
+        XCTAssertEqual(store.state, .requiresReauthentication(.google))
+        XCTAssertEqual(operations, [.save(.mock)])
+    }
+
+    func testStagingUsesInjectedGoogleProviderWhileProductionRemainsDisabled() async {
+        let session = AuthenticationSession.fixture(provider: .google)
+        let stagingVault = RecordingCredentialVault()
+        let provider = ImmediateAuthenticationProvider(kind: .google, signInResult: .success(session))
+        let staging = AccountSessionStore(
+            environment: .staging,
+            vault: stagingVault,
+            providers: .init([provider])
+        )
+        let productionVault = RecordingCredentialVault()
+        let production = AccountSessionStore(
+            environment: .production,
+            vault: productionVault,
+            providers: .init([provider])
+        )
+
+        await staging.signIn(with: .google)
+        await production.signIn(with: .google)
+
+        let productionOperations = await productionVault.operations
+        XCTAssertEqual(staging.state, .signedIn(session.summary))
+        XCTAssertEqual(production.state, .disabled)
+        XCTAssertEqual(productionOperations, [])
+    }
+
     func testSignInRejectsWhitespaceOnlyRequiredSessionFieldsWithoutSaving() async {
         let whitespace = " \t\n\r "
         let cases: [(String, AuthenticationSession)] = [

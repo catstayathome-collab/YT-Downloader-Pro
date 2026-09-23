@@ -143,7 +143,7 @@ struct AccountSettingsSection: View {
                 L10n.string(summary.provider.localizationKey, locale: locale),
                 systemImage: summary.provider.systemImage
             )
-            planRow(summary.planPreview)
+            planRow(.free)
             Button {
                 beginSignOut(returningTo: .signOut, provider: summary.provider)
             } label: {
@@ -220,9 +220,9 @@ struct AccountSettingsSection: View {
         .accessibilityLabel(L10n.string(.accountSignInApple, locale: locale))
     }
 
-    private func planRow(_ plan: MockPlanPreview) -> some View {
+    private func planRow(_ plan: AppPlan) -> some View {
         LabeledContent(L10n.string(.accountCurrentPlan, locale: locale)) {
-            Text(L10n.string(plan.localizationKey, locale: locale))
+            Text(L10n.string(plan == .free ? .accountFreePlan : .accountTestProPlan, locale: locale))
         }
     }
 

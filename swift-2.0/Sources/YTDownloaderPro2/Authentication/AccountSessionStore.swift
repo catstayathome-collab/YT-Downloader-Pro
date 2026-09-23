@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 @MainActor
-final class AccountSessionStore: ObservableObject {
+final class AccountSessionStore: ObservableObject, EntitlementSessionRefreshing {
     @Published private(set) var state: AccountSessionState
     @Published private(set) var isAuthenticationCancellationAvailable = false
     let environment: AuthEnvironment
@@ -33,19 +33,33 @@ final class AccountSessionStore: ObservableObject {
         self.providers = providers
         self.now = now
         self.diagnostics = diagnostics
-        self.state = environment == .disabled ? .disabled : .signedOut
+        self.state = environment.supportsAuthentication ? .signedOut : .disabled
     }
 
-    static func live(environment: AuthEnvironment = .resolve()) -> AccountSessionStore {
-        AccountSessionStore(
-            environment: environment,
+    static func live(
+        resolution: AuthEnvironmentResolution = .resolve(configuration: nil)
+    ) -> AccountSessionStore {
+        let providers: AuthenticationProviderRegistry = switch resolution.environment {
+        case .mock:
+            .mock()
+        case .staging:
+            if let configuration = resolution.configuration {
+                .init([SupabaseGoogleAuthenticationProvider(configuration: configuration)])
+            } else {
+                .init([])
+            }
+        case .disabled, .production:
+            .init([])
+        }
+        return AccountSessionStore(
+            environment: resolution.environment,
             vault: KeychainCredentialVault(),
-            providers: environment == .mock ? .mock() : .init([])
+            providers: providers
         )
     }
 
     func signIn(with kind: AuthenticationProviderKind) async {
-        guard environment == .mock else { return }
+        guard environment.supportsAuthentication else { return }
         guard let (operationID, priorState) = beginOperation() else { return }
         state = .signingIn(kind)
         authenticationCancellationIsAuthorized = true
@@ -82,7 +96,7 @@ final class AccountSessionStore: ObservableObject {
     }
 
     func restoreSession() async {
-        guard environment == .mock else {
+        guard environment.supportsAuthentication else {
             state = .disabled
             return
         }
@@ -143,7 +157,7 @@ final class AccountSessionStore: ObservableObject {
         guard cancellation.isCancellable,
               authenticationCancellationIsAuthorized,
               activeOperationID != nil else { return }
-        let priorState = activePriorState ?? (environment == .disabled ? .disabled : .signedOut)
+        let priorState = activePriorState ?? (environment.supportsAuthentication ? .signedOut : .disabled)
         authenticationCancellationIsAuthorized = false
         activeProviderOperation?.cancel()
         nextOperationID &+= 1
@@ -156,7 +170,7 @@ final class AccountSessionStore: ObservableObject {
     }
 
     func signOut() async {
-        guard environment == .mock,
+        guard environment.supportsAuthentication,
               activeOperationID == nil,
               let summary = currentSummary else { return }
         guard let (operationID, _) = beginOperation() else { return }
@@ -180,7 +194,7 @@ final class AccountSessionStore: ObservableObject {
     }
 
     func retryCredentialRemoval() async {
-        guard environment == .mock,
+        guard environment.supportsAuthentication,
               activeOperationID == nil,
               state == .failed(.credentialRemovalFailed),
               let (operationID, _) = beginOperation() else { return }
@@ -194,6 +208,111 @@ final class AccountSessionStore: ObservableObject {
             guard owns(operationID) else { return }
             finishCredentialRemovalFailure(operationID)
         }
+    }
+
+    func authenticatedContext() -> AuthenticatedSessionContext? {
+        guard case let .signedIn(stateSummary) = state,
+              let summary = currentSummary,
+              stateSummary == summary,
+              let accessToken,
+              hasOpaqueContent(accessToken),
+              summary.expiresAt > now() else {
+            return nil
+        }
+        return AuthenticatedSessionContext(
+            accountID: summary.accountID,
+            accessToken: accessToken,
+            expiresAt: summary.expiresAt
+        )
+    }
+
+    func refreshAuthenticatedSession() async throws -> AuthenticatedSessionContext {
+        guard environment.supportsAuthentication,
+              activeOperationID == nil,
+              case let .signedIn(stateSummary) = state,
+              let previousSummary = currentSummary,
+              stateSummary == previousSummary,
+              let refreshCredential,
+              let provider = providers.provider(for: previousSummary.provider),
+              let (operationID, priorState) = beginOperation() else {
+            throw AuthenticationProviderError.invalidSession
+        }
+
+        state = .restoring
+        let envelope = StoredCredentialEnvelope(
+            summary: previousSummary,
+            refreshCredential: refreshCredential
+        )
+        let providerOperation = CancellableAuthenticationProviderOperation {
+            try await provider.restore(from: envelope)
+        }
+        activeProviderOperation = providerOperation
+
+        do {
+            let session = try await providerOperation.value()
+            guard owns(operationID) else { throw AuthenticationProviderError.cancelled }
+            try validate(session, provider: previousSummary.provider)
+            guard session.summary.accountID == previousSummary.accountID else {
+                throw AuthenticationProviderError.invalidSession
+            }
+            guard beginCredentialCommit(operationID) else {
+                throw AuthenticationProviderError.cancelled
+            }
+            try await saveCredential(session.storedEnvelope)
+            guard owns(operationID) else { throw AuthenticationProviderError.cancelled }
+            accessToken = session.accessToken
+            self.refreshCredential = session.refreshCredential
+            currentSummary = session.summary
+            finishOperation(operationID, state: .signedIn(session.summary))
+            return AuthenticatedSessionContext(
+                accountID: session.summary.accountID,
+                accessToken: session.accessToken,
+                expiresAt: session.summary.expiresAt
+            )
+        } catch {
+            guard owns(operationID) else { throw AuthenticationProviderError.cancelled }
+            accessToken = nil
+            switch error {
+            case is CancellationError, AuthenticationProviderError.cancelled:
+                finishOperation(operationID, state: priorState)
+                throw AuthenticationProviderError.cancelled
+            case AuthenticationProviderError.expiredSession:
+                finishOperation(
+                    operationID,
+                    state: .requiresReauthentication(previousSummary.provider)
+                )
+                throw AuthenticationProviderError.expiredSession
+            case AuthenticationProviderError.invalidSession:
+                finishOperation(
+                    operationID,
+                    state: .requiresReauthentication(previousSummary.provider)
+                )
+                throw AuthenticationProviderError.invalidSession
+            case is CredentialVaultError:
+                finishOperation(operationID, state: .failed(.credentialStorageUnavailable))
+                throw error
+            default:
+                finishOperation(
+                    operationID,
+                    state: .requiresReauthentication(previousSummary.provider)
+                )
+                throw AuthenticationProviderError.invalidSession
+            }
+        }
+    }
+
+    func entitlementSessionContext() -> EntitlementSessionContext? {
+        authenticatedContext().map {
+            EntitlementSessionContext(subject: $0.accountID, accessToken: $0.accessToken)
+        }
+    }
+
+    func refreshEntitlementSession() async throws -> EntitlementSessionContext {
+        let context = try await refreshAuthenticatedSession()
+        return EntitlementSessionContext(
+            subject: context.accountID,
+            accessToken: context.accessToken
+        )
     }
 
     private func beginOperation() -> (UInt64, AccountSessionState)? {
