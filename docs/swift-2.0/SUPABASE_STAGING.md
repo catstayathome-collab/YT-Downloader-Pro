@@ -62,12 +62,19 @@ These are future manual account actions and require fresh owner approval:
 8. Generate the entitlement P-256 signing key offline and follow
    `ENTITLEMENT_KEY_ROTATION.md`.
 
-The Edge Function secret names are:
+Supabase injects these reserved runtime values automatically. Confirm they are
+present, but do not attempt to create or replace them with `supabase secrets
+set`:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+The owner-managed Edge Function secret names are:
 
 - `ENTITLEMENT_ISSUER`
 - `ENTITLEMENT_AUDIENCE`
-- `ENTITLEMENT_SIGNING_KID`
-- `ENTITLEMENT_SIGNING_PRIVATE_KEY`
+- `ENTITLEMENT_ES256_KID`
+- `ENTITLEMENT_ES256_PRIVATE_KEY_PKCS8`
 
 Values belong only in Supabase staging secret storage. Do not put values in
 Git, app resources, build logs, screenshots, support reports, or this document.
@@ -88,8 +95,8 @@ supabase functions deploy entitlement --project-ref '<staging-project-ref>'
 supabase secrets set \
   ENTITLEMENT_ISSUER='<reviewed-staging-issuer>' \
   ENTITLEMENT_AUDIENCE='com.tachouweng.ytdownloaderpro2' \
-  ENTITLEMENT_SIGNING_KID='<reviewed-kid>' \
-  ENTITLEMENT_SIGNING_PRIVATE_KEY='<private-key-value>'
+  ENTITLEMENT_ES256_KID='<reviewed-kid>' \
+  ENTITLEMENT_ES256_PRIVATE_KEY_PKCS8='<base64-pkcs8-private-key-value>'
 ```
 
 After provisioning, create the public-material JSON outside Git and package it

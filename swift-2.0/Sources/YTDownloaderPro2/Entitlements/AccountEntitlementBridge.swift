@@ -46,6 +46,11 @@ final class AccountEntitlementBridge {
         invalidatePendingTransition()
     }
 
+    func refreshCurrent() {
+        guard let context = account.authenticatedContext() else { return }
+        transitionToSignedIn(context)
+    }
+
     private func receive(_ state: AccountSessionState) {
         switch state {
         case let .signedIn(summary):

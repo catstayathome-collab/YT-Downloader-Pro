@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase" / "migrations" / "202609230001_account_entitlements.sql"
 DENO_CONFIG = ROOT / "supabase" / "deno.json"
 EDGE_INDEX = ROOT / "supabase" / "functions" / "entitlement" / "index.ts"
+STAGING_GUIDE = ROOT / "docs" / "swift-2.0" / "SUPABASE_STAGING.md"
 
 
 class SupabaseContractTests(unittest.TestCase):
@@ -98,6 +99,26 @@ class SupabaseContractTests(unittest.TestCase):
             self.assertRegex(source, rf'get\(\s*"{variable}"\s*,?\s*\)')
         self.assertNotIn("sb_secret_", source)
         self.assertNotIn("BEGIN PRIVATE KEY", source)
+
+    def test_staging_guide_uses_the_exact_runtime_secret_names(self):
+        guide = STAGING_GUIDE.read_text(encoding="utf-8")
+
+        for variable in (
+            "SUPABASE_URL",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "ENTITLEMENT_ES256_PRIVATE_KEY_PKCS8",
+            "ENTITLEMENT_ES256_KID",
+            "ENTITLEMENT_ISSUER",
+            "ENTITLEMENT_AUDIENCE",
+        ):
+            self.assertIn(f"`{variable}`", guide)
+
+        self.assertNotIn("ENTITLEMENT_SIGNING_PRIVATE_KEY", guide)
+        self.assertNotIn("ENTITLEMENT_SIGNING_KID", guide)
+
+        secret_command = guide.split("supabase secrets set", 1)[1].split("```", 1)[0]
+        self.assertNotIn("SUPABASE_URL=", secret_command)
+        self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY=", secret_command)
 
 
 if __name__ == "__main__":

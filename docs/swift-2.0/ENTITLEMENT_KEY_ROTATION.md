@@ -23,7 +23,7 @@ security, operations, and release gates are complete.
    audience, subject, schema, time, feature, height, state, and revision claims.
 4. Add the new private key to the approved staging secret store. Never place it
    in Git, app resources, CI output, support material, or operator chat.
-5. Change `ENTITLEMENT_SIGNING_KID` so the service signs new tokens with the new
+5. Change `ENTITLEMENT_ES256_KID` so the service signs new tokens with the new
    key. Verify one synthetic staging account end to end.
 6. Retain the old public key in shipped apps for at least 96 hours after the
    switch: 24-hour token life plus 72-hour offline grace.

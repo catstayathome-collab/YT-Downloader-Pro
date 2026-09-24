@@ -36,6 +36,7 @@ final class EntitlementController: ObservableObject {
         _ now: Date,
         _ acceptsCachedExpiry: Bool
     ) -> EntitlementVerificationContext
+    typealias ExpirySleeper = @Sendable (_ deadline: Date) async throws -> Void
 
     @Published private(set) var status: EntitlementStatus = .free
 
@@ -45,9 +46,11 @@ final class EntitlementController: ObservableObject {
     private let store: VerifiedEntitlementStore
     private let planController: PlanController
     private let now: @Sendable () -> Date
+    private let sleepUntil: ExpirySleeper
     private let verificationContext: VerificationContextBuilder
     private var nextOperationID: UInt64 = 0
     private var activeSubject: String?
+    private var expiryTask: Task<Void, Never>?
 
     init(
         environment: AuthEnvironment,
@@ -56,6 +59,12 @@ final class EntitlementController: ObservableObject {
         store: VerifiedEntitlementStore,
         planController: PlanController,
         now: @escaping @Sendable () -> Date = { Date() },
+        sleepUntil: @escaping ExpirySleeper = { deadline in
+            let delay = deadline.timeIntervalSinceNow
+            if delay > 0 {
+                try await Task.sleep(for: .seconds(delay))
+            }
+        },
         verificationContext: @escaping VerificationContextBuilder
     ) {
         self.environment = environment
@@ -64,7 +73,12 @@ final class EntitlementController: ObservableObject {
         self.store = store
         self.planController = planController
         self.now = now
+        self.sleepUntil = sleepUntil
         self.verificationContext = verificationContext
+    }
+
+    deinit {
+        expiryTask?.cancel()
     }
 
     static func live(
@@ -198,6 +212,8 @@ final class EntitlementController: ObservableObject {
     }
 
     func clear() async {
+        expiryTask?.cancel()
+        expiryTask = nil
         nextOperationID &+= 1
         activeSubject = nil
         planController.clearVerifiedEntitlement()
@@ -206,6 +222,8 @@ final class EntitlementController: ObservableObject {
     }
 
     private func beginOperation(subject: String) async -> UInt64 {
+        expiryTask?.cancel()
+        expiryTask = nil
         nextOperationID &+= 1
         let operationID = nextOperationID
         if let activeSubject, activeSubject != subject {
@@ -324,12 +342,47 @@ final class EntitlementController: ObservableObject {
         guard owns(operationID) else { return }
         planController.applyVerifiedEntitlement(entitlement)
         self.status = status
+        scheduleExpiry(for: entitlement, status: status, operationID: operationID)
     }
 
     private func applyFree(status: EntitlementStatus, operationID: UInt64) {
         guard owns(operationID) else { return }
+        expiryTask?.cancel()
+        expiryTask = nil
         planController.clearVerifiedEntitlement()
         self.status = status
+    }
+
+    private func scheduleExpiry(
+        for entitlement: VerifiedEntitlement,
+        status: EntitlementStatus,
+        operationID: UInt64
+    ) {
+        expiryTask?.cancel()
+        expiryTask = nil
+        guard entitlement.snapshot.plan == .pro else { return }
+
+        let deadline: Date = switch status {
+        case .offlineGrace, .unavailableUsingCache, .rejectedUsingCache:
+            entitlement.expiresAt.addingTimeInterval(VerifiedEntitlement.offlineGraceDuration)
+        default:
+            entitlement.expiresAt
+        }
+        let sleepUntil = sleepUntil
+        let subject = entitlement.subject
+        expiryTask = Task { @MainActor [weak self] in
+            do {
+                try await sleepUntil(deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  owns(operationID),
+                  activeSubject == subject else { return }
+            planController.clearVerifiedEntitlement()
+            self.status = .free
+            expiryTask = nil
+        }
     }
 }
 

@@ -26,6 +26,35 @@ final class SupabaseGoogleAuthenticationProviderTests: XCTestCase {
         XCTAssertEqual(session.refreshCredential, "refresh")
     }
 
+    func testMapperRejectsOversizedOrControlBearingProfileFields() throws {
+        let oversizedName = String(repeating: "N", count: 121)
+        let oversizedEmail = String(repeating: "e", count: 309) + "@example.com"
+        let oversized = try SupabaseSessionMapper.map(
+            SupabaseSessionValue(
+                userID: userID,
+                email: oversizedEmail,
+                displayName: oversizedName,
+                accessToken: "access",
+                refreshToken: "refresh",
+                expiresAt: 1_790_208_000
+            )
+        )
+        let controlBearing = try SupabaseSessionMapper.map(
+            SupabaseSessionValue(
+                userID: userID,
+                email: nil,
+                displayName: "Unsafe\nName",
+                accessToken: "access",
+                refreshToken: "refresh",
+                expiresAt: 1_790_208_000
+            )
+        )
+
+        XCTAssertEqual(oversized.summary.displayName, "Google User")
+        XCTAssertNil(oversized.summary.maskedEmail)
+        XCTAssertEqual(controlBearing.summary.displayName, "Google User")
+    }
+
     func testSignInRequestsOnlyGoogleWithExactRedirectAndScopes() async throws {
         let service = RecordingSupabaseAuthService(
             signInResult: .success(sessionValue(userID: userID))
@@ -93,6 +122,22 @@ final class SupabaseGoogleAuthenticationProviderTests: XCTestCase {
         )
 
         await assertSupabaseProviderThrows(.invalidSession) {
+            try await provider.restore(from: envelope)
+        }
+    }
+
+    func testTransientRefreshFailureRemainsTemporarilyUnavailable() async throws {
+        let service = RecordingSupabaseAuthService(refreshResult: .failure(.unavailable))
+        let provider = SupabaseGoogleAuthenticationProvider(
+            redirectURL: redirectURL,
+            service: service
+        )
+        let envelope = StoredCredentialEnvelope(
+            summary: try SupabaseSessionMapper.map(sessionValue(userID: userID)).summary,
+            refreshCredential: "stored-refresh"
+        )
+
+        await assertSupabaseProviderThrows(.temporarilyUnavailable) {
             try await provider.restore(from: envelope)
         }
     }

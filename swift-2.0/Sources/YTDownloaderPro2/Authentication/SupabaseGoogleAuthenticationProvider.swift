@@ -78,8 +78,12 @@ struct SupabaseGoogleAuthenticationProvider: AuthenticationProvider {
             .cancelled
         case SupabaseAuthServiceError.expiredSession:
             .expiredSession
+        case SupabaseAuthServiceError.unavailable:
+            .temporarilyUnavailable
         case AuthenticationProviderError.expiredSession:
             .expiredSession
+        case AuthenticationProviderError.temporarilyUnavailable:
+            .temporarilyUnavailable
         default:
             .invalidSession
         }
@@ -176,6 +180,36 @@ private struct SupabaseAuthClientService: SupabaseAuthServicing {
             return .cancelled
         }
         #endif
+        if error is URLError {
+            return .unavailable
+        }
+        if let authError = error as? AuthError {
+            switch authError {
+            case .sessionMissing:
+                return .expiredSession
+            case let .api(_, errorCode, _, response):
+                if [
+                    .sessionNotFound,
+                    .sessionExpired,
+                    .refreshTokenNotFound,
+                    .refreshTokenAlreadyUsed,
+                    .invalidJWT
+                ].contains(errorCode) {
+                    return .expiredSession
+                }
+                if response.statusCode == 408 || response.statusCode == 429 || response.statusCode >= 500 {
+                    return .unavailable
+                }
+                if [
+                    .requestTimeout,
+                    .overRequestRateLimit
+                ].contains(errorCode) {
+                    return .unavailable
+                }
+            default:
+                break
+            }
+        }
         return .invalidSession
     }
 }

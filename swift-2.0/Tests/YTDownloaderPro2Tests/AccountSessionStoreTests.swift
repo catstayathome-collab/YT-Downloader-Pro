@@ -312,6 +312,29 @@ final class AccountSessionStoreTests: XCTestCase {
         XCTAssertEqual(providerOperations, [.restore(envelope)])
     }
 
+    func testTransientRestoreFailurePreservesStoredEnvelope() async {
+        let envelope = StoredCredentialEnvelope.fixture(
+            provider: .google,
+            refreshCredential: "stored-refresh"
+        )
+        let vault = RecordingCredentialVault(initial: envelope)
+        let provider = ImmediateAuthenticationProvider(
+            kind: .google,
+            restoreResult: .failure(.temporarilyUnavailable)
+        )
+        let store = AccountSessionStore(
+            environment: .staging,
+            vault: vault,
+            providers: .init([provider])
+        )
+
+        await store.restoreSession()
+
+        let operations = await vault.operations
+        XCTAssertEqual(store.state, .failed(.signInFailed))
+        XCTAssertEqual(operations, [.load(.staging)])
+    }
+
     func testInvalidRestoredSessionDeletesEnvelopeAndRequiresUnscopedReauthentication() async {
         let envelope = StoredCredentialEnvelope.fixture(provider: .apple, refreshCredential: "stored-refresh")
         let mismatchedSession = AuthenticationSession.fixture(provider: .google)

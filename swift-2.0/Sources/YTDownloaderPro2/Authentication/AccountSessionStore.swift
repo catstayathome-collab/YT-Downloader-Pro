@@ -288,6 +288,9 @@ final class AccountSessionStore: ObservableObject, EntitlementSessionRefreshing 
                     state: .requiresReauthentication(previousSummary.provider)
                 )
                 throw AuthenticationProviderError.invalidSession
+            case AuthenticationProviderError.temporarilyUnavailable:
+                finishOperation(operationID, state: .failed(.signInFailed))
+                throw AuthenticationProviderError.temporarilyUnavailable
             case is CredentialVaultError:
                 finishOperation(operationID, state: .failed(.credentialStorageUnavailable))
                 throw error
@@ -382,6 +385,9 @@ final class AccountSessionStore: ObservableObject, EntitlementSessionRefreshing 
             recordDiagnostic(.sessionExpired)
         case AuthenticationProviderError.invalidSession, CredentialVaultError.malformedRecord:
             await removeInvalidCredential(operationID)
+        case AuthenticationProviderError.temporarilyUnavailable:
+            finishOperation(operationID, state: .failed(.signInFailed))
+            recordDiagnostic(.signInFailed)
         default:
             finishOperation(operationID, state: .failed(.credentialStorageUnavailable))
             recordDiagnostic(.storageUnavailable)
@@ -469,6 +475,8 @@ final class AccountSessionStore: ObservableObject, EntitlementSessionRefreshing 
             .invalidSession
         case AuthenticationProviderError.expiredSession:
             .expiredSession
+        case AuthenticationProviderError.temporarilyUnavailable:
+            .signInFailed
         case is CredentialVaultError:
             .credentialStorageUnavailable
         default:

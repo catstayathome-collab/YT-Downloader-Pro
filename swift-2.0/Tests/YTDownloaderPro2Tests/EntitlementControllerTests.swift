@@ -22,6 +22,69 @@ final class EntitlementControllerTests: XCTestCase {
         XCTAssertEqual(persisted, token)
     }
 
+    func testVerifiedProAutomaticallyReturnsToFreeAtTokenExpiry() async throws {
+        let signer = EntitlementTestSigner()
+        let token = try signedToken(
+            signer: signer,
+            subject: "account-a",
+            revision: 7,
+            expiresAt: 2_000_100
+        )
+        let sleeper = ControlledEntitlementExpirySleeper()
+        let fixture = makeFixture(
+            fetcher: ScriptedEntitlementFetcher(results: [.success(token)]),
+            signer: signer,
+            sleepUntil: { deadline in try await sleeper.sleep(until: deadline) }
+        )
+
+        await fixture.controller.refresh(accessToken: "access", subject: "account-a")
+
+        let scheduledDeadline = await sleeper.waitForDeadline()
+        XCTAssertEqual(scheduledDeadline, Date(timeIntervalSince1970: 2_000_100))
+        XCTAssertEqual(fixture.plan.currentPlan, .pro)
+
+        await sleeper.fire()
+        await waitUntil { fixture.plan.currentPlan == .free }
+
+        XCTAssertEqual(fixture.plan.currentPlan, .free)
+        XCTAssertEqual(fixture.controller.status, .free)
+    }
+
+    func testOfflineGraceAutomaticallyReturnsToFreeAtGraceDeadline() async throws {
+        let signer = EntitlementTestSigner()
+        let token = try signedToken(
+            signer: signer,
+            subject: "account-a",
+            revision: 7,
+            issuedAt: 1_900_000,
+            expiresAt: 1_999_900
+        )
+        let rawVault = InMemoryEntitlementVault()
+        try await rawVault.save(token, environment: .staging)
+        let sleeper = ControlledEntitlementExpirySleeper()
+        let fixture = makeFixture(
+            fetcher: ScriptedEntitlementFetcher(results: []),
+            signer: signer,
+            rawVault: rawVault,
+            sleepUntil: { deadline in try await sleeper.sleep(until: deadline) }
+        )
+
+        await fixture.controller.restore(subject: "account-a")
+
+        let scheduledDeadline = await sleeper.waitForDeadline()
+        XCTAssertEqual(
+            scheduledDeadline,
+            Date(timeIntervalSince1970: 1_999_900 + VerifiedEntitlement.offlineGraceDuration)
+        )
+        XCTAssertEqual(fixture.plan.currentPlan, .pro)
+
+        await sleeper.fire()
+        await waitUntil { fixture.plan.currentPlan == .free }
+
+        XCTAssertEqual(fixture.plan.currentPlan, .free)
+        XCTAssertEqual(fixture.controller.status, .free)
+    }
+
     func testUnauthorizedRefreshesAuthenticationAtMostOnce() async throws {
         let signer = EntitlementTestSigner()
         let fetcher = ScriptedEntitlementFetcher(results: [
@@ -186,7 +249,10 @@ final class EntitlementControllerTests: XCTestCase {
     private func makeFixture(
         fetcher: any EntitlementFetching,
         signer: EntitlementTestSigner,
-        rawVault: InMemoryEntitlementVault = InMemoryEntitlementVault()
+        rawVault: InMemoryEntitlementVault = InMemoryEntitlementVault(),
+        sleepUntil: @escaping @Sendable (Date) async throws -> Void = { _ in
+            try await Task.sleep(for: .seconds(3_600))
+        }
     ) -> ControllerFixture {
         let store = VerifiedEntitlementStore(vault: rawVault)
         let plan = PlanController(buildChannel: .publicRelease, provider: PublicFreePlanProvider())
@@ -198,6 +264,7 @@ final class EntitlementControllerTests: XCTestCase {
             store: store,
             planController: plan,
             now: { fixedNow },
+            sleepUntil: sleepUntil,
             verificationContext: { subject, now, cached in
                 signer.context(subject: subject, now: now, acceptsCachedExpiry: cached)
             }
@@ -225,6 +292,12 @@ final class EntitlementControllerTests: XCTestCase {
             claims["subscriptionState"] = "none"
         }
         return try signer.sign(claims: claims)
+    }
+
+    private func waitUntil(_ predicate: @escaping @MainActor () -> Bool) async {
+        for _ in 0..<100 where !predicate() {
+            await Task.yield()
+        }
     }
 }
 
@@ -279,6 +352,30 @@ private actor ControlledEntitlementFetcher: EntitlementFetching {
         case let .success(token): continuation?.resume(returning: token)
         case let .failure(error): continuation?.resume(throwing: error)
         }
+    }
+}
+
+private actor ControlledEntitlementExpirySleeper {
+    private var deadline: Date?
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func sleep(until deadline: Date) async throws {
+        self.deadline = deadline
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitForDeadline() async -> Date {
+        while deadline == nil {
+            await Task.yield()
+        }
+        return deadline!
+    }
+
+    func fire() {
+        continuation?.resume(returning: ())
+        continuation = nil
     }
 }
 

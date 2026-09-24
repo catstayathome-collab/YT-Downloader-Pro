@@ -67,6 +67,28 @@ final class AccountEntitlementBridgeTests: XCTestCase {
         bridge.stop()
     }
 
+    func testAppActivationRefreshesTheCurrentSignedInAccount() async {
+        let account = BridgeAccountProbe()
+        let entitlement = BridgeEntitlementProbe()
+        let bridge = AccountEntitlementBridge(account: account, entitlement: entitlement)
+        bridge.start()
+        account.publishSignedIn(accountID: "account-a", accessToken: "access-a")
+        await entitlement.waitForOperationCount(2)
+
+        bridge.refreshCurrent()
+        await entitlement.waitForOperationCount(3)
+
+        XCTAssertEqual(
+            entitlement.operations,
+            [
+                .restore("account-a"),
+                .refresh("account-a", "access-a"),
+                .refresh("account-a", "access-a")
+            ]
+        )
+        bridge.stop()
+    }
+
     func testStopCancelsObservationAndClearsNoStateByItself() async {
         let account = BridgeAccountProbe()
         let entitlement = BridgeEntitlementProbe()

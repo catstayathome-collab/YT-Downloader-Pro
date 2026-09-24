@@ -141,6 +141,10 @@ final class AppLifecycle: NSObject, NSApplicationDelegate {
         accountEntitlementBridge.stop()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        accountEntitlementBridge.refreshCurrent()
+    }
+
     func startAutomaticUpdateCheck() {
         Task { @MainActor [store] in
             await store.checkForUpdates(manual: false)

@@ -60,6 +60,12 @@ reverifies signature and claims before adoption. A network response receives no
 expiry grace. Rejected or unavailable grants fail to a valid cache or Free;
 account identity, email, local defaults, and UI state never grant Pro.
 
+The app refreshes the current account when it becomes active. Independently of
+network callbacks, a cancellable local deadline returns the effective plan to
+Free at normal token expiry, or at the end of the 72-hour window when an
+eligible cached grant is already being used. A stale deadline is scoped to its
+account and operation ID and cannot revoke a newer grant.
+
 Only `VerifiedEntitlement` can update `PlanController`. `DownloadStore` observes
 that controller and applies the same policy to existing queued jobs.
 
