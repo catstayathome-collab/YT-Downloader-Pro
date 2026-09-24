@@ -36,6 +36,78 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertFalse(video.audioFormats.map(\.id).contains("drm-audio"))
     }
 
+    func testVideoMetadataExposesOfficialAndOriginalAutomaticSubtitlesOnly() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let result = try await probe.decodeAnalysisOutput(
+            """
+            {
+              "title":"Subtitle fixture",
+              "formats":[
+                {
+                  "format_id":"137",
+                  "url":"https://media.test/video",
+                  "vcodec":"avc1",
+                  "acodec":"none",
+                  "ext":"mp4",
+                  "height":1080
+                }
+              ],
+              "subtitles":{
+                "zh-Hant-official":[
+                  {
+                    "ext":"srt",
+                    "name":"Chinese (Traditional) - Official",
+                    "url":"https://captions.test/official?lang=zh-Hant"
+                  }
+                ],
+                "en-official":[
+                  {
+                    "ext":"srt",
+                    "name":"English - Official",
+                    "url":"https://captions.test/official?lang=en"
+                  }
+                ],
+                "live_chat":[
+                  {
+                    "ext":"json",
+                    "name":"Live chat",
+                    "url":"https://captions.test/chat"
+                  }
+                ]
+              },
+              "automatic_captions":{
+                "ja":[
+                  {
+                    "ext":"srt",
+                    "name":"Japanese",
+                    "url":"https://captions.test/automatic?kind=asr&lang=ja"
+                  }
+                ],
+                "en":[
+                  {
+                    "ext":"srt",
+                    "name":"English",
+                    "url":"https://captions.test/automatic?kind=asr&lang=ja&tlang=en"
+                  }
+                ]
+              }
+            }
+            """,
+            requestedURL: "https://www.youtube.com/watch?v=subtitle123"
+        )
+
+        guard case let .video(video) = result else {
+            return XCTFail("Expected video analysis")
+        }
+        XCTAssertEqual(video.subtitleTracks, [
+            SubtitleTrack(languageCode: "en-official", displayName: "English - Official", source: .official),
+            SubtitleTrack(languageCode: "zh-Hant-official", displayName: "Chinese (Traditional) - Official", source: .official),
+            SubtitleTrack(languageCode: "ja", displayName: "Japanese", source: .automatic)
+        ])
+        XCTAssertFalse(video.subtitleTracks.contains { $0.languageCode == "live_chat" })
+        XCTAssertFalse(video.subtitleTracks.contains { $0.languageCode == "en" && $0.source == .automatic })
+    }
+
     func testPlaylistFixturePreservesSourceOrderAndUnavailableEntryIdentity() async throws {
         let runner = AnalysisProcessRunner(results: [
             .init(exitCode: 0, stdout: try fixtureText(named: "playlist-analysis.json"), stderr: "")

@@ -139,12 +139,23 @@ struct YouTubeStrategy: Sendable {
     }
 
     private func subtitleArguments(for options: DownloadOptions) -> [String] {
-        guard options.subtitleMode != .none else { return [] }
-
-        var arguments = ["--write-subs"]
-        if let language = options.subtitleLanguage, !language.isEmpty {
-            arguments += ["--sub-langs", language]
+        guard options.subtitleMode != .none,
+              let language = options.subtitleLanguage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !language.isEmpty,
+              language.caseInsensitiveCompare("live_chat") != .orderedSame else {
+            return []
         }
+
+        var arguments: [String]
+        switch options.subtitleSource {
+        case .official:
+            arguments = ["--write-subs"]
+        case .automatic:
+            arguments = ["--write-auto-subs"]
+        case nil:
+            arguments = ["--write-subs", "--write-auto-subs"]
+        }
+        arguments += ["--sub-langs", language, "--sub-format", "srt"]
         if options.subtitleMode == .embed {
             arguments.append("--embed-subs")
         }

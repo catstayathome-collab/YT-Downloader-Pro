@@ -103,6 +103,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
     var selectedAudioFormat: PersistedFormatPresentation?
     var subtitleMode: SubtitleMode
     var subtitleLanguage: String?
+    var subtitleSource: SubtitleSource?
     var embedThumbnail: Bool
     var embedMetadata: Bool
     var cookies: CookieMode
@@ -117,6 +118,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         selectedAudioFormat: nil,
         subtitleMode: .none,
         subtitleLanguage: nil,
+        subtitleSource: nil,
         embedThumbnail: false,
         embedMetadata: false,
         cookies: .none,
@@ -132,6 +134,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         selectedAudioFormat: PersistedFormatPresentation? = nil,
         subtitleMode: SubtitleMode = .none,
         subtitleLanguage: String? = nil,
+        subtitleSource: SubtitleSource? = nil,
         embedThumbnail: Bool = false,
         embedMetadata: Bool = false,
         cookies: CookieMode = .none,
@@ -145,6 +148,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         self.selectedAudioFormat = selectedAudioFormat ?? Self.legacyAudioFormat(for: audioQuality).map(PersistedFormatPresentation.init)
         self.subtitleMode = subtitleMode
         self.subtitleLanguage = subtitleLanguage
+        self.subtitleSource = subtitleSource
         self.embedThumbnail = embedThumbnail
         self.embedMetadata = embedMetadata
         self.cookies = cookies
@@ -180,6 +184,11 @@ struct DownloadOptions: Codable, Equatable, Sendable {
     mutating func selectAudioFormat(_ format: MediaFormat?) {
         selectedAudioFormat = format.map(PersistedFormatPresentation.init)
         audioQuality = format.map { .format(id: $0.id, label: $0.label) } ?? .best
+    }
+
+    mutating func selectSubtitleTrack(_ track: SubtitleTrack?) {
+        subtitleLanguage = track?.languageCode
+        subtitleSource = track?.source
     }
 
     func normalizedForExecution() -> DownloadOptions {
@@ -300,6 +309,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         case selectedAudioFormat
         case subtitleMode
         case subtitleLanguage
+        case subtitleSource
         case embedThumbnail
         case embedMetadata
         case cookies
@@ -317,6 +327,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
             selectedAudioFormat: try container.decodeIfPresent(PersistedFormatPresentation.self, forKey: .selectedAudioFormat),
             subtitleMode: try container.decode(SubtitleMode.self, forKey: .subtitleMode),
             subtitleLanguage: try container.decodeIfPresent(String.self, forKey: .subtitleLanguage),
+            subtitleSource: try container.decodeIfPresent(SubtitleSource.self, forKey: .subtitleSource),
             embedThumbnail: try container.decode(Bool.self, forKey: .embedThumbnail),
             embedMetadata: try container.decode(Bool.self, forKey: .embedMetadata),
             cookies: try container.decode(CookieMode.self, forKey: .cookies),

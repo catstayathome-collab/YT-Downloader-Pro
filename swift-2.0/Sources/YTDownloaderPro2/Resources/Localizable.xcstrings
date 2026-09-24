@@ -2747,6 +2747,38 @@
         }
       }
     },
+    "media.subtitle.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "YouTube automatic" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "YouTube 自動生成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "YouTube 自動產生" } }
+      }
+    },
+    "media.subtitle.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a subtitle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "字幕を選択" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇字幕" } }
+      }
+    },
+    "media.subtitle.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Official" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "公式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "官方" } }
+      }
+    },
+    "media.subtitle.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This video has no available subtitles." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この動画には利用可能な字幕がありません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這部影片沒有可用字幕。" } }
+      }
+    },
     "media.subtitleLanguage": {
       "extractionState": "manual",
       "localizations": {

@@ -52,6 +52,46 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(model.options.selectedAudioFormat, analysis.audioFormats.first.map(PersistedFormatPresentation.init))
     }
 
+    func testVideoOptionsExposeDynamicSubtitlesAndReplaceUnavailablePersistedSelection() {
+        let tracks = [
+            SubtitleTrack(languageCode: "en-official", displayName: "English", source: .official),
+            SubtitleTrack(languageCode: "zh-Hant-official", displayName: "Traditional Chinese", source: .official),
+            SubtitleTrack(languageCode: "ja", displayName: "Japanese", source: .automatic)
+        ]
+        var analysis = videoAnalysis(videoFormats: [], audioFormats: [])
+        analysis.subtitleTracks = tracks
+        let defaults = DownloadOptions(
+            subtitleMode: .download,
+            subtitleLanguage: "missing-language",
+            subtitleSource: .official
+        )
+
+        let model = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
+
+        XCTAssertEqual(model.subtitleChoices, tracks)
+        XCTAssertEqual(model.options.subtitleMode, .download)
+        XCTAssertEqual(model.options.subtitleLanguage, "en-official")
+        XCTAssertEqual(model.options.subtitleSource, .official)
+    }
+
+    func testVideoWithoutSubtitlesDisablesPersistedSubtitleRequest() {
+        let defaults = DownloadOptions(
+            subtitleMode: .download,
+            subtitleLanguage: "ja",
+            subtitleSource: .automatic
+        )
+
+        let model = MediaOptionsPresentation(
+            analysis: videoAnalysis(videoFormats: [], audioFormats: []),
+            defaults: defaults
+        )
+
+        XCTAssertEqual(model.subtitleChoices, [])
+        XCTAssertEqual(model.options.subtitleMode, .none)
+        XCTAssertNil(model.options.subtitleLanguage)
+        XCTAssertNil(model.options.subtitleSource)
+    }
+
     func testMockFreeDefaultsToHighestQuickTimeCompatibleVideoAtOrBelow720p() {
         let analysis = videoAnalysis(videoFormats: [
             format(id: "2160", label: "2160p", videoCodec: "avc1", container: "mp4", height: 2160),
@@ -495,19 +535,21 @@ final class OptionsPresentationTests: XCTestCase {
             outputDirectoryBookmark: Data("bookmark".utf8),
             outputDirectoryDisplayPath: "/tmp/Downloads"
         )
-        let model = MediaOptionsPresentation(
-            analysis: videoAnalysis(
-                videoFormats: [format(id: "video-high", label: "2160p"), format(id: "video-low", label: "720p")],
-                audioFormats: [format(id: "audio-high", label: "Opus 160 kbps"), format(id: "audio-low", label: "AAC 128 kbps")]
-            ),
-            defaults: defaults
+        var analysis = videoAnalysis(
+            videoFormats: [format(id: "video-high", label: "2160p"), format(id: "video-low", label: "720p")],
+            audioFormats: [format(id: "audio-high", label: "Opus 160 kbps"), format(id: "audio-low", label: "AAC 128 kbps")]
         )
+        analysis.subtitleTracks = [
+            SubtitleTrack(languageCode: "ja", displayName: "Japanese", source: .official)
+        ]
+        let model = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
 
         XCTAssertEqual(model.selectedVideoID, "video-low")
         XCTAssertEqual(model.selectedAudioID, "audio-low")
         XCTAssertEqual(model.options.outputKind, .mp3)
         XCTAssertEqual(model.options.subtitleMode, .download)
         XCTAssertEqual(model.options.subtitleLanguage, "ja")
+        XCTAssertEqual(model.options.subtitleSource, .official)
         XCTAssertTrue(model.options.embedThumbnail)
         XCTAssertTrue(model.options.embedMetadata)
         XCTAssertEqual(model.options.cookies, .safari)

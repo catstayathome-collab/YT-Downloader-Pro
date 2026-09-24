@@ -24,6 +24,21 @@ struct MediaFormat: Codable, Equatable, Sendable, Identifiable {
     var note: String?
 }
 
+enum SubtitleSource: String, Codable, Equatable, Sendable {
+    case official
+    case automatic
+}
+
+struct SubtitleTrack: Codable, Equatable, Sendable, Identifiable {
+    var languageCode: String
+    var displayName: String
+    var source: SubtitleSource
+
+    var id: String {
+        "\(source.rawValue):\(languageCode)"
+    }
+}
+
 struct PersistedFormatPresentation: Codable, Equatable, Sendable {
     var id: String
     var codec: String?
@@ -120,6 +135,50 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
     var thumbnailURL: URL?
     var videoFormats: [MediaFormat]
     var audioFormats: [MediaFormat]
+    var subtitleTracks: [SubtitleTrack]
+
+    init(
+        sourceURL: String,
+        title: String,
+        titleSource: MediaTitleSource? = nil,
+        duration: TimeInterval?,
+        thumbnailURL: URL?,
+        videoFormats: [MediaFormat],
+        audioFormats: [MediaFormat],
+        subtitleTracks: [SubtitleTrack] = []
+    ) {
+        self.sourceURL = sourceURL
+        self.title = title
+        self.titleSource = titleSource
+        self.duration = duration
+        self.thumbnailURL = thumbnailURL
+        self.videoFormats = videoFormats
+        self.audioFormats = audioFormats
+        self.subtitleTracks = subtitleTracks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceURL
+        case title
+        case titleSource
+        case duration
+        case thumbnailURL
+        case videoFormats
+        case audioFormats
+        case subtitleTracks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceURL = try container.decode(String.self, forKey: .sourceURL)
+        title = try container.decode(String.self, forKey: .title)
+        titleSource = try container.decodeIfPresent(MediaTitleSource.self, forKey: .titleSource)
+        duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration)
+        thumbnailURL = try container.decodeIfPresent(URL.self, forKey: .thumbnailURL)
+        videoFormats = try container.decode([MediaFormat].self, forKey: .videoFormats)
+        audioFormats = try container.decode([MediaFormat].self, forKey: .audioFormats)
+        subtitleTracks = try container.decodeIfPresent([SubtitleTrack].self, forKey: .subtitleTracks) ?? []
+    }
 }
 
 struct PlaylistEntry: Codable, Equatable, Sendable, Identifiable {

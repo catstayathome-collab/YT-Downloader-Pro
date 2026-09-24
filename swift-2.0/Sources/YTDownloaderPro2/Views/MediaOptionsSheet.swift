@@ -51,6 +51,7 @@ struct MediaOptionsPresentation: Equatable {
     let identity: MediaIdentityPresentation?
     let videoChoices: [MediaFormat]
     let audioChoices: [MediaFormat]
+    let subtitleChoices: [SubtitleTrack]?
     private(set) var selectedVideoID: String?
     private(set) var selectedAudioID: String?
     private(set) var options: DownloadOptions
@@ -72,6 +73,7 @@ struct MediaOptionsPresentation: Equatable {
         identity = MediaIdentityPresentation(analysis: analysis)
         videoChoices = analysis.videoFormats
         audioChoices = analysis.audioFormats
+        subtitleChoices = analysis.subtitleTracks
         options = defaults.normalizedForExecution()
         let compatibleVideoFormats = defaults.outputKind == .mp4
             ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
@@ -89,12 +91,14 @@ struct MediaOptionsPresentation: Equatable {
         selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
             ?? selectableAudioFormats.first?.id
         applySelectedFormats()
+        reconcileSubtitleSelection()
     }
 
     init(options: DownloadOptions) {
         let options = options.normalizedForExecution()
         identity = nil
         self.options = options
+        subtitleChoices = nil
         selectedVideoID = Self.selectedID(for: options.videoQuality, in: [])
         selectedAudioID = Self.selectedID(for: options.audioQuality, in: [])
         videoChoices = Self.currentChoice(for: options.videoQuality, structured: options.selectedVideoFormat)
@@ -175,6 +179,19 @@ struct MediaOptionsPresentation: Equatable {
             options.selectAudioFormat(nil)
         }
     }
+
+    private mutating func reconcileSubtitleSelection() {
+        guard options.subtitleMode != .none else { return }
+        guard let subtitleChoices, !subtitleChoices.isEmpty else {
+            options.subtitleMode = .none
+            options.selectSubtitleTrack(nil)
+            return
+        }
+        let selectedTrack = subtitleChoices.first {
+            $0.languageCode == options.subtitleLanguage && $0.source == options.subtitleSource
+        }
+        options.selectSubtitleTrack(selectedTrack ?? subtitleChoices[0])
+    }
 }
 
 struct MediaOptionsSheet: View {
@@ -186,6 +203,7 @@ struct MediaOptionsSheet: View {
     private let identity: MediaIdentityPresentation?
     private let videoChoices: [MediaFormat]
     private let audioChoices: [MediaFormat]
+    private let subtitleChoices: [SubtitleTrack]?
     private let onConfirm: (DownloadOptions) -> Void
 
     @State private var options: DownloadOptions
@@ -208,6 +226,7 @@ struct MediaOptionsSheet: View {
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
+        subtitleChoices = presentation.subtitleChoices
         self.onConfirm = onConfirm
         _options = State(initialValue: presentation.options)
     }
@@ -224,6 +243,7 @@ struct MediaOptionsSheet: View {
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
+        subtitleChoices = presentation.subtitleChoices
         self.onConfirm = onConfirm
         _options = State(initialValue: presentation.options)
     }
@@ -239,7 +259,12 @@ struct MediaOptionsSheet: View {
 
             ScrollView {
                 Form {
-                    DownloadOptionsEditor(options: $options, videoChoices: videoChoices, audioChoices: audioChoices)
+                    DownloadOptionsEditor(
+                        options: $options,
+                        videoChoices: videoChoices,
+                        audioChoices: audioChoices,
+                        subtitleChoices: subtitleChoices
+                    )
                 }
                 .formStyle(.grouped)
             }
@@ -318,6 +343,7 @@ struct DownloadOptionsEditor: View {
 
     let videoChoices: [MediaFormat]
     let audioChoices: [MediaFormat]
+    var subtitleChoices: [SubtitleTrack]? = nil
 
     @State private var folderError: String?
     @State private var requestedUpgradeRoute: UpgradePresentationRoute?
@@ -352,13 +378,32 @@ struct DownloadOptionsEditor: View {
             }
 
             Section(L10n.string(.mediaSubtitles, locale: locale)) {
-                Picker(L10n.string(.mediaSubtitleMode, locale: locale), selection: $options.subtitleMode) {
+                Picker(L10n.string(.mediaSubtitleMode, locale: locale), selection: subtitleModeSelection) {
                     ForEach(viewState.availableSubtitleModes, id: \.self) { mode in
                         Text(subtitleModeLabel(mode)).tag(mode)
                     }
                 }
-                TextField(L10n.string(.mediaSubtitleLanguage, locale: locale), text: subtitleLanguage)
-                    .disabled(options.subtitleMode == .none)
+                .disabled(subtitleChoices?.isEmpty == true)
+
+                if let subtitleChoices {
+                    if subtitleChoices.isEmpty {
+                        Text(L10n.string(.mediaSubtitleUnavailable, locale: locale))
+                            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                    } else {
+                        Picker(
+                            L10n.string(.mediaSubtitleLanguage, locale: locale),
+                            selection: subtitleTrackSelection
+                        ) {
+                            Text(L10n.string(.mediaSubtitleChoose, locale: locale)).tag(nil as String?)
+                            subtitlePickerSection(source: .official, tracks: subtitleChoices)
+                            subtitlePickerSection(source: .automatic, tracks: subtitleChoices)
+                        }
+                        .disabled(options.subtitleMode == .none)
+                    }
+                } else {
+                    TextField(L10n.string(.mediaSubtitleLanguage, locale: locale), text: subtitleLanguage)
+                        .disabled(options.subtitleMode == .none)
+                }
             }
 
             Section(L10n.string(.mediaMetadata, locale: locale)) {
@@ -505,6 +550,66 @@ struct DownloadOptionsEditor: View {
             get: { options.subtitleLanguage ?? "" },
             set: { options.subtitleLanguage = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         )
+    }
+
+    private var subtitleModeSelection: Binding<SubtitleMode> {
+        Binding(
+            get: { options.subtitleMode },
+            set: { mode in
+                options.subtitleMode = mode
+                guard mode != .none,
+                      options.subtitleLanguage == nil,
+                      let first = subtitleChoices?.first else {
+                    return
+                }
+                options.selectSubtitleTrack(first)
+            }
+        )
+    }
+
+    private var subtitleTrackSelection: Binding<String?> {
+        Binding(
+            get: {
+                guard let language = options.subtitleLanguage,
+                      let source = options.subtitleSource else {
+                    return nil
+                }
+                return "\(source.rawValue):\(language)"
+            },
+            set: { selectedID in
+                let track = subtitleChoices?.first { $0.id == selectedID }
+                options.selectSubtitleTrack(track)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func subtitlePickerSection(source: SubtitleSource, tracks: [SubtitleTrack]) -> some View {
+        let matchingTracks = tracks.filter { $0.source == source }
+        if !matchingTracks.isEmpty {
+            Section(subtitleSourceLabel(source)) {
+                ForEach(matchingTracks) { track in
+                    Text(subtitleTrackLabel(track)).tag(Optional(track.id))
+                }
+            }
+        }
+    }
+
+    private func subtitleTrackLabel(_ track: SubtitleTrack) -> String {
+        let officialSuffix = " - Official"
+        let name = track.displayName.hasSuffix(officialSuffix)
+            ? String(track.displayName.dropLast(officialSuffix.count))
+            : track.displayName
+        return "\(name) · \(subtitleSourceLabel(track.source))"
+    }
+
+    private func subtitleSourceLabel(_ source: SubtitleSource) -> String {
+        switch source {
+        case .official:
+            L10n.string(.mediaSubtitleOfficial, locale: locale)
+        case .automatic:
+            L10n.string(.mediaSubtitleAutomatic, locale: locale)
+        }
     }
 
     @MainActor

@@ -225,12 +225,68 @@ final class YouTubeStrategyTests: XCTestCase {
         var job = DownloadJob.fixture(outputKind: .mp3)
         job.options.subtitleMode = .embed
         job.options.subtitleLanguage = "ja"
+        job.options.subtitleSource = .official
 
         let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
 
         XCTAssertTrue(arguments.contains("--write-subs"))
         XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "ja")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
         XCTAssertFalse(arguments.contains("--embed-subs"))
+    }
+
+    func testOfficialSubtitleSelectionDownloadsOnlyTheExactOfficialTrackAsSRT() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = "zh-Hant-official"
+        job.options.subtitleSource = .official
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertTrue(arguments.contains("--write-subs"))
+        XCTAssertFalse(arguments.contains("--write-auto-subs"))
+        XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "zh-Hant-official")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
+    }
+
+    func testAutomaticSubtitleSelectionDownloadsOnlyTheExactAutomaticTrackAsSRT() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = "ja"
+        job.options.subtitleSource = .automatic
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertFalse(arguments.contains("--write-subs"))
+        XCTAssertTrue(arguments.contains("--write-auto-subs"))
+        XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "ja")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
+    }
+
+    func testSubtitleModeWithoutASelectedTrackDoesNotFallBackToLiveChat() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = nil
+        job.options.subtitleSource = nil
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertFalse(arguments.contains("--write-subs"))
+        XCTAssertFalse(arguments.contains("--write-auto-subs"))
+        XCTAssertFalse(arguments.contains("--sub-langs"))
+        XCTAssertFalse(arguments.contains("--sub-format"))
     }
 
     private func argument(after flag: String, in arguments: [String]) -> String? {
