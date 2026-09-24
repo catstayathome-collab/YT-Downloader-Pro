@@ -21,6 +21,8 @@ SIGNING_IDENTITY=""
 TEAM_ID=""
 PROVISIONING_PROFILE=""
 AUTH_ENTITLEMENTS=""
+AUTH_CONFIG=""
+AUTH_CONFIG_SEEN=false
 SIGNING_TEMP_DIR=""
 SBOM_CREATED=""
 BUILD_KIND=""
@@ -41,6 +43,8 @@ Options:
   --team-id TEAMID           expected 10-character Apple Team ID (Developer ID only)
   --provisioning-profile PATH
                              Developer ID profile authorizing the app ID and Keychain group
+  --auth-config PATH         validated public-material-only Supabase staging config
+                             (internal-test only)
   --sbom-created TIMESTAMP   SPDX creation time in RFC3339 UTC form
   -h, --help                 show this help
 EOF
@@ -93,6 +97,13 @@ while (($#)); do
       PROVISIONING_PROFILE="$2"
       shift 2
       ;;
+    --auth-config)
+      (($# >= 2)) || fail "--auth-config requires a value"
+      [[ "$AUTH_CONFIG_SEEN" == false ]] || fail "--auth-config may be specified only once"
+      AUTH_CONFIG="$2"
+      AUTH_CONFIG_SEEN=true
+      shift 2
+      ;;
     --sbom-created)
       (($# >= 2)) || fail "--sbom-created requires a value"
       SBOM_CREATED="$2"
@@ -121,6 +132,15 @@ case "$APP_CHANNEL" in
     fail "unsupported --app-channel: $APP_CHANNEL"
     ;;
 esac
+
+if [[ -n "$AUTH_CONFIG" ]]; then
+  [[ "$APP_CHANNEL" == "internal-test" ]] || \
+    fail "--auth-config is limited to internal-test staging builds"
+  [[ -f "$AUTH_CONFIG" && ! -L "$AUTH_CONFIG" ]] || \
+    fail "--auth-config must be a regular non-symlink file"
+  python3 "$ROOT_DIR/scripts/check_supabase_configuration.py" "$AUTH_CONFIG" || \
+    fail "--auth-config failed validation"
+fi
 
 CHANNEL_DIST_DIR="$DIST_ROOT/$APP_CHANNEL"
 APP_PATH="$CHANNEL_DIST_DIR/$APP_NAME.app"
@@ -278,6 +298,9 @@ done
 /usr/bin/install -m 644 \
   "$SWIFT_DIR/Sources/YTDownloaderPro2/Resources/Localizable.xcstrings" \
   "$RESOURCES_DIR/Localizable.xcstrings"
+if [[ -n "$AUTH_CONFIG" ]]; then
+  /usr/bin/install -m 644 "$AUTH_CONFIG" "$RESOURCES_DIR/SupabaseConfiguration.json"
+fi
 for license_name in \
   FFmpeg-LGPL-2.1.txt \
   GPL-3.0-or-later.txt \

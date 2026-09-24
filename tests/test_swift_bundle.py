@@ -148,7 +148,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
     def tearDown(self):
         self.temporary_directory.cleanup()
 
-    def fake_bundle(self, helpers=HELPERS):
+    def fake_bundle(self, helpers=HELPERS, app_channel="public"):
         bundle = self.root / APP_NAME
         macos = bundle / "Contents" / "MacOS"
         helper_root = bundle / "Contents" / "Helpers"
@@ -169,7 +169,7 @@ class SwiftBundleVerifierTests(unittest.TestCase):
             "CFBundleShortVersionString": "2.0.0",
             "CFBundleVersion": "2.0.0",
             "LSMinimumSystemVersion": "13.0",
-            "YTDPBuildChannel": "public",
+            "YTDPBuildChannel": app_channel,
         }
         with (bundle / "Contents" / "Info.plist").open("wb") as handle:
             plistlib.dump(metadata, handle)
@@ -487,6 +487,59 @@ class SwiftBundleVerifierTests(unittest.TestCase):
         self.assertEqual(report.app_channel, "public")
         self.assertEqual(report.architectures, ("arm64",))
         self.assertEqual(tuple(report.helper_versions), HELPERS)
+
+    def test_public_bundle_rejects_supabase_configuration(self):
+        bundle = self.fake_bundle()
+        config = bundle / "Contents" / "Resources" / "SupabaseConfiguration.json"
+        config.write_text("{}\n", encoding="utf-8")
+
+        report = self.verify(bundle)
+
+        self.assertFalse(report.ok)
+        self.assertTrue(any("public" in error and "SupabaseConfiguration" in error for error in report.errors))
+
+    def test_internal_bundle_accepts_valid_publishable_configuration(self):
+        bundle = self.fake_bundle(app_channel="internal-test")
+        config = bundle / "Contents" / "Resources" / "SupabaseConfiguration.json"
+        config.write_bytes(
+            (ROOT / "swift-2.0" / "Tests" / "YTDownloaderPro2Tests" / "Fixtures" / "supabase-staging-configuration.json").read_bytes()
+        )
+        config.chmod(0o644)
+
+        report = self.verify(bundle, app_channel="internal-test")
+
+        self.assertTrue(report.ok, report.errors)
+        self.assertNotIn("sb_publishable", report.to_json())
+
+    def test_bundle_secret_scan_rejects_private_material_without_echoing_it(self):
+        bundle = self.fake_bundle(app_channel="internal-test")
+        marker = "-----BEGIN PRIVATE KEY-----bundle-secret-marker"
+        (bundle / "Contents" / "Resources" / "unexpected.json").write_text(marker, encoding="utf-8")
+
+        report = self.verify(bundle, app_channel="internal-test")
+
+        self.assertFalse(report.ok)
+        self.assertTrue(any("forbidden" in error.lower() for error in report.errors), report.errors)
+        self.assertNotIn(marker, report.to_json())
+
+    def test_internal_configuration_rejects_symlink_and_world_writable_mode(self):
+        source = ROOT / "swift-2.0" / "Tests" / "YTDownloaderPro2Tests" / "Fixtures" / "supabase-staging-configuration.json"
+        bundle = self.fake_bundle(app_channel="internal-test")
+        config = bundle / "Contents" / "Resources" / "SupabaseConfiguration.json"
+        config.write_bytes(source.read_bytes())
+        config.chmod(0o666)
+
+        writable_report = self.verify(bundle, app_channel="internal-test")
+
+        self.assertFalse(writable_report.ok)
+        self.assertTrue(any("SupabaseConfiguration" in error for error in writable_report.errors))
+
+        config.unlink()
+        config.symlink_to(source)
+        symlink_report = self.verify(bundle, app_channel="internal-test")
+
+        self.assertFalse(symlink_report.ok)
+        self.assertTrue(any("SupabaseConfiguration" in error for error in symlink_report.errors))
 
     def test_rejects_missing_unknown_and_mismatched_bundle_channels(self):
         bundle = self.fake_bundle()
@@ -982,6 +1035,21 @@ class SwiftBuildScriptContractTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("--sbom-created", result.stderr)
+        self.assertNotIn("Running strict Swift tests", result.stdout)
+
+    def test_public_build_rejects_auth_configuration_before_building(self):
+        result = self.run_build_script(
+            "--app-channel",
+            "public",
+            "--version",
+            "2.0.0",
+            "--unsigned-test",
+            "--auth-config",
+            str(ROOT / "swift-2.0" / "Tests" / "YTDownloaderPro2Tests" / "Fixtures" / "supabase-staging-configuration.json"),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--auth-config is limited to internal-test staging builds", result.stderr)
         self.assertNotIn("Running strict Swift tests", result.stdout)
 
     def test_developer_id_build_requires_team_id_before_building(self):

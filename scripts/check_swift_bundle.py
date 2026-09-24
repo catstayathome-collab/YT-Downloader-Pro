@@ -15,6 +15,17 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from scripts.check_supabase_configuration import (
+        scan_resource_tree,
+        validate_configuration_path,
+    )
+except ModuleNotFoundError:
+    from check_supabase_configuration import (
+        scan_resource_tree,
+        validate_configuration_path,
+    )
+
 
 APP_BUNDLE_NAME = "YT Downloader Pro 2.app"
 APP_EXECUTABLE_NAME = "YT Downloader Pro 2"
@@ -564,6 +575,37 @@ def _validate_resources(bundle, errors):
                 errors.append(f"empty bundle resource: {_relative(path, bundle)}")
         except OSError as error:
             errors.append(f"bundle resource is unreadable: {_relative(path, bundle)}: {error}")
+
+
+def _validate_auth_configuration(bundle, expected_app_channel, errors):
+    resources = bundle / "Contents" / "Resources"
+    configuration = resources / "SupabaseConfiguration.json"
+    configuration_exists = configuration.exists() or configuration.is_symlink()
+
+    if expected_app_channel == "public" and configuration_exists:
+        errors.append(
+            "public bundle must not contain Contents/Resources/SupabaseConfiguration.json"
+        )
+    elif expected_app_channel == "internal-test" and configuration_exists:
+        if not _trusted_regular_file(configuration, bundle):
+            errors.append(
+                "SupabaseConfiguration.json must be a trusted regular non-symlink resource"
+            )
+        else:
+            try:
+                mode = stat.S_IMODE(configuration.stat().st_mode)
+            except OSError:
+                mode = None
+            if mode != 0o644:
+                errors.append("SupabaseConfiguration.json must use mode 0644")
+            for validation_error in validate_configuration_path(configuration):
+                errors.append(f"invalid SupabaseConfiguration.json: {validation_error}")
+
+    for path, label in scan_resource_tree(resources):
+        errors.append(
+            f"forbidden secret material ({label}) in bundle resource: "
+            f"{_relative(path, bundle)}"
+        )
 
 
 def _load_canonical_inventory(inventory_path, errors):
@@ -1213,6 +1255,7 @@ def verify_bundle(
     _validate_layout(bundle, entries, errors)
     _validate_info_plist(bundle, expected_version, expected_app_channel, errors)
     _validate_resources(bundle, errors)
+    _validate_auth_configuration(bundle, expected_app_channel, errors)
     canonical_inventory = _load_canonical_inventory(inventory_path, errors)
     sbom_package_versions = _load_and_validate_sbom(
         bundle, expected_version, canonical_inventory, errors

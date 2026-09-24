@@ -47,8 +47,12 @@ tools/
   yt-dlp_macos ffmpeg ffprobe qjs
 ```
 
-The package intentionally has no third-party Swift dependency. Do not add a
-process, persistence, or JSON library when Foundation already owns that boundary.
+The package pins `supabase-swift` `2.55.2` and imports only its `Auth` product
+inside the authentication adapter. `Package.resolved` is part of the reviewed
+dependency boundary. Supabase SDK values must be mapped immediately to app-owned
+models; do not expose broad SDK types to views, stores, policy, downloads, or
+entitlements. Continue to prefer Foundation for process, persistence, and JSON
+boundaries that it already owns.
 
 ## Helper Contract
 
@@ -97,19 +101,23 @@ env CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache-internal" 
   -Xswiftc -DYTDP_INTERNAL_TEST
 ```
 
-### Local Authentication Skeleton
+### Authentication And Entitlement Development
 
-The implemented authentication surface is development-only and local-only. Run
-the debug executable with `YTDP_AUTH_MODE=mock` to expose the synthetic Google
-and Apple-labelled account controls. Leave the variable unset, or use any value
-other than lowercase `mock`, to verify the normal disabled state with no
-account controls.
+Run with exact `YTDP_AUTH_MODE=mock` to expose the synthetic local Google- and
+Apple-labelled controls. Leave the variable unset to verify the normal disabled
+accountless Free state. Mock mode performs no browser or network request.
 
-The mock flow has no provider SDK, browser callback, network request, backend,
-billing, entitlement delivery, or paid feature effect. Do not use it to claim
-that Google, Apple, real accounts, production authentication, or external
-submission is implemented. The full operating contract and scoped Keychain
-cleanup details are in `AUTHENTICATION.md`.
+The repository also contains a staging-only Supabase Google PKCE adapter and
+signed entitlement pipeline. It activates only with exact
+`YTDP_AUTH_MODE=staging` and a strictly valid configuration bundled into an
+`internal-test` app. It is not configured, deployed, or authorized for
+production. Public bundles must contain no `SupabaseConfiguration.json`.
+
+The app requests only `openid email profile`. Supabase SDK transient PKCE state
+is process-local; the app stores the refresh credential and signed entitlement
+in separate device-only Keychain records, while the access token stays in
+memory. Identity alone never grants Pro. See `AUTHENTICATION.md`,
+`ENTITLEMENT_ARCHITECTURE.md`, and `SUPABASE_STAGING.md`.
 
 The Keychain implementation deliberately uses the data-protection Keychain.
 The opt-in live Keychain test therefore needs a host signed with the same
@@ -188,6 +196,28 @@ candidate timestamp when comparing the two artifacts:
   --unsigned-test
 ```
 
+To create a configured staging-only internal artifact, add an external,
+public-material-only configuration after validating it:
+
+```bash
+python3 scripts/check_supabase_configuration.py \
+  /absolute/path/SupabaseConfiguration.json
+
+./scripts/build_swift_2.sh \
+  --app-channel internal-test \
+  --version 2.0.1 \
+  --architectures arm64 \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
+  --unsigned-test \
+  --auth-config /absolute/path/SupabaseConfiguration.json
+```
+
+`--auth-config` is rejected for public builds. The verifier scans resources for
+service-role material, private keys, JWT secrets, Google client secrets, ECPay
+HashKey/HashIV, and Supabase secret keys. A successful internal build remains
+staging evidence only and cannot prove live Keychain persistence when ad-hoc
+signed.
+
 Each command runs its channel's strict Swift suite, release-builds for
 `arm64-apple-macosx13.0`, assembles and ad-hoc signs the app, runs every helper,
 and creates an isolated report and ZIP:
@@ -206,6 +236,26 @@ dist/swift-2.0/internal-test/
 Ad-hoc candidates do not embed a provisioning profile or claim Keychain
 persistence. Neither channel is permission to publish, advertise Pro, accept
 payment, or activate production login.
+
+### Supabase Contract Tests
+
+The Edge Function is dependency-injected and testable without a cloud project:
+
+```bash
+deno fmt --check --config supabase/deno.json supabase/functions/entitlement
+deno lint --config supabase/deno.json supabase/functions/entitlement
+deno test --allow-read --config supabase/deno.json \
+  supabase/functions/entitlement
+python3 -m unittest \
+  tests.test_supabase_contract \
+  tests.test_supabase_configuration \
+  tests.test_swift_bundle -v
+```
+
+`--allow-read` is used only for committed cross-runtime fixtures. Tests grant no
+network, environment, write, run, or FFI permissions. Do not install Supabase
+CLI or Docker, create a cloud project, deploy a function, register Google
+credentials, or provision secrets without fresh owner approval.
 
 ## Localization Build
 

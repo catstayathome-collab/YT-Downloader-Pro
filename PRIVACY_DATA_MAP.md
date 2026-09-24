@@ -7,7 +7,7 @@
 | Status | Phase 1 architecture draft |
 | Product owner | Ta-Chou Weng |
 | Prepared | 2026-08-26 |
-| Scope | Current macOS Swift 2.0 plus proposed account, billing, and support services |
+| Scope | Current macOS Swift 2.x plus local/staging account and entitlement preparation, and proposed billing/support services |
 | Default posture | Local-first, minimum collection, explicit sharing |
 
 This is an engineering data inventory, not a final Privacy Policy. Legal counsel
@@ -48,27 +48,40 @@ No production database, analytics SDK, crash reporter, or support vendor is
 approved merely by appearing in this map. Each requires a vendor assessment,
 data-processing terms, retention configuration, and update to the public notice.
 
-### Implemented Phase 1 Local Authentication Skeleton
+### Implemented Local And Dormant Staging Authentication
 
-The current app has no real account, identity provider, backend, billing, or
-entitlement delivery. Its development-only local mock skeleton is enabled only
-by exact `YTDP_AUTH_MODE=mock`; the normal disabled mode shows no account UI
-and performs no credential lookup. Google and Apple are synthetic provider
-labels, not live identity integrations.
+The development-only local mock remains available with exact
+`YTDP_AUTH_MODE=mock`. The normal disabled mode shows no account UI and performs
+no credential lookup. A staging Google/Supabase adapter and signed entitlement
+pipeline are also implemented, but they remain dormant without exact
+`YTDP_AUTH_MODE=staging` plus a valid internal bundle configuration. No cloud
+project, OAuth client, deployed function, production user, or billing path is
+created by this repository.
 
-In mock mode, the app keeps one local Keychain envelope for the active session
-in the `com.catstayathome.YTDownloaderPro.auth.mock` service under the
-`active-session` account key. It contains a synthetic provider, opaque mock
-account identifier, synthetic display label, mock plan label, expiry, and
-opaque mock refresh credential. The short-lived mock access token remains in
-memory only. The record is device-only and is not synchronized. Retention ends
-at mock sign-out, replacement, or scoped deletion of that mock record.
+The authentication Keychain stores one environment-scoped envelope containing
+provider, Supabase user UUID/account subject, display name, optional masked
+email, expiry, and opaque refresh credential. The access token remains in
+memory only. A separate environment-scoped Keychain record stores the compact
+signed entitlement; it is reverified before adoption after restart. Both
+records are device-only and non-synchronizing.
 
-No authentication diagnostic may contain credentials, complete account IDs,
-email addresses, Keychain data, raw provider errors, media URLs, titles,
-paths, cookies, history, jobs, billing data, or entitlement data. The skeleton
-does not upload or submit any of this data. The proposed account and billing
-inventory below is not implemented.
+Sign-out deletes the current environment's authentication envelope and signed
+entitlement. Account replacement clears the prior entitlement before adopting
+the new account. This does not delete jobs, history, thumbnails, diagnostics,
+settings, or media. App-local deletion does not prove deletion of a Supabase
+user, Google authorization, server audit record, or backup; those external
+retention/deletion paths remain unverified and require separate implementation.
+
+Normal identity and entitlement interfaces have no media fields. They must not
+receive media URLs, titles, thumbnails, files, local paths, cookies, helper
+output, jobs, or history. Authentication diagnostics use finite categories and
+must not contain credentials, complete account IDs, email addresses, Keychain
+data, raw provider errors, entitlement tokens, or media activity.
+
+Supabase and Google remain prospective staging vendors. Region, data-processing
+terms, subprocessors, retention, deletion, security logs, access roles, incident
+response, and public notices require a dated vendor/privacy review before any
+production use.
 
 ## 3. Current macOS Local Data
 
@@ -155,15 +168,16 @@ Stored in local `UserDefaults`:
 These settings are not account data and must remain local unless a future
 settings-sync feature is separately designed and enabled by the user.
 
-## 4. Proposed Account And Entitlement Data
+## 4. Account And Entitlement Data Contract
 
-The minimum operator-side account record is:
+The local migration and staging contract define this minimum operator-side
+record. It is not deployed or approved for production:
 
 | Field | Purpose | Rule |
 | --- | --- | --- |
 | Internal random user ID | Stable database key | Never expose sequential IDs |
 | Google issuer plus `sub` | Bind the Google identity | Primary external identity; do not key by email |
-| Email | Contact, recovery, receipts where necessary | Treat as mutable; do not use as authorization key |
+| Email | Optional display/contact/recovery input where approved | Treat as mutable; app UI masks it; do not use as authorization key |
 | Email verification state | Account safety | Prefer identity-provider assertion; record minimum evidence |
 | Locale/time zone | Transactional communication | Optional and user-changeable |
 | Account created/updated times | Audit and lifecycle | Retain only as required |
@@ -174,10 +188,17 @@ Google profile photo, contacts, YouTube channel data, Drive data, gender,
 birthday, and other Google scopes are not required. Request only OpenID,
 verified email, and the minimum profile scope counsel approves.
 
-Authentication uses the system browser, Authorization Code with PKCE, exact
+The staging adapter uses the system browser, Authorization Code with PKCE, exact
 redirect allowlists, state and nonce validation, and short-lived app sessions.
 Long-lived refresh credentials belong in Keychain. Google client secrets,
 ECPay keys, and backend signing keys never ship in the app.
+
+Entitlement rows and signed claims are limited to subject, plan, feature IDs,
+maximum video height, subscription state, validity times, token ID, schema, and
+monotonic grant revision. They must not contain download activity. Signed
+tokens normally live 24 hours; a previously verified local token may remain
+usable for at most 72 additional hours of offline grace. Server retention,
+revocation, deletion, and backup expiry are not yet operationally verified.
 
 ## 5. Proposed Billing Data
 
@@ -313,6 +334,7 @@ These are conservative engineering proposals, not final legal retention rules:
 | Active account identity | While account is active |
 | Deleted account identity | Delete/anonymize promptly except required legal records |
 | Session/refresh tokens | Until expiry, revocation, logout, or account deletion |
+| Local signed entitlement | Until logout/account replacement, superseding revision, or 72-hour post-expiry offline limit |
 | Subscription and consent evidence | Legal/accounting period confirmed by counsel |
 | Payment provider references | Legal/accounting and dispute period confirmed by counsel |
 | Server security logs | Short fixed period, proposed 30 days unless incident hold |

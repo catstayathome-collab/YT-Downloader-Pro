@@ -31,6 +31,13 @@ date. For the current internal candidate:
 `--unsigned-test` means no Developer ID identity is used. The app is still
 ad-hoc signed so nested code and bundle integrity can be tested.
 
+Authentication configuration is a separate fail-closed packaging input.
+`--auth-config PATH` is accepted only for `internal-test`. The source must pass
+`scripts/check_supabase_configuration.py`, and the build copies it as mode
+`0644` to `Contents/Resources/SupabaseConfiguration.json`. Public builds reject
+the option and must contain no configuration. Configuration contents and keys
+must never appear in the JSON bundle report.
+
 Outputs:
 
 ```text
@@ -80,6 +87,7 @@ YT Downloader Pro 2.app/
       AppIcon.icns
       AppMetadata.json
       Localizable.xcstrings
+      SupabaseConfiguration.json  # optional, internal-test staging only
       SBOM.spdx.json
       SOURCE_AVAILABILITY.md
       THIRD_PARTY_NOTICES.md
@@ -93,10 +101,18 @@ YT Downloader Pro 2.app/
 macOS `13.0`, executable `YT Downloader Pro 2`, identifier
 `com.tachouweng.ytdownloaderpro2`, and the expected `YTDPBuildChannel`.
 
+For a public bundle, `SupabaseConfiguration.json` is forbidden. For an internal
+bundle it may be absent or contain only the reviewed public staging fields. A
+staging internal artifact is not a customer release and must not be uploaded to
+the public release channel.
+
 ## Independent Internal Verification
 
 ```bash
-python3 -m unittest tests.test_swift_sbom tests.test_swift_bundle -v
+python3 -m unittest \
+  tests.test_swift_sbom \
+  tests.test_supabase_configuration \
+  tests.test_swift_bundle -v
 python3 scripts/check_swift_bundle.py \
   'dist/swift-2.0/internal-test/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
@@ -121,11 +137,35 @@ The verifier also checks lipo slices, deployment targets, system-only dynamic
 dependencies, FFmpeg/FFprobe agreement, all signatures, symlink/inode aliases,
 extra executables, required resources, absence of writable app state, exact SBOM
 helper hashes, and agreement between executed helper versions and SBOM package
-versions.
+versions. It rejects any public Supabase configuration and scans all resources
+for private-key PEM, Supabase secret keys, service-role material, Google client
+secrets, JWT secret fields, and ECPay HashKey/HashIV fields. Error and report
+output names only the resource path and finding category, never the secret.
 
 The SBOM and source index are technical release evidence, not legal approval.
 Before a commercial release, complete the legal gate in
 `docs/swift-2.0/SBOM_AND_LICENSES.md` and the repository's legal review brief.
+
+Before accepting an internal staging artifact, verify its external config and
+then inspect the packaged copy:
+
+```bash
+python3 scripts/check_supabase_configuration.py \
+  /absolute/path/SupabaseConfiguration.json
+./scripts/build_swift_2.sh \
+  --app-channel internal-test \
+  --version 2.0.1 \
+  --architectures arm64 \
+  --unsigned-test \
+  --auth-config /absolute/path/SupabaseConfiguration.json \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>'
+python3 scripts/check_supabase_configuration.py \
+  'dist/swift-2.0/internal-test/YT Downloader Pro 2.app/Contents/Resources/SupabaseConfiguration.json'
+```
+
+Passing these checks proves packaging shape and secret absence only. It does
+not prove OAuth branding, live redirect registration, server deletion, RLS,
+provider availability, or the provisioned data-protection Keychain contract.
 
 ## Apple-Independent Public Release Preflight
 

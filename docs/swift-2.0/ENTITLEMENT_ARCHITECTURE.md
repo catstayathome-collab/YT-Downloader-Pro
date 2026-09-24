@@ -2,81 +2,96 @@
 
 ## Current Boundary
 
-The current product has two local plans: `Free` and `Test Pro`. `Test Pro`
-exists only to exercise planned Pro behavior in an internal build. It is not a
-paid entitlement and cannot be produced by login, payment, a token, or a
-server. Production Google and Apple authentication, account APIs, ECPay,
-subscriptions, cancellation, and verified Pro delivery are not implemented.
+The app implements three distinct sources of plan behavior:
+
+1. Public/accountless startup is always Free.
+2. Internal Test Pro is a compile-time development fixture available only in
+   `YTDP_INTERNAL_TEST` builds.
+3. A staging account may receive Pro only from a signed entitlement that passes
+   the complete client verifier.
+
+The entitlement server contract, local Edge Function, migration, client,
+verifier, cache, bridge, and policy integration exist and are tested. They are
+not deployed to production and do not implement payment, subscription purchase,
+cancellation, refunds, or account deletion. No paid-launch gate is cleared by
+this implementation.
 
 ## Build Channels
 
-| App channel | Compile flag | Startup plan | Plan switch |
+| Channel | Compile flag | Configuration | Internal plan switch |
 | --- | --- | --- | --- |
-| `public` | none | Free | not compiled |
-| `internal-test` | `YTDP_INTERNAL_TEST` | Free, or a valid saved internal choice | Settings-only Free/Test Pro control |
+| `public` | none | Forbidden | Not compiled |
+| `internal-test` | `YTDP_INTERNAL_TEST` | Optional validated staging public material | Settings-only Free/Test Pro |
 
-`AppBuildChannel.current` is compile-time derived. `PlanController.live()` uses
-`PublicFreePlanProvider` in public compilation and `InternalTestPlanProvider`
-only in internal compilation. Public startup ignores any stale internal
-preference. Missing, malformed, or unknown internal values resolve to Free.
+Public compilation ignores stale internal preferences. Missing, malformed, or
+unknown values resolve to Free. `YTDPBuildChannel` in `Info.plist` is verifier
+metadata; the compile flag remains the runtime authority.
 
-The bundle repeats the channel as `YTDPBuildChannel` in `Info.plist`. This is
-verification metadata, not the runtime source of authority. The executable's
-compile flag and the verifier's expected channel must agree with it.
+## Enforcement Flow
 
-## Policy Flow
+`PlanController.currentPlan` creates one `FeaturePolicyContext` consumed at all
+boundaries:
 
-`PlanController.currentPlan` produces one enforced `FeaturePolicyContext`.
-Views, `DownloadStore`, and `DownloadRunner` consume that same context:
+1. Views show allowed Free formats and locked Pro formats.
+2. `DownloadStore` rejects disallowed batch, playlist, subtitle, and selected
+   quality commands.
+3. Queued/non-active work is reconciled when the effective plan changes.
+4. `DownloadRunner` rechecks before helper launch and filesystem side effects.
 
-1. Views present selectable Free formats and locked Pro formats.
-2. Store command boundaries reject batch, playlist, advanced subtitle, or
-   selected-quality work not allowed by the current plan.
-3. Persisted and queued work is reconciled when the internal plan changes.
-4. Runner checks again before helper launch or filesystem side effects.
+Free permits MP3 and supported video formats up to 720p. Unknown/source/higher
+quality fails closed. A downgrade lets already active work finish but restricts
+non-active Pro-only jobs. An upgrade does not silently start queued work.
 
-Free allows MP3 and supported video formats no higher than 720p. Unknown,
-source, or higher video quality fails closed. Test Pro enables the currently
-implemented synthetic Pro matrix. A downgrade lets active work finish but
-restricts non-active Pro-only jobs. An upgrade clears the restriction without
-automatically starting those jobs.
+UI is not the security boundary. The store and runner checks must remain even
+when presentation changes.
 
-## Internal Preference
+## Signed Grant Contract
 
-The internal choice uses `UserDefaults` key `internal-test-selected-plan` and
-accepts only exact `free` or `test-pro` values. It must never appear in local
-support reports, exported app data, analytics, or public UI. Reset to Free is
-always available in the internal Settings section.
+The Edge Function returns one compact ES256 JWS with exact header and claim
+schemas. The verifier rejects malformed tokens, unknown `kid`, non-ES256
+algorithms, invalid signatures, unexpected fields, wrong issuer/audience/
+subject, invalid UUID token IDs, unsupported schema, duplicate features,
+invalid time windows, inconsistent plan/features/height/state, and grant
+revision rollback.
 
-## Packaging Contract
+The normal token life is 24 hours. A previously verified cached grant may be
+used for at most 72 additional hours when refresh is unavailable. Cache restore
+reverifies signature and claims before adoption. A network response receives no
+expiry grace. Rejected or unavailable grants fail to a valid cache or Free;
+account identity, email, local defaults, and UI state never grant Pro.
 
-`scripts/build_swift_2.sh` requires `--app-channel public` or
-`--app-channel internal-test`. It passes `-DYTDP_INTERNAL_TEST` only to the
-internal Swift test and release-build commands. Each channel owns a separate
-`dist/swift-2.0/<channel>/` directory, app, report, and ZIP.
+Only `VerifiedEntitlement` can update `PlanController`. `DownloadStore` observes
+that controller and applies the same policy to existing queued jobs.
 
-`scripts/check_swift_bundle.py` requires `--expected-app-channel`. It rejects:
+## Storage And Account Changes
 
-- missing or unknown expected channels;
-- missing, unknown, or mismatched `YTDPBuildChannel` metadata;
-- report or archive destinations outside the expected channel directory;
-- every existing signature, architecture, helper, SBOM, license, symlink,
-  inode, writable-state, resource, and archive violation.
+The compact verified entitlement is stored in a separate device-only Keychain
+record scoped by authentication environment. Access tokens remain memory-only.
+The bridge preserves a same-account cache through reauthentication, but clears
+the old grant before account replacement. Logout clears auth and entitlement
+state and invalidates stale refresh work.
 
-Signing and app channel are independent. `public` means the Free product
-surface was compiled; it does not mean signed, notarized, approved, or released.
-`internal-test` means local plan controls were compiled; it does not authorize
-distribution to customers.
+The server-side data model uses immutable Supabase user UUID subject identity
+and monotonic `grant_revision`. Entitlement rows contain plan/features/height,
+subscription state, validity, and revision only; they do not contain media
+URLs, titles, paths, cookies, history, or downloaded files.
 
-## Future Verified Pro
+## Internal Test Pro
 
-A future, separately approved phase may add a provider that converts a
-cryptographically verified server entitlement into the existing policy
-snapshot. That phase must define issuer, audience, signature keys, expiry,
-revocation, replay handling, offline grace, account deletion, cancellation,
-privacy, and failure-to-Free behavior. It must not reuse the internal
-`UserDefaults` preference as production authority.
+The internal preference key is `internal-test-selected-plan` and accepts only
+`free` or `test-pro`. It must never appear in public UI, support reports,
+exports, analytics, or production authorization. Internal Test Pro remains
+separate from the signed staging plan and is not evidence of purchase.
 
-Until those requirements and the external legal, accounting, payment-provider,
-licensing, privacy, and owner gates are approved, all public builds remain Free
-and all Test Pro behavior remains an explicitly local engineering fixture.
+## Packaging And Operations
+
+`scripts/build_swift_2.sh` accepts `--auth-config` only for `internal-test`.
+The config checker allows publishable material and P-256 public keys only. The
+bundle verifier rejects any configuration in public builds, validates internal
+configuration and file mode, scans resources for private material, and keeps
+secret values out of its report.
+
+Follow `SUPABASE_STAGING.md` for staging handoff and
+`ENTITLEMENT_KEY_ROTATION.md` for signing-key lifecycle. Production Google,
+Supabase, payment, billing, and publishing require separate dated evidence and
+fresh owner approval.
