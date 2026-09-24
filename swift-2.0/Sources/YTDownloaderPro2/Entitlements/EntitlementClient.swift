@@ -96,4 +96,3 @@ struct EntitlementClient: EntitlementFetching, Sendable {
         return token
     }
 }
-

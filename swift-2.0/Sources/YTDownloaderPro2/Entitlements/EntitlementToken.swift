@@ -29,4 +29,3 @@ struct VerifiedEntitlement: Equatable, Sendable {
         return .offlineGrace
     }
 }
-

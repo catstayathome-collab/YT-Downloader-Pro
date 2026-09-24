@@ -138,4 +138,3 @@ logs, retention, and spending limits again.
 Deleting an app-local session does not prove server-side account deletion.
 Server deletion, backup expiry, audit retention, and vendor deletion behavior
 must be verified separately before production use.
-
