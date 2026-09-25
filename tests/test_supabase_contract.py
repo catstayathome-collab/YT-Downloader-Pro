@@ -6,6 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase" / "migrations" / "202609230001_account_entitlements.sql"
+SUBSCRIPTION_MIGRATION = ROOT / "supabase" / "migrations" / "202609250001_subscription_model.sql"
 DENO_CONFIG = ROOT / "supabase" / "deno.json"
 EDGE_INDEX = ROOT / "supabase" / "functions" / "entitlement" / "index.ts"
 STAGING_GUIDE = ROOT / "docs" / "swift-2.0" / "SUPABASE_STAGING.md"
@@ -119,6 +120,27 @@ class SupabaseContractTests(unittest.TestCase):
         secret_command = guide.split("supabase secrets set", 1)[1].split("```", 1)[0]
         self.assertNotIn("SUPABASE_URL=", secret_command)
         self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY=", secret_command)
+
+    def test_subscription_and_event_ledger_are_private_and_account_owned(self):
+        sql = SUBSCRIPTION_MIGRATION.read_text(encoding="utf-8").lower()
+
+        self.assertIn("create table private.subscriptions", sql)
+        self.assertIn("user_id uuid not null references auth.users(id) on delete restrict", sql)
+        self.assertIn("check (paid_through > paid_from)", sql)
+        self.assertIn("check (status in ('active', 'cancelled', 'payment_failed', 'refunded', 'revoked'))", sql)
+        self.assertIn("create unique index one_current_subscription_per_user", sql)
+        self.assertIn("create table private.subscription_events", sql)
+        self.assertIn("unique (provider, provider_event_key)", sql)
+        self.assertIn("check (char_length(provider_order_id) between 1 and 20)", sql)
+        self.assertIn("check (char_length(provider_event_key) between 1 and 128)", sql)
+        for table in ("subscriptions", "subscription_events"):
+            self.assertIn(f"alter table private.{table} enable row level security", sql)
+        self.assertIn(
+            "revoke all on private.subscriptions, private.subscription_events from anon, authenticated",
+            sql,
+        )
+        for prohibited in ("email", "card_number", "cvv", "raw_callback", "access_token"):
+            self.assertNotRegex(sql, rf"\b{prohibited}\b\s+(?:text|varchar|json|jsonb)")
 
 
 if __name__ == "__main__":

@@ -10,11 +10,12 @@ The app implements three distinct sources of plan behavior:
 3. A staging account may receive Pro only from a signed entitlement that passes
    the complete client verifier.
 
-The entitlement server contract, local Edge Function, migration, client,
-verifier, cache, bridge, and policy integration exist and are tested. They are
-not deployed to production and do not implement payment, subscription purchase,
-cancellation, refunds, or account deletion. No paid-launch gate is cleared by
-this implementation.
+The entitlement server contract, local Edge Function, migrations, client,
+verifier, cache, bridge, and policy integration exist and are tested. A pure
+subscription model and private-table migration also exist, but they are not
+wired to the live entitlement endpoint or deployed as billing infrastructure.
+Payment, subscription purchase, provider cancellation, refunds, and account
+deletion are not implemented. No paid-launch gate is cleared by this work.
 
 ## Build Channels
 
@@ -68,6 +69,33 @@ account and operation ID and cannot revoke a newer grant.
 
 Only `VerifiedEntitlement` can update `PlanController`. `DownloadStore` observes
 that controller and applies the same policy to existing queued jobs.
+
+## Subscription Model Under Development
+
+`subscription.ts` is a side-effect-free backend policy model. Its source of
+identity is the verified Supabase user UUID, never an email. A confirmed paid
+period grants Pro until, but not including, `paid_through`. A provider-confirmed
+cancellation stops renewal and keeps Pro through the paid period plus exactly
+72 hours; a failed renewal keeps only already-paid access. Confirmed refunds
+and revocations derive Free immediately. This 72-hour cancellation bonus is
+distinct from the existing 72-hour offline *token-expiry* grace.
+
+`202609250001_subscription_model.sql` defines private subscriptions and an
+event-key ledger. It is committed source, not an applied staging migration.
+The pure transition function returns `duplicate` for a known processed key and
+`reconcile` for ambiguous ordering, such as a successful charge after a
+confirmed cancellation. A future provider writer must verify its input and
+atomically insert the unique event key and update the subscription under a
+transaction; passing an in-memory set alone is not durable idempotency.
+`is_current` permits one current order per user while retaining old orders for
+later reconciliation. Account deletion must address legally required billing
+retention before removing an `auth.users` row; the financial foreign key
+intentionally restricts cascading deletion.
+
+No entitlement JWS is issued from this subscription model yet. The next
+entitlement-contract task must define signed paid-through and grace-end bounds,
+then enforce them in server issuance and Swift verification. The current
+staging grant table and 24-hour token plus offline-cache rules remain unchanged.
 
 ## Storage And Account Changes
 
