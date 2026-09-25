@@ -123,7 +123,11 @@ actor VerifiedEntitlementStore {
     func adopt(_ entitlement: VerifiedEntitlement, environment: AuthEnvironment) async throws {
         if let current = verifiedByEnvironment[environment],
            current.subject == entitlement.subject,
-           current.grantRevision > entitlement.grantRevision {
+           (current.snapshot.schemaVersion > entitlement.snapshot.schemaVersion ||
+               (current.snapshot.schemaVersion == entitlement.snapshot.schemaVersion &&
+                   (current.snapshot.schemaVersion == 2
+                       ? current.issuedAt > entitlement.issuedAt
+                       : current.grantRevision > entitlement.grantRevision))) {
             return
         }
         try await vault.save(entitlement.compactToken, environment: environment)

@@ -8,6 +8,9 @@ public keys indexed by `kid`. The normal token lifetime is 24 hours and the app
 may use a previously verified token for at most another 72 hours of offline
 grace. Rotation therefore retains the old public key for at least 96 hours
 after the signing switch.
+For subscription-backed schema-2 Pro grants, the signed `proAccessEndsAtMs`
+is an additional hard cap; offline token grace cannot extend paid access past
+that date.
 
 This runbook is for owner-approved staging exercises until production legal,
 security, operations, and release gates are complete.

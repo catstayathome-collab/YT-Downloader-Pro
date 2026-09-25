@@ -60,6 +60,61 @@ final class EntitlementVaultTests: XCTestCase {
         XCTAssertEqual(compactToken, revisionSeven.compactToken)
     }
 
+    func testSubscriptionFreeReplacesLegacyProEvenWithLowerRevision() async throws {
+        let signer = EntitlementTestSigner()
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let context = signer.context(subject: "account-a", now: now)
+        let legacyPro = try verifiedEntitlement(revision: 7, signer: signer, context: context, now: now)
+        var freeClaims = signer.validClaims(subject: "account-a", now: now)
+        freeClaims["schema"] = 2
+        freeClaims["plan"] = "free"
+        freeClaims["features"] = EntitlementSnapshot.syntheticFree.features.map(\.rawValue).sorted()
+        freeClaims["maxVideoHeight"] = 720
+        freeClaims["subscriptionState"] = "none"
+        freeClaims["grantRevision"] = 1
+        let subscriptionFree = try EntitlementVerifier().verify(
+            token: try signer.sign(claims: freeClaims), context: context
+        )
+        let store = VerifiedEntitlementStore(vault: InMemoryEntitlementVault())
+
+        try await store.adopt(legacyPro, environment: .staging)
+        try await store.adopt(subscriptionFree, environment: .staging)
+        let stored = try await store.load(environment: .staging)
+        XCTAssertEqual(stored?.snapshot.plan, .free)
+        try await store.adopt(legacyPro, environment: .staging)
+        let token = try await store.compactToken(environment: .staging)
+        XCTAssertEqual(token, subscriptionFree.compactToken)
+    }
+
+    func testNewSubscriptionOrderCanReplaceOlderFreeDespiteRevisionReset() async throws {
+        let signer = EntitlementTestSigner()
+        let context = signer.context(subject: "account-a", now: Date(timeIntervalSince1970: 2_000_020))
+        var oldFree = signer.validClaims(subject: "account-a", now: Date(timeIntervalSince1970: 2_000_000))
+        oldFree["schema"] = 2
+        oldFree["plan"] = "free"
+        oldFree["features"] = EntitlementSnapshot.syntheticFree.features.map(\.rawValue).sorted()
+        oldFree["maxVideoHeight"] = 720
+        oldFree["subscriptionState"] = "none"
+        oldFree["grantRevision"] = 9
+        var newPro = signer.validClaims(subject: "account-a", now: Date(timeIntervalSince1970: 2_000_010))
+        newPro["schema"] = 2
+        newPro["grantRevision"] = 1
+        newPro["exp"] = 2_000_110
+        newPro["paidThroughMs"] = 2_000_200_000
+        newPro["proAccessEndsAtMs"] = 2_000_200_000
+        let free = try EntitlementVerifier().verify(token: try signer.sign(claims: oldFree), context: context)
+        let pro = try EntitlementVerifier().verify(token: try signer.sign(claims: newPro), context: context)
+        let store = VerifiedEntitlementStore(vault: InMemoryEntitlementVault())
+
+        try await store.adopt(free, environment: .staging)
+        try await store.adopt(pro, environment: .staging)
+        let active = try await store.load(environment: .staging)
+        XCTAssertEqual(active?.snapshot.plan, .pro)
+        try await store.adopt(free, environment: .staging)
+        let afterReplay = try await store.load(environment: .staging)
+        XCTAssertEqual(afterReplay?.compactToken, pro.compactToken)
+    }
+
     func testVerifiedStoreCanReplaceRevisionForDifferentSubjectAndClearBothLayers() async throws {
         let signer = EntitlementTestSigner()
         let now = Date(timeIntervalSince1970: 2_000_000)

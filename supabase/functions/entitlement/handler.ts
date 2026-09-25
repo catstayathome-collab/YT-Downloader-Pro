@@ -1,5 +1,6 @@
-import { deriveEntitlement, type GrantRow } from "./contract.ts";
+import { deriveEntitlement, deriveSubscriptionEntitlement, type GrantRow } from "./contract.ts";
 import type { EntitlementPayload } from "./jws.ts";
+import type { SubscriptionRow } from "./subscription.ts";
 
 export type { EntitlementPayload } from "./jws.ts";
 
@@ -8,6 +9,7 @@ export type EntitlementDependencies = Readonly<{
   audience: string;
   verifyAccessToken(token: string): Promise<string>;
   loadGrant(userID: string): Promise<GrantRow | null>;
+  loadSubscription?(userID: string): Promise<SubscriptionRow | null>;
   sign(payload: EntitlementPayload): Promise<string>;
   now(): Date;
   randomUUID(): string;
@@ -56,15 +58,27 @@ export function createEntitlementHandler(
       const now = dependencies.now();
       const nowSeconds = Math.floor(now.getTime() / 1_000);
       if (!Number.isSafeInteger(nowSeconds)) throw new Error("invalidClock");
-      const grant = await dependencies.loadGrant(verifiedUserID);
-      const derived = deriveEntitlement(grant?.user_id === verifiedUserID ? grant : null, now);
+      const grant = dependencies.loadSubscription
+        ? null
+        : await dependencies.loadGrant(verifiedUserID);
+      const derived = dependencies.loadSubscription
+        ? deriveSubscriptionEntitlement(
+          await dependencies.loadSubscription(verifiedUserID),
+          verifiedUserID,
+          now,
+        )
+        : deriveEntitlement(grant?.user_id === verifiedUserID ? grant : null, now);
+      const expiry = derived.schema === 2 && derived.plan === "pro"
+        ? Math.min(nowSeconds + 86_400, Math.ceil(derived.proAccessEndsAtMs / 1_000))
+        : nowSeconds + 86_400;
+      if (expiry <= nowSeconds) throw new Error("invalidAccessEnd");
       const payload: EntitlementPayload = {
         iss: dependencies.issuer,
         aud: dependencies.audience,
         sub: verifiedUserID,
         iat: nowSeconds,
         nbf: nowSeconds - 30,
-        exp: nowSeconds + 86_400,
+        exp: expiry,
         jti: dependencies.randomUUID(),
         ...derived,
       };

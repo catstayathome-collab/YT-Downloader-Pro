@@ -1,3 +1,5 @@
+import { deriveSubscriptionAccess, type SubscriptionRow } from "./subscription.ts";
+
 export const CANONICAL_FREE_FEATURES = Object.freeze(
   [
     "download.single",
@@ -42,14 +44,26 @@ export type GrantRow = Readonly<{
   revision: number;
 }>;
 
-export type EntitlementClaimsInput = Readonly<{
-  schema: 1;
+type BaseEntitlementClaims = Readonly<{
   plan: "free" | "pro";
   features: readonly string[];
   maxVideoHeight: number | null;
   subscriptionState: "none" | "active";
   grantRevision: number;
 }>;
+
+export type EntitlementClaimsInput =
+  | (BaseEntitlementClaims & Readonly<{ schema: 1 }>)
+  | (BaseEntitlementClaims & Readonly<{ schema: 2; plan: "free" }>)
+  | (
+    & BaseEntitlementClaims
+    & Readonly<{
+      schema: 2;
+      plan: "pro";
+      paidThroughMs: number;
+      proAccessEndsAtMs: number;
+    }>
+  );
 
 export function canonicalFreeEntitlement(
   _now: Date,
@@ -80,6 +94,36 @@ export function deriveEntitlement(
     maxVideoHeight: null,
     subscriptionState: "active",
     grantRevision: grant.revision,
+  };
+}
+
+export function deriveSubscriptionEntitlement(
+  row: SubscriptionRow | null,
+  verifiedUserID: string,
+  now: Date,
+): EntitlementClaimsInput {
+  const access = deriveSubscriptionAccess(row, verifiedUserID, now);
+  const paidThroughMs = access.paidThrough === null ? NaN : Date.parse(access.paidThrough);
+  const proAccessEndsAtMs = access.proAccessEndsAt === null
+    ? NaN
+    : Date.parse(access.proAccessEndsAt);
+  if (
+    access.plan !== "pro" ||
+    !Number.isSafeInteger(paidThroughMs) ||
+    !Number.isSafeInteger(proAccessEndsAtMs) ||
+    ![0, 72 * 60 * 60_000].includes(proAccessEndsAtMs - paidThroughMs)
+  ) {
+    return { ...canonicalFreeEntitlement(now, access.revision), schema: 2, plan: "free" };
+  }
+  return {
+    schema: 2,
+    plan: "pro",
+    features: [...CANONICAL_PRO_FEATURES],
+    maxVideoHeight: null,
+    subscriptionState: "active",
+    grantRevision: access.revision,
+    paidThroughMs,
+    proAccessEndsAtMs,
   };
 }
 

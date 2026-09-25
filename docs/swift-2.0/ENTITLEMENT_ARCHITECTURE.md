@@ -92,10 +92,33 @@ later reconciliation. Account deletion must address legally required billing
 retention before removing an `auth.users` row; the financial foreign key
 intentionally restricts cascading deletion.
 
-No entitlement JWS is issued from this subscription model yet. The next
-entitlement-contract task must define signed paid-through and grace-end bounds,
-then enforce them in server issuance and Swift verification. The current
-staging grant table and 24-hour token plus offline-cache rules remain unchanged.
+Task 3 adds an opt-in subscription-backed issuance path to the local entitlement
+handler. It derives claims only for the verified user UUID and signs schema-2
+Pro with `paidThroughMs` and `proAccessEndsAtMs` Unix-millisecond bounds, or
+schema-2 Free without those fields on missing, expired, refunded, or revoked
+access. A schema-2 Free grant replaces a schema-1 staging Pro cache even if
+the two sources use different revision sequences; schema-1 cannot roll back a
+stored schema-2 result. Schema-2 cache ordering uses signed issuance time,
+because `revision` restarts for each new subscription order. Same-second
+responses follow the controller's request-operation ordering; `jti` is not a
+chronological sequence.
+The JWT `exp` is at most 24 hours after issue and is capped at the ceiling of
+the access-end second. Swift verifies the exact schema-2 claim set, canonical
+Pro features, period relationship (paid-through or paid-through plus exactly
+72 hours), and the token expiry cap. The app enforces the precise millisecond
+access end for both current use and its offline-token grace, including its
+automatic downgrade timer. Schema-1 staging grants remain compatible.
+
+This is contract code only: the deployed Edge Function still uses the legacy
+staging grant table. The private subscription migration has not been applied,
+and no payment provider writes subscriptions. A later, separately approved
+deployment must switch the live handler to `loadSubscription` **without**
+falling back to legacy Pro grants, then run a signed-token and downgrade smoke
+test. Refunds and revocations take effect on the next online refresh; a device
+already offline cannot learn about them before its previously signed token
+and cache lapse. The signed hard end prevents a known paid period from being
+extended by token-expiry grace, but it is not an instant offline revocation
+mechanism.
 
 ## Storage And Account Changes
 

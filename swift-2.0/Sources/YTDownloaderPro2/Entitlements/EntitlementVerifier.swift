@@ -77,14 +77,21 @@ struct EntitlementVerifier: EntitlementVerifying {
             throw EntitlementVerificationError.invalidSignature
         }
 
-        try requireExactKeys(
-            in: claimsData,
-            expected: [
-                "iss", "aud", "sub", "iat", "nbf", "exp", "jti", "schema",
-                "plan", "features", "maxVideoHeight", "subscriptionState", "grantRevision"
-            ]
-        )
+        let baseKeys: Set<String> = [
+            "iss", "aud", "sub", "iat", "nbf", "exp", "jti", "schema",
+            "plan", "features", "maxVideoHeight", "subscriptionState", "grantRevision"
+        ]
+        let claimKeys = try keys(in: claimsData)
+        guard claimKeys == baseKeys ||
+                claimKeys == baseKeys.union(["paidThroughMs", "proAccessEndsAtMs"]) else {
+            throw EntitlementVerificationError.malformedToken
+        }
         let claims = try decode(Claims.self, from: claimsData)
+        guard (claims.schema == 1 && claimKeys == baseKeys) ||
+                (claims.schema == 2 && claims.plan == "free" && claimKeys == baseKeys) ||
+                (claims.schema == 2 && claims.plan == "pro" && claimKeys != baseKeys) else {
+            throw EntitlementVerificationError.invalidClaims
+        }
         let snapshot = try validatedSnapshot(from: claims, context: context)
         return VerifiedEntitlement(
             compactToken: token,
@@ -92,7 +99,10 @@ struct EntitlementVerifier: EntitlementVerifying {
             grantRevision: claims.grantRevision,
             issuedAt: Date(timeIntervalSince1970: TimeInterval(claims.iat)),
             expiresAt: Date(timeIntervalSince1970: TimeInterval(claims.exp)),
-            snapshot: snapshot
+            snapshot: snapshot,
+            proAccessEndsAt: claims.proAccessEndsAtMs.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+            }
         )
     }
 
@@ -120,7 +130,7 @@ struct EntitlementVerifier: EntitlementVerifying {
               TimeInterval(claims.exp) >= now - skew - expiryGrace,
               claims.nbf <= claims.iat,
               claims.exp > claims.iat,
-              claims.schema == EntitlementSnapshot.supportedSchemaVersion,
+              (claims.schema == 1 || claims.schema == 2),
               Set(claims.features).count == claims.features.count else {
             throw EntitlementVerificationError.invalidClaims
         }
@@ -144,6 +154,19 @@ struct EntitlementVerifier: EntitlementVerifying {
         )
         guard snapshot.isCanonicalGrant else {
             throw EntitlementVerificationError.invalidClaims
+        }
+        if claims.schema == 2 && plan == .pro {
+            guard let paidThroughMs = claims.paidThroughMs,
+                  let proAccessEndsAtMs = claims.proAccessEndsAtMs,
+                  paidThroughMs > 0,
+                  TimeInterval(proAccessEndsAtMs) > TimeInterval(claims.iat) * 1_000,
+                  (proAccessEndsAtMs == paidThroughMs ||
+                      proAccessEndsAtMs - paidThroughMs == 72 * 60 * 60 * 1_000),
+                  claims.exp <= proAccessEndsAtMs / 1_000 +
+                      (proAccessEndsAtMs % 1_000 == 0 ? 0 : 1),
+                  TimeInterval(claims.exp) - TimeInterval(claims.iat) <= 86_400 else {
+                throw EntitlementVerificationError.invalidClaims
+            }
         }
         switch plan {
         case .free where claims.grantRevision >= 0:
@@ -181,11 +204,17 @@ struct EntitlementVerifier: EntitlementVerifying {
     }
 
     private func requireExactKeys(in data: Data, expected: Set<String>) throws {
-        guard let object = try? JSONSerialization.jsonObject(with: data),
-              let dictionary = object as? [String: Any],
-              Set(dictionary.keys) == expected else {
+        guard try keys(in: data) == expected else {
             throw EntitlementVerificationError.malformedToken
         }
+    }
+
+    private func keys(in data: Data) throws -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            throw EntitlementVerificationError.malformedToken
+        }
+        return Set(dictionary.keys)
     }
 
     private func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
@@ -217,4 +246,6 @@ private struct Claims: Decodable {
     let maxVideoHeight: Int?
     let subscriptionState: String
     let grantRevision: Int64
+    let paidThroughMs: Int64?
+    let proAccessEndsAtMs: Int64?
 }

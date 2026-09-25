@@ -101,6 +101,20 @@ final class FeaturePolicyTests: XCTestCase {
         XCTAssertFalse(policy.grantedFeatures.contains(FeatureID(rawValue: "future.capability")))
     }
 
+    func testCanonicalSubscriptionProSchemaKeepsHDFeatures() {
+        let snapshot = EntitlementSnapshot(
+            schemaVersion: 2,
+            plan: .pro,
+            features: EntitlementSnapshot.syntheticPro.features,
+            videoHeightPolicy: .unlimited,
+            subscriptionState: .active
+        )
+        let policy = FeaturePolicy(snapshot: snapshot)
+
+        XCTAssertNil(policy.fallbackReason)
+        XCTAssertEqual(policy.videoDecision(height: 1080, isAudioOnly: false, isSourceQuality: false), .allowed)
+    }
+
     func testUnknownFeatureOnSupportedSchemaDoesNotGrantAccess() {
         let unknown = FeatureID(rawValue: "future.capability")
         let snapshot = EntitlementSnapshot(

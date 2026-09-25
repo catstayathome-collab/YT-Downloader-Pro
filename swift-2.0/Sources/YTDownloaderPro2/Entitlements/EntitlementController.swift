@@ -140,7 +140,11 @@ final class EntitlementController: ObservableObject {
             case .current:
                 apply(verified, status: .verified(lastVerifiedAt: currentTime), operationID: operationID)
             case .offlineGrace:
-                apply(verified, status: .offlineGrace(expiresAt: verified.expiresAt), operationID: operationID)
+                apply(
+                    verified,
+                    status: .offlineGrace(expiresAt: verified.deadline(allowOfflineGrace: true)),
+                    operationID: operationID
+                )
             case .expired:
                 await rejectCachedToken(operationID: operationID)
             }
@@ -319,7 +323,11 @@ final class EntitlementController: ObservableObject {
             case .current:
                 apply(cached, status: withCache, operationID: operationID)
             case .offlineGrace:
-                apply(cached, status: .offlineGrace(expiresAt: cached.expiresAt), operationID: operationID)
+                apply(
+                    cached,
+                    status: .offlineGrace(expiresAt: cached.deadline(allowOfflineGrace: true)),
+                    operationID: operationID
+                )
             case .expired:
                 try? await store.delete(environment: environment)
                 applyFree(status: withoutCache, operationID: operationID)
@@ -362,12 +370,13 @@ final class EntitlementController: ObservableObject {
         expiryTask = nil
         guard entitlement.snapshot.plan == .pro else { return }
 
-        let deadline: Date = switch status {
+        let allowsOfflineGrace: Bool = switch status {
         case .offlineGrace, .unavailableUsingCache, .rejectedUsingCache:
-            entitlement.expiresAt.addingTimeInterval(VerifiedEntitlement.offlineGraceDuration)
+            true
         default:
-            entitlement.expiresAt
+            false
         }
+        let deadline = entitlement.deadline(allowOfflineGrace: allowsOfflineGrace)
         let sleepUntil = sleepUntil
         let subject = entitlement.subject
         expiryTask = Task { @MainActor [weak self] in

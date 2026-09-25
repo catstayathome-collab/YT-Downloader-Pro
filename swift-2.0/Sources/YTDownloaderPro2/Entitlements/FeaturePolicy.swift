@@ -47,7 +47,8 @@ struct FeaturePolicy: Equatable, Sendable {
 
     init(snapshot: EntitlementSnapshot) {
         let accepted: EntitlementSnapshot
-        if snapshot.schemaVersion == EntitlementSnapshot.supportedSchemaVersion {
+        if snapshot.schemaVersion == EntitlementSnapshot.supportedSchemaVersion ||
+            (snapshot.schemaVersion == 2 && snapshot.isCanonicalGrant) {
             accepted = snapshot
             fallbackReason = nil
         } else {

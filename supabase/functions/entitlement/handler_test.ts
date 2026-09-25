@@ -4,6 +4,7 @@ import {
   type EntitlementPayload,
 } from "./handler.ts";
 import type { GrantRow } from "./contract.ts";
+import type { SubscriptionRow } from "./subscription.ts";
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -214,4 +215,105 @@ Deno.test("missing grant signs canonical Free claims", async () => {
   assertEquals(dependencies.signedPayloads[0].plan, "free");
   assertEquals(dependencies.signedPayloads[0].maxVideoHeight, 720);
   assertEquals(dependencies.signedPayloads[0].grantRevision, 0);
+});
+
+Deno.test("subscription source signs a bounded Pro grant and never reads legacy grants", async () => {
+  const dependencies = fixtureDependencies();
+  const subscription: SubscriptionRow = {
+    user_id: "11111111-1111-1111-1111-111111111111",
+    provider_order_id: "order-1",
+    status: "cancelled",
+    paid_from: "2026-08-24T00:00:00.000Z",
+    paid_through: "2026-09-21T12:00:00.000Z",
+    cancel_confirmed_at: "2026-09-21T00:00:00.000Z",
+    revision: 9,
+  };
+  const loaded: string[] = [];
+  const response = await createEntitlementHandler({
+    ...dependencies,
+    loadSubscription(userID) {
+      loaded.push(userID);
+      return Promise.resolve(subscription);
+    },
+  })(request());
+
+  assertEquals(response.status, 200);
+  assertEquals(loaded, [subscription.user_id]);
+  assertEquals(dependencies.loadedUserIDs, []);
+  const payload = dependencies.signedPayloads[0];
+  assert(
+    payload.schema === 2 && payload.plan === "pro",
+    "subscription Pro must use bounded schema 2",
+  );
+  assertEquals(payload.plan, "pro");
+  assertEquals(payload.grantRevision, 9);
+  assertEquals(payload.paidThroughMs, Date.parse(subscription.paid_through));
+  assertEquals(payload.proAccessEndsAtMs, Date.parse(subscription.paid_through) + 72 * 60 * 60_000);
+  assertEquals(payload.exp, Math.ceil(payload.proAccessEndsAtMs / 1_000));
+});
+
+Deno.test("subscription source fails closed for another user and refunded access", async () => {
+  const dependencies = fixtureDependencies();
+  const otherUser: SubscriptionRow = {
+    user_id: "33333333-3333-3333-3333-333333333333",
+    provider_order_id: "order-1",
+    status: "active",
+    paid_from: "2026-08-24T00:00:00.000Z",
+    paid_through: "2026-10-24T00:00:00.000Z",
+    cancel_confirmed_at: null,
+    revision: 9,
+  };
+  for (
+    const row of [otherUser, {
+      ...otherUser,
+      user_id: "11111111-1111-1111-1111-111111111111",
+      status: "refunded" as const,
+    }]
+  ) {
+    const response = await createEntitlementHandler({
+      ...dependencies,
+      loadSubscription: () => Promise.resolve(row),
+    })(request());
+    assertEquals(response.status, 200);
+    assertEquals(dependencies.signedPayloads.at(-1)?.plan, "free");
+    assertEquals(dependencies.signedPayloads.at(-1)?.schema, 2);
+  }
+  assertEquals(dependencies.loadedUserIDs, []);
+});
+
+Deno.test("subscription expiry caps active Pro to paid-through milliseconds", async () => {
+  const dependencies = fixtureDependencies();
+  const userID = "11111111-1111-1111-1111-111111111111";
+  const paidThrough = "2026-09-24T00:00:10.250Z";
+  const row: SubscriptionRow = {
+    user_id: userID,
+    provider_order_id: "order-2",
+    status: "payment_failed",
+    paid_from: "2026-08-24T00:00:00.000Z",
+    paid_through: paidThrough,
+    cancel_confirmed_at: null,
+    revision: 4,
+  };
+  const handler = createEntitlementHandler({
+    ...dependencies,
+    loadSubscription: () => Promise.resolve(row),
+  });
+  assertEquals((await handler(request())).status, 200);
+  const payload = dependencies.signedPayloads.at(-1);
+  assert(
+    payload?.schema === 2 && payload.plan === "pro",
+    "active paid grant must use bounded schema",
+  );
+  assertEquals(payload.paidThroughMs, Date.parse(paidThrough));
+  assertEquals(payload.proAccessEndsAtMs, Date.parse(paidThrough));
+  assertEquals(payload.exp, 1_790_208_011);
+
+  const expired = createEntitlementHandler({
+    ...dependencies,
+    now: () => new Date(paidThrough),
+    loadSubscription: () => Promise.resolve(row),
+  });
+  assertEquals((await expired(request())).status, 200);
+  assertEquals(dependencies.signedPayloads.at(-1)?.plan, "free");
+  assertEquals(dependencies.signedPayloads.at(-1)?.schema, 2);
 });

@@ -148,4 +148,87 @@ final class EntitlementVerifierTests: XCTestCase {
         XCTAssertEqual(verified.snapshot, .syntheticFree)
         XCTAssertEqual(verified.use(at: now, allowOfflineGrace: true), .expired)
     }
+
+    func testPaidProNeverExtendsBeyondSignedAccessEndEvenDuringOfflineGrace() throws {
+        let signer = EntitlementTestSigner()
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        var claims = signer.validClaims(subject: fixtureSubject, now: now)
+        claims["schema"] = 2
+        claims["paidThroughMs"] = 2_000_100_000
+        claims["proAccessEndsAtMs"] = 2_259_300_000
+        let verified = try EntitlementVerifier().verify(
+            token: try signer.sign(claims: claims),
+            context: signer.context(subject: fixtureSubject, now: now)
+        )
+        XCTAssertEqual(verified.snapshot.plan, .pro)
+        XCTAssertEqual(verified.proAccessEndsAt, Date(timeIntervalSince1970: 2_259_300))
+        XCTAssertEqual(verified.use(at: Date(timeIntervalSince1970: 2_259_300), allowOfflineGrace: true), .expired)
+
+        claims["exp"] = 2_000_010
+        claims["paidThroughMs"] = 1_740_811_000
+        claims["proAccessEndsAtMs"] = 2_000_011_000
+        let shortBound = try EntitlementVerifier().verify(
+            token: try signer.sign(claims: claims),
+            context: signer.context(subject: fixtureSubject, now: now)
+        )
+        XCTAssertEqual(shortBound.use(at: Date(timeIntervalSince1970: 2_000_010), allowOfflineGrace: true), .offlineGrace)
+        XCTAssertEqual(shortBound.use(at: Date(timeIntervalSince1970: 2_000_011), allowOfflineGrace: true), .expired)
+    }
+
+    func testPaidProRejectsMissingInvalidOrOvershootingSignedBounds() throws {
+        let signer = EntitlementTestSigner()
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        var valid = signer.validClaims(subject: fixtureSubject, now: now)
+        valid["schema"] = 2
+        valid["paidThroughMs"] = 2_086_400_000
+        valid["proAccessEndsAtMs"] = 2_086_400_000
+        for mutation in [
+            { () -> [String: Any] in var value = valid; value.removeValue(forKey: "paidThroughMs"); return value }(),
+            valid.merging(["proAccessEndsAtMs": 2_086_401_000]) { _, new in new },
+            valid.merging(["exp": 2_086_402]) { _, new in new },
+            valid.merging(["plan": "free"]) { _, new in new }
+        ] {
+            XCTAssertThrowsError(try EntitlementVerifier().verify(
+                token: try signer.sign(claims: mutation),
+                context: signer.context(subject: fixtureSubject, now: now)
+            ))
+        }
+    }
+
+    func testPaidProEnforcesMillisecondBoundaryBeforeRoundedJWTExpiry() throws {
+        let signer = EntitlementTestSigner()
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        var claims = signer.validClaims(subject: fixtureSubject, now: now)
+        claims["schema"] = 2
+        claims["exp"] = 2_000_011
+        claims["paidThroughMs"] = 2_000_010_250
+        claims["proAccessEndsAtMs"] = 2_000_010_250
+
+        let verified = try EntitlementVerifier().verify(
+            token: try signer.sign(claims: claims),
+            context: signer.context(subject: fixtureSubject, now: now)
+        )
+        XCTAssertEqual(verified.use(at: Date(timeIntervalSince1970: 2_000_010.249)), .current)
+        XCTAssertEqual(verified.use(at: Date(timeIntervalSince1970: 2_000_010.250)), .expired)
+        XCTAssertEqual(verified.use(at: Date(timeIntervalSince1970: 2_000_010.250), allowOfflineGrace: true), .expired)
+    }
+
+    func testSubscriptionFreeSchemaIsAcceptedWithoutPaidFieldsOrOfflineGrace() throws {
+        let signer = EntitlementTestSigner()
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        var claims = signer.validClaims(subject: fixtureSubject, now: now)
+        claims["schema"] = 2
+        claims["plan"] = "free"
+        claims["features"] = EntitlementSnapshot.syntheticFree.features.map(\.rawValue).sorted()
+        claims["maxVideoHeight"] = 720
+        claims["subscriptionState"] = "none"
+        let verified = try EntitlementVerifier().verify(
+            token: try signer.sign(claims: claims),
+            context: signer.context(subject: fixtureSubject, now: now)
+        )
+        XCTAssertEqual(verified.snapshot.plan, .free)
+        XCTAssertEqual(verified.snapshot.schemaVersion, 2)
+        XCTAssertNil(verified.proAccessEndsAt)
+        XCTAssertEqual(verified.use(at: verified.expiresAt, allowOfflineGrace: true), .expired)
+    }
 }

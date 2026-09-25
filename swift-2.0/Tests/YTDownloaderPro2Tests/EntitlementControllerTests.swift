@@ -85,6 +85,39 @@ final class EntitlementControllerTests: XCTestCase {
         XCTAssertEqual(fixture.controller.status, .free)
     }
 
+    func testPaidOfflineGraceSchedulesHardAccessEndNotTokenGraceEnd() async throws {
+        let signer = EntitlementTestSigner()
+        let token = try signedToken(
+            signer: signer,
+            subject: "account-a",
+            revision: 7,
+            issuedAt: 1_920_000,
+            expiresAt: 1_999_900,
+            paidThroughMs: 1_740_900_000,
+            proAccessEndsAtMs: 2_000_100_000
+        )
+        let rawVault = InMemoryEntitlementVault()
+        try await rawVault.save(token, environment: .staging)
+        let sleeper = ControlledEntitlementExpirySleeper()
+        let fixture = makeFixture(
+            fetcher: ScriptedEntitlementFetcher(results: []),
+            signer: signer,
+            rawVault: rawVault,
+            sleepUntil: { deadline in try await sleeper.sleep(until: deadline) }
+        )
+        await fixture.controller.restore(subject: "account-a")
+        XCTAssertEqual(fixture.plan.currentPlan, .pro)
+        XCTAssertEqual(
+            fixture.controller.status,
+            .offlineGrace(expiresAt: Date(timeIntervalSince1970: 2_000_100))
+        )
+        let deadline = await sleeper.waitForDeadline()
+        XCTAssertEqual(deadline, Date(timeIntervalSince1970: 2_000_100))
+        await sleeper.fire()
+        await waitUntil { fixture.plan.currentPlan == .free }
+        XCTAssertEqual(fixture.plan.currentPlan, .free)
+    }
+
     func testUnauthorizedRefreshesAuthenticationAtMostOnce() async throws {
         let signer = EntitlementTestSigner()
         let fetcher = ScriptedEntitlementFetcher(results: [
@@ -181,7 +214,7 @@ final class EntitlementControllerTests: XCTestCase {
         XCTAssertEqual(graceFixture.plan.currentPlan, .pro)
         XCTAssertEqual(
             graceFixture.controller.status,
-            .offlineGrace(expiresAt: Date(timeIntervalSince1970: 1_999_900))
+            .offlineGrace(expiresAt: Date(timeIntervalSince1970: 1_999_900 + VerifiedEntitlement.offlineGraceDuration))
         )
 
         let expiredToken = try signedToken(
@@ -278,13 +311,20 @@ final class EntitlementControllerTests: XCTestCase {
         plan: EntitlementPlan = .pro,
         revision: Int,
         issuedAt: Int = 2_000_000,
-        expiresAt: Int = 2_086_400
+        expiresAt: Int = 2_086_400,
+        paidThroughMs: Int? = nil,
+        proAccessEndsAtMs: Int? = nil
     ) throws -> String {
         var claims = signer.validClaims(subject: subject, now: Date(timeIntervalSince1970: TimeInterval(issuedAt)))
         claims["iat"] = issuedAt
         claims["nbf"] = issuedAt - 30
         claims["exp"] = expiresAt
         claims["grantRevision"] = revision
+        if let paidThroughMs, let proAccessEndsAtMs {
+            claims["schema"] = 2
+            claims["paidThroughMs"] = paidThroughMs
+            claims["proAccessEndsAtMs"] = proAccessEndsAtMs
+        }
         if plan == .free {
             claims["plan"] = "free"
             claims["features"] = EntitlementSnapshot.syntheticFree.features.map(\.rawValue).sorted()
