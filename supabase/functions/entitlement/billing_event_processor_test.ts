@@ -29,7 +29,7 @@ const firstPayment: VerifiedBillingNotification = {
 class MemoryRepository implements BillingEventRepository {
   orders = new Map([[orderID, { userID, currency: "TWD", amountMinor: 8_000 }]]);
   rows = new Map<string, SubscriptionRow>();
-  events = new Set<string>();
+  events = new Map<string, string>();
   recordedEvents: Array<
     { subscriptionID: string; kind: string; userID: string; occurredAt: string }
   > = [];
@@ -47,29 +47,36 @@ class MemoryRepository implements BillingEventRepository {
     await previous;
     this.transactions += 1;
     const rows = new Map(this.rows);
-    const events = new Set(this.events);
+    const events = new Map(this.events);
     const recordedEvents = [...this.recordedEvents];
     try {
       const result = await work({
         authorizationForOrder: (id) => Promise.resolve(this.orders.get(id) ?? null),
         currentSubscription: (id) => Promise.resolve(rows.get(id) ?? null),
-        eventExists: (provider, key) => Promise.resolve(events.has(`${provider}:${key}`)),
+        currentOrderForUser: (id) =>
+          Promise.resolve(
+            [...rows.values()].find((row) => row.user_id === id)?.provider_order_id ?? null,
+          ),
+        eventOrderID: (provider, key) => Promise.resolve(events.get(`${provider}:${key}`) ?? null),
         insertEventOnce: (provider, event, subscriptionID) => {
           const key = event.event_key;
           if (key.length > 128) throw new Error("event ledger key too long");
-          if (!rows.has(orderID)) throw new Error("subscription foreign key missing");
+          if (!rows.has(event.provider_order_id)) {
+            throw new Error("subscription foreign key missing");
+          }
           if (this.failOnEventInsert) throw new Error("db secret: forced rollback");
-          if (this.conflictOnEventInsert) return Promise.resolve(false);
+          if (this.conflictOnEventInsert) return Promise.resolve({ existingOrderID: orderID });
           const identity = `${provider}:${key}`;
-          if (events.has(identity)) return Promise.resolve(false);
-          events.add(identity);
+          const existingOrderID = events.get(identity);
+          if (existingOrderID !== undefined) return Promise.resolve({ existingOrderID });
+          events.set(identity, event.provider_order_id);
           recordedEvents.push({
             subscriptionID,
             kind: event.kind,
             userID: event.user_id,
             occurredAt: event.occurred_at,
           });
-          return Promise.resolve(true);
+          return Promise.resolve("inserted" as const);
         },
         saveSubscription: (row) => {
           rows.set(row.provider_order_id, row);
@@ -240,4 +247,31 @@ Deno.test("out-of-order charge after cancellation waits for reconciliation", asy
   );
   assertEquals(repository.rows.get(orderID)?.status, "cancelled");
   assertEquals(repository.events.has("ecpay:charge-2"), false);
+});
+
+Deno.test("an event key replayed for another order needs reconciliation", async () => {
+  const repository = new MemoryRepository();
+  const otherOrder = "order-2";
+  repository.orders.set(otherOrder, {
+    userID: "33333333-3333-3333-3333-333333333333",
+    currency: "TWD",
+    amountMinor: 8_000,
+  });
+  assertEquals(await processor(repository), "applied");
+  assertEquals(await processor(repository, { ...firstPayment, orderID: otherOrder }), "reconcile");
+  assertEquals(repository.rows.has(otherOrder), false);
+  assertEquals(repository.recordedEvents.length, 1);
+});
+
+Deno.test("a second current order for one account cannot replace the first", async () => {
+  const repository = new MemoryRepository();
+  const otherOrder = "order-2";
+  repository.orders.set(otherOrder, { userID, currency: "TWD", amountMinor: 8_000 });
+  assertEquals(await processor(repository), "applied");
+  assertEquals(
+    await processor(repository, { ...firstPayment, eventKey: "charge-2", orderID: otherOrder }),
+    "reconcile",
+  );
+  assertEquals(repository.rows.has(otherOrder), false);
+  assertEquals(repository.recordedEvents.length, 1);
 });

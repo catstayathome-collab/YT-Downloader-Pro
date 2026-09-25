@@ -29,12 +29,13 @@ export type BillingNotificationVerifier = Readonly<{
 export type BillingEventTransaction = Readonly<{
   authorizationForOrder(orderID: string): Promise<BillingOrderAuthorization | null>;
   currentSubscription(orderID: string): Promise<SubscriptionRow | null>;
-  eventExists(provider: "ecpay", eventKey: string): Promise<boolean>;
+  currentOrderForUser(userID: string): Promise<string | null>;
+  eventOrderID(provider: "ecpay", eventKey: string): Promise<string | null>;
   insertEventOnce(
     provider: "ecpay",
     event: SubscriptionEvent,
     subscriptionID: string,
-  ): Promise<boolean>;
+  ): Promise<"inserted" | { existingOrderID: string }>;
   saveSubscription(row: SubscriptionRow): Promise<string>;
 }>;
 
@@ -47,7 +48,11 @@ export type BillingEventResult = "applied" | "duplicate" | "reconcile" | "reject
 
 const MAXIMUM_NOTIFICATION_BYTES = 65_536;
 const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-class DuplicateBillingEvent extends Error {}
+class DuplicateBillingEvent extends Error {
+  constructor(readonly existingOrderID: string) {
+    super("billing event key already recorded");
+  }
+}
 
 export async function processBillingNotification(
   rawBody: Uint8Array,
@@ -85,7 +90,10 @@ export async function processBillingNotification(
         ) return "reconcile";
       }
 
-      if (await tx.eventExists(notification.provider, notification.eventKey)) return "duplicate";
+      const existingOrderID = await tx.eventOrderID(notification.provider, notification.eventKey);
+      if (existingOrderID !== null) {
+        return existingOrderID === notification.orderID ? "duplicate" : "reconcile";
+      }
 
       const event: SubscriptionEvent = {
         event_key: notification.eventKey,
@@ -99,17 +107,24 @@ export async function processBillingNotification(
           : { paid_through: notification.paidThrough }),
       };
       const previous = await tx.currentSubscription(notification.orderID);
+      if (previous === null) {
+        const currentOrder = await tx.currentOrderForUser(authorization.userID);
+        if (currentOrder !== null && currentOrder !== notification.orderID) return "reconcile";
+      }
       const transition = transitionSubscription(previous, event, new Set());
       if (transition.result !== "applied" || transition.row === null) return "reconcile";
 
       const subscriptionID = await tx.saveSubscription(transition.row);
-      if (!(await tx.insertEventOnce(notification.provider, event, subscriptionID))) {
-        throw new DuplicateBillingEvent();
+      const insertion = await tx.insertEventOnce(notification.provider, event, subscriptionID);
+      if (insertion !== "inserted") {
+        throw new DuplicateBillingEvent(insertion.existingOrderID);
       }
       return "applied";
     });
   } catch (error) {
-    if (error instanceof DuplicateBillingEvent) return "duplicate";
+    if (error instanceof DuplicateBillingEvent) {
+      return error.existingOrderID === notification.orderID ? "duplicate" : "reconcile";
+    }
     return "unavailable";
   }
 }
