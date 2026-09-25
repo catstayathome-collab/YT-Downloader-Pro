@@ -3,10 +3,13 @@
 ## Current Boundary
 
 The repository contains a staging-capable Google sign-in adapter, entitlement
-schema, migration, Edge Function, verifier, and app bridge. They are exercised
-with local fixtures and deterministic tests only. No Supabase project, Google
-OAuth client, Edge Function, production user, billing path, or public service
-is created or authorized by this document.
+schema, migration, Edge Function, verifier, and app bridge. On 2026-09-25, the
+owner-configured Supabase staging project `kjevrhjcrlvgncxaacaz` and Google
+OAuth client completed a live sign-in smoke test. Supabase showed the test user;
+the ad-hoc internal app displayed the account and remained Free using the
+explicit process-memory session mode. The app reported that entitlement status
+could not yet be confirmed. Developer ID Keychain persistence, a live Pro
+entitlement, billing, and public service remain unverified or unavailable.
 
 The normal public app remains accountless Free. Staging authentication requires
 all three conditions:
@@ -46,7 +49,9 @@ python3 scripts/check_supabase_configuration.py /absolute/path/SupabaseConfigura
 
 ## Owner-Controlled Setup Checklist
 
-These are future manual account actions and require fresh owner approval:
+The owner approved and completed the staging project and Google provider setup
+for the smoke test. Recheck the remaining access, branding, and entitlement-key
+items before a wider test; this checklist grants no production authorization:
 
 1. Create a disposable Supabase staging project in a reviewed region.
 2. Enable Google as an identity provider in Supabase.
@@ -117,6 +122,9 @@ only into an internal test app:
 1. Use a dedicated test Google account with no production data.
 2. Confirm the public app has no configuration and displays no account UI.
 3. Launch the configured internal app with exact `YTDP_AUTH_MODE=staging`.
+   An ad-hoc app cannot access the data-protection Keychain. For an OAuth UI
+   smoke test only, also set `YTDP_STAGING_EPHEMERAL_SESSION=1`; the session
+   then exists in process memory and disappears when the app closes.
 4. Confirm the system-browser consent page requests only the three approved
    scopes and returns through the exact app deep link.
 5. Confirm the app shows only display name and optional masked email.

@@ -21,3 +21,18 @@ actor InMemoryCredentialVault: CredentialVault {
         storage[environment] = nil
     }
 }
+
+enum LiveCredentialVault {
+    static func make(
+        authEnvironment: AuthEnvironment,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> any CredentialVault {
+        #if YTDP_INTERNAL_TEST
+        if authEnvironment == .staging,
+           processEnvironment["YTDP_STAGING_EPHEMERAL_SESSION"] == "1" {
+            return InMemoryCredentialVault()
+        }
+        #endif
+        return KeychainCredentialVault()
+    }
+}

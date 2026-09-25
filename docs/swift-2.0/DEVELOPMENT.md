@@ -126,6 +126,11 @@ plain `swift test` process and an ad-hoc internal app have no such restricted
 entitlement; `errSecMissingEntitlement` is expected there. Use the ordinary
 in-memory vault tests for deterministic local development, and reserve live
 save/restore/delete evidence for the provisioned Developer ID test host.
+For a live OAuth UI smoke test on an ad-hoc internal app, launch with both
+`YTDP_AUTH_MODE=staging` and `YTDP_STAGING_EPHEMERAL_SESSION=1`. This explicit
+internal-build-only option holds the refresh credential in process memory and
+signs out on app restart. It does not exercise Keychain persistence; never use
+it for a release or claim a durable account session from this test.
 
 ### Local Feature Policy F1
 

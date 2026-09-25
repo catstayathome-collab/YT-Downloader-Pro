@@ -116,10 +116,17 @@ private struct SupabaseAuthClientService: SupabaseAuthServicing {
     func signInWithGoogle(redirectURL: URL, scopes: String) async throws -> SupabaseSessionValue {
         do {
             #if canImport(AuthenticationServices)
+            let launcher = await WebAuthenticationSessionLauncher()
             let session = try await client.signInWithOAuth(
                 provider: .google,
                 redirectTo: redirectURL,
-                scopes: scopes
+                scopes: scopes,
+                launchFlow: { @MainActor url in
+                    try await launcher.start(
+                        url: url,
+                        callbackURLScheme: redirectURL.scheme
+                    )
+                }
             )
             #else
             throw SupabaseAuthServiceError.unavailable
@@ -175,6 +182,16 @@ private struct SupabaseAuthClientService: SupabaseAuthServicing {
             return .cancelled
         }
         #if canImport(AuthenticationServices)
+        if let webError = error as? WebAuthenticationSessionFailure {
+            switch webError {
+            case .cancelled:
+                return .cancelled
+            case .invalidResponse:
+                return .invalidSession
+            case .unavailable:
+                return .unavailable
+            }
+        }
         if let webError = error as? ASWebAuthenticationSessionError,
            webError.code == .canceledLogin {
             return .cancelled

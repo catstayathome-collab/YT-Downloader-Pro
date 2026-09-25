@@ -53,7 +53,7 @@ final class AccountSessionStore: ObservableObject, EntitlementSessionRefreshing 
         }
         return AccountSessionStore(
             environment: resolution.environment,
-            vault: KeychainCredentialVault(),
+            vault: LiveCredentialVault.make(authEnvironment: resolution.environment),
             providers: providers
         )
     }
