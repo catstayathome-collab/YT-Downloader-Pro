@@ -92,6 +92,26 @@ later reconciliation. Account deletion must address legally required billing
 retention before removing an `auth.users` row; the financial foreign key
 intentionally restricts cascading deletion.
 
+Task 4 adds a local-only billing notification processor and
+`202609250002_billing_orders.sql`. The private billing order binds a provider
+order ID to the authenticated account UUID and expected currency/amount; a
+callback-supplied account ID is never authoritative. The injected verifier must
+authenticate the raw provider notification before processing. For successful
+charges and full refunds, the normalized amount and currency must match the
+private order. The injected repository must serialize conflicting orders and
+commit the subscription row and complete event record in one transaction. On
+first payment, it must create the subscription before inserting its event,
+because the event table has a subscription foreign key. A late uniqueness
+conflict must roll back the subscription write. Ambiguous or out-of-order
+events require reconciliation and do not change access.
+
+This processor is a testable contract, **not** an ECPay webhook endpoint: no
+provider-specific signature verifier, private order creator, transactional
+Postgres adapter, cancellation API, or deployed migration exists. These parts
+must be reviewed and implemented before receiving real payment notifications.
+The local in-memory tests establish state transitions and rollback semantics;
+they do not prove live database isolation or provider authenticity.
+
 Task 3 adds an opt-in subscription-backed issuance path to the local entitlement
 handler. It derives claims only for the verified user UUID and signs schema-2
 Pro with `paidThroughMs` and `proAccessEndsAtMs` Unix-millisecond bounds, or
