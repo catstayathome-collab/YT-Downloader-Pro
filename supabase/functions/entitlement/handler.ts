@@ -57,7 +57,7 @@ export function createEntitlementHandler(
       const nowSeconds = Math.floor(now.getTime() / 1_000);
       if (!Number.isSafeInteger(nowSeconds)) throw new Error("invalidClock");
       const grant = await dependencies.loadGrant(verifiedUserID);
-      const derived = deriveEntitlement(grant, now);
+      const derived = deriveEntitlement(grant?.user_id === verifiedUserID ? grant : null, now);
       const payload: EntitlementPayload = {
         iss: dependencies.issuer,
         aud: dependencies.audience,

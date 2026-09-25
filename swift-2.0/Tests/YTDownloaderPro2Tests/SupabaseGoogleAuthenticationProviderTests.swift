@@ -26,6 +26,31 @@ final class SupabaseGoogleAuthenticationProviderTests: XCTestCase {
         XCTAssertEqual(session.refreshCredential, "refresh")
     }
 
+    func testDisplayEmailCannotMergeAccountsOrChangeAccountIdentity() throws {
+        func mappedAccountID(userID: UUID, email: String?) throws -> String {
+            try SupabaseSessionMapper.map(
+                SupabaseSessionValue(
+                    userID: userID,
+                    email: email,
+                    displayName: nil,
+                    accessToken: "access",
+                    refreshToken: "refresh",
+                    expiresAt: 1_790_208_000
+                )
+            ).summary.accountID
+        }
+
+        let secondUserID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        XCTAssertEqual(
+            try mappedAccountID(userID: userID, email: "old@example.com"),
+            try mappedAccountID(userID: userID, email: "new@example.com")
+        )
+        XCTAssertNotEqual(
+            try mappedAccountID(userID: userID, email: "shared@example.com"),
+            try mappedAccountID(userID: secondUserID, email: "shared@example.com")
+        )
+    }
+
     func testMapperRejectsOversizedOrControlBearingProfileFields() throws {
         let oversizedName = String(repeating: "N", count: 121)
         let oversizedEmail = String(repeating: "e", count: 309) + "@example.com"

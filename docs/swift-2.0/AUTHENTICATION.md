@@ -12,8 +12,9 @@ default:
 | Staging | exact `YTDP_AUTH_MODE=staging` plus valid bundled configuration | Owner-approved Google PKCE staging tests | Supabase/Google staging only |
 
 The local mock remains supported. The staging adapter is implemented but no
-Supabase project, Google OAuth client, production account, payment, or public
-service is created by this repository. Apple remains a mock/future provider;
+production account, payment, or public service is created by this repository.
+The owner has configured a separate Supabase/Google staging project for internal
+sign-in tests; this repository does not contain its private credentials. Apple remains a mock/future provider;
 there is no live Sign in with Apple implementation.
 
 Free downloads work without login. Identity never grants Pro. Only a valid,
@@ -49,6 +50,24 @@ operation remains non-cancellable until the vault result is known. Account
 replacement clears the previous entitlement before adopting the next account.
 Logout invalidates in-flight entitlement work and cannot restore a late Pro
 grant. Download lifecycle is independent of authentication lifecycle.
+
+## Shared Account Identity Contract
+
+The account key is `auth.users.id`, the immutable Supabase user UUID returned
+after a verified Google sign-in. The app maps that UUID to `AccountSummary.accountID`;
+the entitlement endpoint obtains the same UUID from the verified bearer token
+and loads only the matching `private.entitlement_grants.user_id`. The endpoint
+also refuses to grant Pro if a returned row belongs to another UUID. Email and
+display name are presentation data, never lookup or authorization keys.
+
+A future website must authenticate against the same approved Supabase project
+and use the authenticated UUID for checkout and subscription ownership. It must
+not accept a user ID or email supplied by a browser form as payment authority.
+This repository does not yet contain a website sign-in flow, so a real App-to-web
+same-account smoke test remains pending. Local tests cover changed email with
+the same UUID, the same email with different UUIDs, and mismatched entitlement
+rows. Logout and account replacement are covered by the account/entitlement
+bridge tests; neither action cancels a subscription.
 
 ## Google Staging Flow
 

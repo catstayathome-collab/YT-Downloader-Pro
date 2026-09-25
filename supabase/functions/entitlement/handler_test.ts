@@ -133,6 +133,21 @@ Deno.test("handler derives exact claims only from verified bearer identity", asy
   }]);
 });
 
+Deno.test("handler never grants another user's Pro record to the authenticated subject", async () => {
+  const dependencies = fixtureDependencies({
+    verifiedUserID: "22222222-2222-2222-2222-222222222222",
+    grant: activeGrant(),
+  });
+
+  const response = await createEntitlementHandler(dependencies)(request());
+
+  assertEquals(response.status, 200);
+  assertEquals(dependencies.loadedUserIDs, ["22222222-2222-2222-2222-222222222222"]);
+  assertEquals(dependencies.signedPayloads[0].sub, "22222222-2222-2222-2222-222222222222");
+  assertEquals(dependencies.signedPayloads[0].plan, "free");
+  assertEquals(dependencies.signedPayloads[0].subscriptionState, "none");
+});
+
 Deno.test("handler rejects request-selected identity plan and unknown keys before authentication", async () => {
   const dependencies = fixtureDependencies();
   const response = await createEntitlementHandler(dependencies)(request({
