@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(24);
+select plan(29);
 
 select has_table('private', 'billing_orders', 'private billing orders exist');
 select has_table('private', 'subscriptions', 'private subscriptions exist');
@@ -85,6 +85,37 @@ select throws_ok(
 select throws_ok(
   $$update private.billing_orders set provider = 'other' where provider_order_id = 'immutable-order'$$,
   '23514', 'billing order identity is immutable', 'an order cannot change provider'
+);
+select lives_ok(
+  $$update private.billing_orders set expected_amount_minor = 8000 where provider_order_id = 'immutable-order'$$,
+  'an unchanged order remains valid'
+);
+
+insert into private.subscriptions
+  (subscription_id, user_id, provider, provider_order_id, status, paid_from, paid_through)
+values ('20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001', 'ecpay', 'immutable-order', 'active', '2026-10-01', '2026-11-01');
+select throws_ok(
+  $$insert into private.subscriptions (user_id, provider, provider_order_id, status, paid_from, paid_through)
+    values ('10000000-0000-0000-0000-000000000002', 'ecpay', 'immutable-order', 'active', '2026-10-01', '2026-11-01')$$,
+  '23505', null, 'one provider order cannot have two subscriptions'
+);
+select throws_ok(
+  $$insert into private.subscriptions (user_id, provider, provider_order_id, status, paid_from, paid_through)
+    values ('10000000-0000-0000-0000-000000000001', 'ecpay', 'second-order', 'active', '2026-10-01', '2026-11-01')$$,
+  '23505', null, 'one user cannot have two current subscriptions'
+);
+insert into private.subscription_events (subscription_id, provider, provider_event_key, event_kind, occurred_at)
+values ('20000000-0000-0000-0000-000000000001', 'ecpay', 'schema-test-event', 'payment_succeeded', '2026-10-01');
+select throws_ok(
+  $$insert into private.subscription_events (subscription_id, provider, provider_event_key, event_kind, occurred_at)
+    values ('20000000-0000-0000-0000-000000000001', 'ecpay', 'schema-test-event', 'payment_succeeded', '2026-10-01')$$,
+  '23505', null, 'a provider event key cannot be inserted twice'
+);
+select throws_ok(
+  $$insert into private.subscription_events (subscription_id, provider, provider_event_key, event_kind, occurred_at)
+    values ('20000000-0000-0000-0000-000000000002', 'ecpay', 'orphan-event', 'payment_succeeded', '2026-10-01')$$,
+  '23503', null, 'an event cannot reference a missing subscription'
 );
 
 set local role anon;
