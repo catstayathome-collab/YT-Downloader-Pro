@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test:billing:db": "deno test --allow-env=YTDP_LOCAL_BILLING_DATABASE_URL,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGAPPNAME,PGTARGETSESSIONATTRS --allow-net=127.0.0.1:55432 functions/entitlement/postgres_billing_repository_test.ts"
+    "test:billing:db": "deno test --allow-env=YTDP_LOCAL_BILLING_DATABASE_URL,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGAPPNAME,PGTARGETSESSIONATTRS --allow-net=127.0.0.1:55432 functions/entitlement/postgres_billing_repository_test.ts functions/entitlement/billing_management_database_test.ts"
   },
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.0",
