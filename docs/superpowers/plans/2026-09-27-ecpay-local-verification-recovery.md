@@ -126,6 +126,22 @@ Task 3-7 and real 7B integration remain pending; see ECPAY_7B_READINESS.md.
 
 ## Task 3: Trusted Normalization And Replay Identity
 
+Execution status (2026-09-28): implemented in `ecpay_billing_normalizer.ts`.
+RED: six failing tests against empty/rejecting stubs; three conservative rejection
+tests already passed. GREEN: ten focused tests, including an additional RED/GREEN
+regression for order mutation while awaiting the period resolver. Mutation check:
+removing expected-amount equality produced a paid event and failed the mismatch
+test; guard restored. Full Deno regression: 95 passed, zero failed/ignored;
+pgTAP: 39 passed. Lint/format/diff checks required before commit.
+Review performed in-session; no independent reviewer was available.
+
+Ruling: allow a null period resolver and return bounded `period_unavailable`,
+rather than inventing a schedule. Strict ISO instants with explicit offsets are
+canonicalized to UTC; calendar rollover and timezone-free dates reject.
+Period lookup receives only merchant/order/authorization identifiers, never
+callback counters or account fields. No provider transport, HTTP endpoint,
+database writes or Pro grants are introduced by this task. Task 4-7 remain pending.
+
 **Files:** normalizer module/test; synthetic schedule cases in fixture README/test.
 **Consumes:** VerifiedCandidate, existing VerifiedBillingNotification and trusted server facts.
 **Produces:** `normalizeAioPayment(candidate: VerifiedCandidate, order: TrustedOrderFacts | null, resolvePeriod: PeriodResolver): Promise<NormalizationResult>`; `authorizationEventKey(merchantID, orderID, authorizationID): Promise<string>`; `paymentFactsDigest(notification: VerifiedBillingNotification): Promise<string>`.

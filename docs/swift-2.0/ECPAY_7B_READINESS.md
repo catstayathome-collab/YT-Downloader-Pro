@@ -4,8 +4,9 @@ Date: 2026-09-28. Status: preparation only; external integration blocked.
 
 ## Scope And Evidence
 
-Task 7A.1 checksum and 7A.2 notification parsing are implemented locally.
-7A.3-7 remain: trusted order/period normalization, query decisions, atomic
+Task 7A.1 checksum, 7A.2 notification parsing and 7A.3 trusted order/period
+normalization are implemented locally.
+7A.4-7 remain: query decisions, atomic
 recovery, bounded runner and end-to-end regression. These are prerequisites,
 not features already delivered by the notification parser.
 
@@ -21,7 +22,7 @@ raw callback bodies in this document, Git, chat, logs or test fixtures.
 
 ## Ordered Work And Acceptance Gates
 
-1. Finish 7A.3-7 and review the local evidence. Simulation, mismatched merchant,
+1. Finish 7A.4-7 and review the local evidence. Simulation, mismatched merchant,
    wrong account, conflicting replay and incomplete history must never grant Pro.
 2. Obtain dated written product eligibility and recurring-payment approval;
    confirm contracted API/product, merchant identity, fees, cancellation/refund

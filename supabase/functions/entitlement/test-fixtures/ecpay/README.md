@@ -1,5 +1,34 @@
 # AIO Checksum Test Provenance
 
+## Trusted Period Cases (Task 7A.3)
+
+`ecpay_billing_normalizer_test.ts` uses the real notification verifier with the
+original synthetic first/renewal fixtures below. No unverified object is cast
+to VerifiedCandidate. TrustedOrderFacts must come from a private server-side
+order loader, not callback custom fields or a client-selected account.
+
+Explicit Jan 31 -> Feb 29 (2024), Feb 29 -> Mar 31 (2024), and Jan 31 -> Feb 28
+(2025) schedules test preservation of supplied boundaries. They are not a claim
+about ECPay's real billing anchors. Callback receipt time, authorization time and
+counters do not establish a paid period. Missing/throwing/invalid resolvers yield
+bounded needs_review results. The later transactional writer must still check
+current ownership, period continuity and terminal subscription state.
+
+Replay key: SHA-256 of JSON tuple `["aio-auth-v1", merchantID, orderID,
+authorizationID]`, prefixed `aio-v1:`. First/renewal routes share this identity.
+Facts digest: SHA-256 of JSON tuple `["aio-payment-facts-v1", provider, orderID,
+eventKey, kind, occurredAt, currency, amountMinor, paidFrom, paidThrough]`.
+All timestamps are canonical UTC ISO strings. Changed financial facts change
+the digest without changing the authorization key. Future Task 5 must compare
+and persist this digest atomically; generating a digest alone does not prevent
+database replay. No raw/card/custom fields are hashed or retained.
+
+Simulation and unsuccessful callbacks never produce a payment event here.
+Whole-TWD conversion uses integer arithmetic and checks the safe-integer bound
+before converting to numeric minor units. Expected order amount must match.
+Evidence: ten focused tests; amount-guard mutation failed as expected and was
+restored. Full backend regression passed 95 tests, with 39 pgTAP assertions.
+
 ## Notification Profile (Task 7A.2)
 
 Verified against official documentation on 2026-09-28:
