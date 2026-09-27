@@ -83,6 +83,15 @@ Define each type in its owning module, export it, and import it elsewhere; do no
 
 ## Task 1: Independently Verified AIO Checksum
 
+Execution status (2026-09-27): COMPLETE. RED/GREEN and mutation evidence,
+source provenance and reproduction commands are in
+`supabase/functions/entitlement/test-fixtures/ecpay/README.md`.
+Ruling: official vectors remain outside Git due to their redistribution
+restriction; the committed JSON is a pinned source manifest, not copied vectors.
+The acceptance command therefore supplies `YTDP_AIO_VECTOR_FILE` and explicit
+read/env permissions as documented in that README. Final regression: 76 Deno
+tests (none ignored) and 39 pgTAP assertions passed. Tasks 2-7 remain pending.
+
 **Files:** checksum module/test and checksum fixture provenance files.
 **Produces:** `computeAioMac(fields: Readonly<Record<string,string>>, credentials: {hashKey: string; hashIV: string}): Promise<string>`; `verifyAioMac(...same arguments): Promise<boolean>` (reads `CheckMacValue` from fields).
 

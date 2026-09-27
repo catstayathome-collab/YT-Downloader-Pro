@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/ECPay/ECPay-API-Skill",
+  "revision": "ae964f75b69ec90e1c205b136364ab6587fc328c",
+  "path": "test-vectors/checkmacvalue.json",
+  "sha256": "19500d60f3db8da3a9c31760e48b2102b233e4e8a9a5a594edd680deb8358301",
+  "selection": "method SHA256 with no formula field",
+  "selectedCount": 5,
+  "redistributed": false
+}
