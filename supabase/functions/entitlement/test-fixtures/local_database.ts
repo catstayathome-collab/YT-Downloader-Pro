@@ -29,6 +29,7 @@ export async function withAccount(
     await work(sql, userID);
   } finally {
     try {
+      await sql`delete from private.billing_recovery_audit where user_id = ${userID}`;
       await sql`delete from private.billing_operations where user_id = ${userID}`;
       await sql`delete from private.subscription_events where subscription_id in
         (select subscription_id from private.subscriptions where user_id = ${userID})`;

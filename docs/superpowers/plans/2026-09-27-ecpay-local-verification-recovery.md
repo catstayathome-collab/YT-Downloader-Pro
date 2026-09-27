@@ -186,6 +186,24 @@ Task 5-7 and real 7B integration remain pending.
 
 ## Task 5: Atomic Recovery And Conflicting-Fact Protection
 
+Execution status (2026-09-28): implemented locally. RED: missing audit schema
+failed pgTAP; eight initial database cases failed against missing snapshot and
+digest behavior. GREEN: 11 recovery database tests, including interrupted replay,
+legacy/conflicting facts, concurrent callback/cancel, stale refund, cross-account
+isolation and forced SQL rollback. Full backend regression: 118 passed with zero
+failed/ignored; 51 pgTAP assertions passed. Digest, event-conflict and state-token
+guard mutations each produced behavioral failures; all were restored.
+The first event-conflict mutation caused a TypeScript narrowing error instead of
+a behavioral failure; it was replaced with an early-success mutation, which
+failed the existing uniqueness-race assertion as intended.
+
+Rulings: the recovery repository owns the sole transaction; shared event writes
+throw on insertion races so earlier subscription writes cannot commit alone.
+Legacy null digests remain null and require review in digest-aware paths.
+Duplicate audit evidence at unchanged state returns duplicate without mutation;
+this is not proof of financial success. See LOCAL_ECPAY_RECOVERY.md for handoff.
+Review performed in-session, not independently. Tasks 6-7 and external 7B remain pending.
+
 **Files:** new reconciliation repository/DB test/migration/pgTAP files; existing processor, transaction adapters, processor test doubles and local fixture cleanup; `supabase/deno.json` DB task.
 **Consumes:** Task 4 types/decisions and `createPostgresBillingTransaction`.
 **Produces:** `createPostgresBillingReconciliationRepository(sql: postgres.Sql)` implementing snapshot/apply. Shared `applyVerifiedBillingEvent(tx: BillingEventTransaction, notification: VerifiedBillingNotification, factsDigest?: string): Promise<BillingEventResult>`; outer caller owns transaction and handles rollback exceptions.

@@ -104,13 +104,18 @@ export function createPostgresBillingTransaction(
       return rows.length === 0 ? null : String(rows[0].provider_order_id);
     },
 
-    async insertEventOnce(provider, event, subscriptionID) {
+    async eventFactsDigest(provider, eventKey) {
+      const rows = await connection`select facts_digest from private.subscription_events
+        where provider=${provider} and provider_event_key=${eventKey}`;
+      return rows.length ? rows[0].facts_digest as string | null : null;
+    },
+    async insertEventOnce(provider, event, subscriptionID, factsDigest) {
       const inserted = await connection`
               insert into private.subscription_events
-                (subscription_id, provider, provider_event_key, event_kind, occurred_at)
+                (subscription_id, provider, provider_event_key, event_kind, occurred_at, facts_digest)
               values (
                 ${subscriptionID}, ${provider}, ${event.event_key}, ${event.kind},
-                ${event.occurred_at}
+                ${event.occurred_at}, ${factsDigest ?? null}
               )
               on conflict (provider, provider_event_key) do nothing
               returning event_id

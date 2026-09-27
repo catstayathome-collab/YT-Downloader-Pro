@@ -58,6 +58,7 @@ class MemoryRepository implements BillingEventRepository {
             [...rows.values()].find((row) => row.user_id === id)?.provider_order_id ?? null,
           ),
         eventOrderID: (provider, key) => Promise.resolve(events.get(`${provider}:${key}`) ?? null),
+        eventFactsDigest: () => Promise.resolve(null),
         insertEventOnce: (provider, event, subscriptionID) => {
           const key = event.event_key;
           if (key.length > 128) throw new Error("event ledger key too long");
