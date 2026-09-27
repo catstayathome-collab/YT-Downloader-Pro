@@ -1,6 +1,7 @@
 # Task 7A: Local ECPay Verification And Recovery
 
-Status: design for owner review, not implementation approval.
+Status: owner approved design for implementation planning on 2026-09-27;
+the implementation plan still requires review before execution.
 Date: 2026-09-27.
 Baseline: Task 6, commit `f0d6eeb`, branch
 `codex/supabase-staging-integration`.
