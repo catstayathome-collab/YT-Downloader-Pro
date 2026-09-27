@@ -1,5 +1,44 @@
 # AIO Checksum Test Provenance
 
+## Mock Query Contract (Task 7A.4)
+
+`queries.json` is original synthetic data, deliberately not an ECPay API schema.
+Its mode must be mock. Order responses carry exact merchant/order identity,
+complete history flag, active/cancelled/ended execution status, an explicit
+nullable cancellation instant and at most 120 authorization records. Each record
+contains authorization ID, whole-TWD amount, ISO timestamp, paid outcome and a
+false simulation flag. Missing/failed/ambiguous records cannot be interpreted
+as successful charges. Real query authenticity and field mapping remain 7B gates.
+
+UTF-8 JSON is bounded to 65,536 bytes and nesting depth 32. JSON.parse checks
+grammar; a separate bounded structural walk rejects decoded duplicate and
+case-colliding keys (including escaped keys and nested objects) before the parsed
+object is used. Unknown fields reject except explicitly discarded card4no,
+card6no, auth_code and email fields. None survive into validated evidence.
+Malformed input yields unavailable without raw error text. Incomplete history
+is retained as such and always yields needs_review.
+
+The shared normalizer is used only after mock fields are validated, never by
+casting a query object to the branded callback candidate. Order facts are copied
+before awaiting the period resolver. Payments are sorted by trusted period start;
+identical authorization facts deduplicate, contradictions reject the whole query.
+
+Decision policy reuses transitionSubscription on local copies only. No writes,
+network request, checkout, refund or cancellation command exists here. Gaps or
+overlaps stop the batch; terminal subscriptions cannot reactivate. A cancellation
+requires an explicit time accepted by the policy after any missing payments.
+Missing payments are offered first, then a fresh snapshot can propose cancellation.
+
+Previously paid records are still offered for atomic ledger verification in
+Task 5. The repository must filter only digest-proven committed records, check
+snapshot account ownership and current state, and apply one event atomically.
+Neither a mock query nor checkout_confirmed alone grants Pro. No real provider
+query response is authenticated by these tests.
+
+Evidence: 12 focused tests; duplicate-key guard mutation produced the expected
+failure and was restored. Full regression: 107 backend tests, zero failed/ignored,
+and 39 pgTAP assertions. Verification remains local; review was in-session.
+
 ## Trusted Period Cases (Task 7A.3)
 
 `ecpay_billing_normalizer_test.ts` uses the real notification verifier with the

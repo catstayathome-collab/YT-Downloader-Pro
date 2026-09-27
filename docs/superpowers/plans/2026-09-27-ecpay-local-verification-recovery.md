@@ -155,6 +155,23 @@ database writes or Pro grants are introduced by this task. Task 4-7 remain pendi
 
 ## Task 4: Pure Query Validation And Recovery Decisions
 
+Execution status (2026-09-28): implemented locally. Initial stub: five RED
+failures and four conservative rejection tests passing. Final focused suite:
+12 passing tests. Added a RED/GREEN asynchronous order-mutation regression.
+Duplicate-key mutation (removing the detection guard) failed the valid-last-key
+test; guard restored. Full backend regression: 107 passing, zero failed/ignored;
+pgTAP: 39 passing. Review is in-session, not independent.
+
+Rulings: `queries.json` is an original mock envelope, not ECPay's wire schema.
+Malformed/contradictory queries map to unavailable; incomplete history retains
+complete=false and cannot produce a financial decision. Bound raw bytes to
+65,536, nesting to 32, authorizations to 120; reject decoded duplicate keys at
+all depths before using JSON.parse's result. Only validated mock facts call the
+shared internal normalizer; no cast to VerifiedCandidate or callback MAC claim.
+The later repository must bind snapshot ownership and verify replay digests
+atomically. Old payments are offered to that ledger, never silently marked paid.
+Task 5-7 and real 7B integration remain pending.
+
 **Files:** `billing_reconciliation.ts`, its test, `queries.json`, fixture README.
 **Consumes:** Task 3 normalization/digests and existing `transitionSubscription`.
 **Produces:** shared recovery types; `validateMockQuery(raw: Uint8Array, order: TrustedOrderFacts, resolvePeriod: PeriodResolver): Promise<RecoveryEvidence>`; `decideRecovery(snapshot: RecoverySnapshot, evidence: RecoveryEvidence): RecoveryDecision`.

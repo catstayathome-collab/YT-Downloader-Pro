@@ -1,4 +1,4 @@
-import type { VerifiedCandidate } from "./ecpay_aio_notification.ts";
+import type { CandidatePayment, VerifiedCandidate } from "./ecpay_aio_notification.ts";
 import type { VerifiedBillingNotification } from "./billing_event_processor.ts";
 export type TrustedOrderFacts = Readonly<
   { userID: string; merchantID: string; orderID: string; currency: "TWD"; amountMinor: number }
@@ -40,7 +40,7 @@ export async function authorizationEventKey(
 }
 
 // Reject calendar rollover and timezone-free strings before canonicalizing instants.
-function instant(value: string | undefined): string | null {
+export function canonicalPaymentInstant(value: string | undefined): string | null {
   if (typeof value !== "string") return null;
   const match =
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/
@@ -67,9 +67,9 @@ function instant(value: string | undefined): string | null {
 export async function paymentFactsDigest(
   notification: VerifiedBillingNotification,
 ): Promise<string> {
-  const occurredAt = instant(notification.occurredAt);
-  const from = instant(notification.paidFrom);
-  const through = instant(notification.paidThrough);
+  const occurredAt = canonicalPaymentInstant(notification.occurredAt);
+  const from = canonicalPaymentInstant(notification.paidFrom);
+  const through = canonicalPaymentInstant(notification.paidThrough);
   if (
     notification.provider !== "ecpay" || notification.kind !== "payment_succeeded" ||
     notification.currency !== "TWD" || !Number.isSafeInteger(notification.amountMinor) ||
@@ -94,6 +94,15 @@ export async function paymentFactsDigest(
 
 export async function normalizeAioPayment(
   candidate: VerifiedCandidate,
+  order: TrustedOrderFacts | null,
+  resolvePeriod: PeriodResolver | null,
+): Promise<NormalizationResult> {
+  return await normalizeTrustedPaymentFacts(candidate, order, resolvePeriod);
+}
+
+// Internal adapter for validated mock query facts; does not claim callback authentication.
+export async function normalizeTrustedPaymentFacts(
+  candidate: CandidatePayment,
   order: TrustedOrderFacts | null,
   resolvePeriod: PeriodResolver | null,
 ): Promise<NormalizationResult> {
@@ -123,7 +132,8 @@ export async function normalizeAioPayment(
     return { kind: "needs_review", reason: "period_unavailable" };
   }
   if (!period) return { kind: "needs_review", reason: "period_unavailable" };
-  const from = instant(period.from), through = instant(period.through);
+  const from = canonicalPaymentInstant(period.from),
+    through = canonicalPaymentInstant(period.through);
   if (!from || !through || Date.parse(from) >= Date.parse(through)) {
     return { kind: "needs_review", reason: "invalid_period" };
   }
