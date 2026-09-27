@@ -14,7 +14,8 @@ The entitlement server contract, local Edge Function, migrations, client,
 verifier, cache, bridge, and policy integration exist and are tested. A pure
 subscription model and private-table migration also exist, but they are not
 wired to the live entitlement endpoint or deployed as billing infrastructure.
-Payment, subscription purchase, provider cancellation, refunds, and account
+Local mock subscription status, checkout, and cancellation handlers exist.
+Real payment, subscription purchase, provider cancellation, refunds, and account
 deletion are not implemented. No paid-launch gate is cleared by this work.
 
 ## Build Channels
@@ -112,12 +113,24 @@ with no skipped database tests; see `LOCAL_BILLING_DB_TEST.md`. The adapter lock
 the account before its order, commits the subscription and event atomically,
 and rolls back late event-key conflicts. An append-only migration prevents
 changes to an order's owner, provider, identifier, currency, or amount. There is
-no provider-specific signature verifier,
-private order creator, cancellation API, or deployed migration. These parts
-must be reviewed and implemented before receiving real payment notifications.
+no provider-specific signature verifier or deployed billing migration. Real
+provider integration must be reviewed and implemented before receiving payment
+notifications.
 The local PostgreSQL tests establish transaction and isolation behavior using
 independent connections; they do not establish provider authenticity or hosted
 deployment readiness.
+
+Task 6 adds dependency-injected local HTTP handlers for status, checkout and
+cancellation, a mock provider, and private durable operation records. Order and
+operation creation are atomic; provider calls occur outside transactions.
+Same-key replay never repeats the provider call. Confirmation commits a
+cancellation event, subscription revision, and operation result together;
+uncertain outcomes remain pending/unknown without changing access. Checkout
+alone never grants Pro. Re-subscription is conservatively blocked while any
+order exists, pending Task 7 recovery/lifecycle rules. See
+`LOCAL_SUBSCRIPTION_API.md` for contracts and limitations. Verification on
+2026-09-27: 39 pgTAP assertions and 70 combined Deno tests passed, none ignored.
+This is local mock coverage, not deployed Google/payment integration.
 
 Task 3 adds an opt-in subscription-backed issuance path to the local entitlement
 handler. It derives claims only for the verified user UUID and signs schema-2
