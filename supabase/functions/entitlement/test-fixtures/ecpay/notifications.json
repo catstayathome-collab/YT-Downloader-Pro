@@ -1,0 +1,21 @@
+{
+  "first": {
+    "MerchantID": "1234567",
+    "MerchantTradeNo": "LOCAL001",
+    "RtnCode": "1",
+    "TradeAmt": "80",
+    "amount": "80",
+    "gwsr": "123",
+    "process_date": "2026/09/28 12:00:00",
+    "PaymentType": "Credit_CreditCard",
+    "SimulatePaid": "0"
+  },
+  "renewal": {
+    "MerchantID": "1234567",
+    "MerchantTradeNo": "LOCAL001",
+    "RtnCode": "1",
+    "Amount": "80",
+    "Gwsr": "124",
+    "ProcessDate": "2026/10/28 12:00:00"
+  }
+}

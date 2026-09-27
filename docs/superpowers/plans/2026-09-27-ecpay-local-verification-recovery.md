@@ -104,6 +104,14 @@ tests (none ignored) and 39 pgTAP assertions passed. Tasks 2-7 remain pending.
 
 ## Task 2: Bounded First-Payment And Renewal Verifier
 
+Execution status (2026-09-28): implementation and local verification complete.
+Nine RED tests failed against a rejecting stub; all nine passed after implementation.
+Bypassing merchant equality made the wrong-merchant test fail; guard restored.
+Full regression: 85 Deno tests, zero failed/ignored; 39 pgTAP assertions passed.
+Lint and diff checks passed. Review performed in-session, not independently.
+Field profile/provenance and limitations are recorded in the fixture README.
+Task 3-7 and real 7B integration remain pending; see ECPAY_7B_READINESS.md.
+
 **Files:** notification module/test, `notifications.json`, fixture README.
 **Consumes:** Task 1 checksum functions.
 **Produces:** `verifyAioNotification(request: Request, route: "first" | "renewal", config: {merchantID: string; hashKey: string; hashIV: string}): Promise<VerifiedCandidate>`; throws only a fixed `InvalidAioNotification` error with a reason enum.

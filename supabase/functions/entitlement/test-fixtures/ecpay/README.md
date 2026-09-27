@@ -1,5 +1,48 @@
 # AIO Checksum Test Provenance
 
+## Notification Profile (Task 7A.2)
+
+Verified against official documentation on 2026-09-28:
+[first payment](https://developers.ecpay.com.tw/2878/),
+[additional credit-card fields](https://developers.ecpay.com.tw/5675/),
+[renewal](https://developers.ecpay.com.tw/16549/).
+Some direct pages returned 404; their indexed official text was available.
+This is a candidate local profile, not sandbox interoperability evidence.
+
+| Fact | First payment | Renewal |
+| --- | --- | --- |
+| Merchant/order | MerchantID / MerchantTradeNo | MerchantID / MerchantTradeNo |
+| Authorization | gwsr | Gwsr |
+| Amount | amount, equal to TradeAmt | Amount |
+| Authorization time | process_date | ProcessDate |
+| Outcome | RtnCode | RtnCode |
+| Simulation | SimulatePaid required, 0 or 1 | absent for real notifications, otherwise 0 or 1 |
+
+First payments require `NeedExtraPaidInfo=Y` at checkout and credit-card
+PaymentType. We do not substitute TradeNo or PaymentDate for missing authorization
+facts. The renewal page's generic YAML is not an alternative accepted schema.
+The UTC+08 timestamp interpretation remains a candidate assumption to confirm in
+7B. Local fixtures are original synthetic data, signed at runtime using dummy
+credentials. Checksum correctness is independently covered by Task 1 vectors.
+
+Parser limits are local policy: POST form only, UTF-8, 65,536 wire bytes,
+128 fields, 64 decoded name bytes, 8,192 decoded value bytes. Names are ASCII
+identifiers and unique ignoring case; values are decoded once, never trimmed.
+Unknown fields participate in MAC verification but are not retained. Numeric
+facts must be canonical nonnegative safe integers; amount/reference must be
+positive. Incomplete failures reject for later query/review, not invented facts.
+
+The frozen, privately branded candidate carries `simulated`; it is not a paid
+event. Task 3 must reject simulation and bind the candidate to trusted order and
+period facts before any grant. No HTTP endpoint or database write is introduced.
+Errors expose only bounded reason codes, never raw notification/card data.
+
+Task 2 evidence: 9 RED failures against the initial rejecting stub, then 9 GREEN
+tests. Removing merchant equality caused the wrong-merchant test to fail; the
+guard was restored. Full local regression: 85 Deno tests with zero ignored or
+failed, plus 39 pgTAP assertions. Local fixture row counts returned to zero.
+Lint passed. Review was in-session. External deployment remains unperformed.
+
 Task 7A.1, verified 2026-09-27. No payment API is contacted by these tests.
 
 ## Independent Reference
