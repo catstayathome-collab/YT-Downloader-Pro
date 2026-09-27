@@ -105,12 +105,19 @@ because the event table has a subscription foreign key. A late uniqueness
 conflict must roll back the subscription write. Ambiguous or out-of-order
 events require reconciliation and do not change access.
 
-This processor is a testable contract, **not** an ECPay webhook endpoint: no
-provider-specific signature verifier, private order creator, transactional
-Postgres adapter, cancellation API, or deployed migration exists. These parts
+This processor is a testable contract, **not** an ECPay webhook endpoint. A
+transactional Postgres adapter and database test harness completed Task 5 local
+verification on 2026-09-27: 29 pgTAP assertions and 56 combined Deno tests passed
+with no skipped database tests; see `LOCAL_BILLING_DB_TEST.md`. The adapter locks
+the account before its order, commits the subscription and event atomically,
+and rolls back late event-key conflicts. An append-only migration prevents
+changes to an order's owner, provider, identifier, currency, or amount. There is
+no provider-specific signature verifier,
+private order creator, cancellation API, or deployed migration. These parts
 must be reviewed and implemented before receiving real payment notifications.
-The local in-memory tests establish state transitions and rollback semantics;
-they do not prove live database isolation or provider authenticity.
+The local PostgreSQL tests establish transaction and isolation behavior using
+independent connections; they do not establish provider authenticity or hosted
+deployment readiness.
 
 Task 3 adds an opt-in subscription-backed issuance path to the local entitlement
 handler. It derives claims only for the verified user UUID and signs schema-2
@@ -130,7 +137,7 @@ access end for both current use and its offline-token grace, including its
 automatic downgrade timer. Schema-1 staging grants remain compatible.
 
 This is contract code only: the deployed Edge Function still uses the legacy
-staging grant table. The private subscription migration has not been applied,
+staging grant table. The private subscription migrations have not been applied to staging,
 and no payment provider writes subscriptions. A later, separately approved
 deployment must switch the live handler to `loadSubscription` **without**
 falling back to legacy Pro grants, then run a signed-token and downgrade smoke

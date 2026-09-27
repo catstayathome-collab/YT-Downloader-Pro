@@ -10,6 +10,44 @@
 
 **Spec:** `docs/swift-2.0/ENTITLEMENT_ARCHITECTURE.md`, especially "Subscription Model Under Development"; `COMMERCIAL_FEASIBILITY.md` Phase 1 and Paid Launch Gates.
 
+## Completion Record - 2026-09-27
+
+Task 5 is complete for the local-only scope. The original step checklists below
+are retained as the planning baseline; this table records the resumed execution.
+
+| Part | Result | Evidence |
+| --- | --- | --- |
+| 5.1 schema and local stack | Complete | Four migrations applied from zero; 29 pgTAP assertions pass; immutable-order trigger first observed RED (5 failures) then GREEN |
+| 5.2 atomic persistence | Complete | First payment, paid period, linked event, and SQL error rollback pass against PostgreSQL |
+| 5.3 durable idempotency | Complete | Independent clients prove first-charge/renewal replay; forced cross-account insert race rolls back loser |
+| 5.4 isolation and handoff | Complete | Spoofed identity, mismatched owner, invalid amount/currency/period, missing order, current-order conflicts, and access isolation pass |
+
+Resume decisions and verification:
+
+- The processor's final interface and in-memory regressions already existed in
+  `7f3d1f1`; they were retained and reverified. The adapter/test files were
+  inherited uncommitted. This session does not claim a historical RED for that
+  preexisting implementation; it added and executed the missing database cases.
+- `02f774c` adds the reproducible schema harness and immutable-order migration.
+  `3d59e0c` commits the adapter, pinned driver, and complete integration coverage.
+- Supabase CLI 2.117.0, Deno 2.7.13, and PostgreSQL image 17.6.1.167 were used.
+  The dedicated local project is `ytdp-billing-local`, database port 55432.
+- The original Deno permission example was insufficient for postgres.js's
+  `PG...` defaults. Use `deno task test:billing:db`; its explicit permission
+  allow-list must be updated if the local port changes.
+- Final checks: combined entitlement + DB suite **56 passed, 0 failed, 0
+  ignored**; pgTAP **29 passed**; lint, format and diff checks passed. The
+  dedicated task without a URL fails explicitly rather than silently skipping.
+- Final review covered the five Review Focus cases, parameterized SQL, lock
+  ordering, rollback before collision classification, and function grants.
+  No blocking findings remain. A separate reviewer agent was unavailable;
+  this was an in-session code review plus executable verification.
+- All four fixture tables had zero remaining rows after tests. The local
+  stack was stopped. Nothing was pushed, linked, deployed, or charged.
+
+See `docs/swift-2.0/LOCAL_BILLING_DB_TEST.md` for reproducible commands and the
+Task 6 API handoff.
+
 ## Global Constraints
 
 - macOS Swift 2.x commercial preparation only; do not modify Windows or the public Free build.
@@ -136,7 +174,7 @@ cross-order collision may commit a prior subscription update.
 
 ## Execution Handoff
 
-Task 5 is complete only when a fresh local Supabase database applies all migrations and passes pgTAP, the Deno tests exercise actual PostgreSQL with two independent connections, and the existing entitlement suite remains green. The current machine has Deno but lacks Supabase CLI, a container runtime, and `psql`; those prerequisites must be addressed before claiming database evidence.
+Task 5 is complete only when a fresh local Supabase database applies all migrations and passes pgTAP, the Deno tests exercise actual PostgreSQL with two independent connections, and the existing entitlement suite remains green. These conditions were verified on 2026-09-27. Supabase CLI and Docker are now installed; `psql` runs inside the local PostgreSQL container, so a host installation is unnecessary.
 
 Task 6 may then build authenticated subscription/checkout/cancellation APIs against this tested repository using a mock provider. Task 7 must establish the approved ECPay product/API, stable provider event identity, signed callback normalization, and missed-notification reconciliation before any real payment behavior is enabled. No Task 5 result changes the paid-launch No-Go decision.
 
