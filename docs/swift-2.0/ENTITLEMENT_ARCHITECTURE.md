@@ -162,6 +162,14 @@ mechanism.
 
 ## Storage And Account Changes
 
+Local billing verification (Task 7A.7, 2026-09-28) now connects real PostgreSQL
+payment/replay/recovery/cancellation state to `deriveSubscriptionAccess`,
+including the exact paid-through + 72h Free boundary. Existing handler/JWS tests
+verify signed claims separately. See `LOCAL_ECPAY_RECOVERY.md` for 135-test
+backend and 51-assertion database evidence, and `ECPAY_7B_READINESS.md` for external
+gates. This does not change deployed `index.ts`, apply cloud migrations, enable
+collection of payments, or constitute live App-to-provider integration.
+
 The compact verified entitlement is stored in a separate device-only Keychain
 record scoped by authentication environment. Access tokens remain memory-only.
 The bridge preserves a same-account cache through reauthentication, but clears

@@ -1,7 +1,7 @@
 # Local ECPay Recovery
 
-Updated 2026-09-28. Task 7A.1-6 implemented; 7A.7 full scenario
-handoff remains pending. No provider transport, deployable endpoint, schedule,
+Updated 2026-09-28. Task 7A.1-7 implemented and verified locally.
+No provider transport, deployable endpoint, schedule,
 production credentials or financial action is included.
 
 ## Trust And Transaction Boundaries
@@ -93,14 +93,43 @@ from this worktree. From `supabase/`, run the focused database suite with:
 YTDP_LOCAL_BILLING_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres deno task test:billing:db
 ```
 
-The full backend command and pinned external checksum-vector procedure are in
-the implementation plan and fixture README. Database tests must not be ignored.
+For full acceptance, obtain the pinned external checksum file using
+`supabase/functions/entitlement/test-fixtures/ecpay/README.md`, then run from
+`supabase/`:
+
+```sh
+YTDP_AIO_VECTOR_FILE=/tmp/ytdp-ecpay-vectors.json \
+YTDP_LOCAL_BILLING_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
+deno task test:billing:all
+deno lint functions/entitlement
+deno fmt --check deno.json functions/entitlement/billing_recovery_database_test.ts
+```
+
+The task intentionally grants the two required environment variables: missing
+values fail instead of silently ignoring database or official-vector tests.
+Read permission for the external vector is limited to the displayed `/tmp` file;
+do not supply a different path without explicitly updating the read allowlist.
+The official source is revision `ae964f75b69ec90e1c205b136364ab6587fc328c`, raw
+SHA-256 `19500d60f3db8da3a9c31760e48b2102b233e4e8a9a5a594edd680deb8358301`.
+Only its five SHA256 non-formula vectors are evaluated; MD5, invoice, logistics
+and ECTicket profiles are excluded. Restricted source stays outside Git and
+release archives. Mock query fixtures are original synthetic data, not proof of
+ECPay sandbox interoperability.
+
+Before the acceptance reset, inspect row counts for `auth.users` and private
+`billing_orders`, `subscriptions`, `subscription_events`, `billing_operations`,
+`billing_recovery_audit`. All must be zero in this dedicated throwaway project.
+Then run `supabase db reset --local` and `supabase test db` from the worktree root,
+followed by the full task above. Never reset unexplained data or a linked project.
+
+Database tests must not be ignored.
 Tests inject audit SQL failure and prove subscription/event/operation rollback;
 temporary triggers/functions are removed in finally blocks. Fixture cleanup
 deletes audit rows before operations. Never reset or clean a non-test database.
 
-Latest full run: 133 Deno tests, zero failed/ignored; 51 pgTAP assertions.
-The focused billing database suite passed 36 tests. Task 7A.6 adds 12 runner
+Latest full run: 135 Deno tests, zero failed/ignored; 51 pgTAP assertions,
+after all six migrations applied from an empty local database.
+The focused billing database suite passed 38 tests. Task 7A.6 adds 12 runner
 tests and three real-database scenarios. Nine initial runner tests failed against
 the empty stub before implementation. Deadline and apply-limit mutations also
 failed as expected and were restored, in addition to Task 7A.5's three guard
@@ -108,3 +137,34 @@ mutation checks. Review was
 in-session, not independent. No App packaging, push, cloud migration or billing
 activation occurred. Written provider approval and fresh external-action approval
 remain required for 7B.
+
+## Task 7A.7 Scenario And Handoff
+
+The real-Postgres lifecycle fixture covers successful mock checkout remaining
+Free, first payment, duplicate notification, recovery of a missed renewal,
+unknown cancellation remaining unconfirmed, verified cancellation recovery,
+Pro until one millisecond before paid-through plus 72 hours, and Free exactly
+at that boundary. A separate database scenario proves forged merchant facts,
+simulation and foreign-account recovery preserve the paid revision. A temporary
+72 -> 71 hour mutation failed the lifecycle test; it was restored before the
+full successful run. Existing handler/JWS tests cover signed entitlement claims
+and their hard expiry separately; this is not a live App/browser/payment test.
+
+No production behavior was changed in Task 7A.7. The two new integration tests
+initially passed on existing code; the mutation provides negative regression
+evidence, not a claim that a new production bug was found. The complete task
+also fails when required environment values are empty (expected negative run).
+
+Review was in-session because no independent reviewer was available. Review
+covered internal-only mock query injection, trusted account/order/period inputs,
+atomic replay and stale guards, bounded recovery, signing tests, unchanged
+deployed entrypoint and absence of new provider network transports. This local
+review does not replace external security review or provider approval.
+
+Follow `ECPAY_7B_READINESS.md` before any real transport or deployment. Real
+provider query authenticity, billing-anchor mapping and cancellation-effective
+time remain unverified. Do not infer these from synthetic periods. Existing
+deployed entitlement source must not be silently switched or fall back to legacy
+Pro grants. The next approved integration must verify the signed token and App
+downgrade behavior, with separate deployment authorization. No unattended
+financial recovery schedule is authorized.

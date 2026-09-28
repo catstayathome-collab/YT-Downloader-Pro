@@ -1,6 +1,13 @@
 # Local Billing Database Verification
 
-Status: **locally verified on 2026-09-27**. All four migrations applied from
+Current acceptance procedure and results (2026-09-28): see
+`LOCAL_ECPAY_RECOVERY.md`. Task 7A.7 applied all six migrations from zero and
+passed 135 backend tests (zero ignored) plus 51 pgTAP assertions. Use
+`deno task test:billing:all` with both documented environment variables for
+complete acceptance; the older pure-test command below omits database/vector
+evidence and is not a replacement.
+
+Historical Task 5 status: **locally verified on 2026-09-27**. All four migrations applied from
 zero, 29 pgTAP assertions passed, and the combined Deno entitlement/database
 suite passed 56 tests with zero failures and zero ignored tests. This is a
 development-only procedure and does not authorize deployment or payment.

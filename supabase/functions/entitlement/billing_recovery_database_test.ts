@@ -10,6 +10,114 @@ import {
 import { validateMockQuery } from "./billing_reconciliation.ts";
 import { paymentFactsDigest } from "./ecpay_billing_normalizer.ts";
 import { type RecoveryDependencies, runRecoveryBatch } from "./billing_reconciliation_runner.ts";
+import { deriveSubscriptionAccess } from "./subscription.ts";
+
+databaseTest(
+  "billing lifecycle recovers renewal and cancellation then expires exactly after 72 hours",
+  (url) =>
+    withAccount(url, async (sql, user) => {
+      const t = await setup(sql, user);
+      const access = async (at: string) =>
+        deriveSubscriptionAccess((await t.get()).subscription, user, new Date(at));
+      // A successful checkout operation is not proof of payment.
+      await sql`update private.billing_operations set state='pending' where operation_id=${t.operationID}`;
+      await t.management.finish(user, t.operationID, "confirmed", now);
+      equal((await access(now.toISOString())).plan, "free");
+      const first = t.evidence.payments[0];
+      equal(await callback(sql, first.notification, first.factsDigest), "applied");
+      equal(await callback(sql, first.notification, first.factsDigest), "duplicate");
+      equal((await t.get()).subscription?.revision, 1);
+      const deps = runnerDependencies(t, user);
+      const raw = JSON.parse(new TextDecoder().decode(
+        await deps.query.lookup(t.orderID, new AbortController().signal),
+      ));
+      raw.authorizations = raw.authorizations.slice(0, 2);
+      const query = (data: unknown) => ({
+        mode: "mock" as const,
+        lookup: () => Promise.resolve(new TextEncoder().encode(JSON.stringify(data))),
+      });
+      await runRecoveryBatch(user, [t.operationID], { ...deps, query: query(raw) });
+      equal((await t.get()).subscription?.revision, 2);
+      equal((await access("2026-11-15T00:00:00Z")).plan, "pro");
+      const cancelID = crypto.randomUUID();
+      const cancelAt = new Date("2026-11-15T00:00:00Z");
+      await t.management.prepare(
+        user,
+        {
+          kind: "cancel",
+          requestID: crypto.randomUUID(),
+          orderID: t.orderID,
+        },
+        { operationID: cancelID, orderID: t.orderID },
+        cancelAt,
+      );
+      await t.management.finish(user, cancelID, "unknown", cancelAt);
+      equal((await t.get(cancelID)).operation.state, "unknown");
+      equal((await t.get()).subscription?.revision, 2);
+      equal((await access("2026-12-01T00:00:00Z")).plan, "free");
+      const result = await runRecoveryBatch(user, [cancelID], {
+        ...deps,
+        now: () => cancelAt,
+        query: query({ ...raw, execution: "cancelled", cancelledAt: cancelAt.toISOString() }),
+      });
+      equal(result[0].result, "applied");
+      equal((await t.get(cancelID)).operation.state, "succeeded");
+      equal((await t.get()).subscription?.revision, 3);
+      equal((await access("2026-12-03T23:59:59.999Z")).plan, "pro");
+      equal((await access("2026-12-04T00:00:00Z")).plan, "free");
+      equal((await counts(sql, user)).events, 3);
+    }),
+);
+
+databaseTest(
+  "recovery forged simulated and foreign inputs preserve paid revision",
+  (url) =>
+    withAccount(url, async (sql, user) => {
+      const t = await setup(sql, user), deps = runnerDependencies(t, user);
+      const first = t.evidence.payments[0];
+      await callback(sql, first.notification, first.factsDigest);
+      const before = await t.get();
+      const raw = JSON.parse(new TextDecoder().decode(
+        await deps.query.lookup(t.orderID, new AbortController().signal),
+      ));
+      const cases = [
+        { ...raw, merchantID: "7654321" },
+        {
+          ...raw,
+          authorizations: raw.authorizations.map((p: Record<string, unknown>) => ({
+            ...p,
+            simulated: true,
+          })),
+        },
+      ];
+      for (const data of cases) {
+        await runRecoveryBatch(user, [t.operationID], {
+          ...deps,
+          query: {
+            mode: "mock",
+            lookup: () => Promise.resolve(new TextEncoder().encode(JSON.stringify(data))),
+          },
+        });
+        equal(await t.get(), before);
+        equal((await counts(sql, user)).events, 1);
+      }
+      await withAccount(url, async (_otherSQL, other) => {
+        let queries = 0;
+        await runRecoveryBatch(other, [t.operationID], {
+          ...deps,
+          query: {
+            mode: "mock",
+            lookup: () => {
+              queries++;
+              throw new Error("foreign account must not query");
+            },
+          },
+        });
+        equal(queries, 0);
+        equal(await t.get(), before);
+      });
+    }),
+);
 
 function equal(a: unknown, b: unknown) {
   if (JSON.stringify(a) !== JSON.stringify(b)) {

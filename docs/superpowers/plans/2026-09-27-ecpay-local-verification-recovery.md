@@ -259,15 +259,44 @@ schedule, provider mutation transport or global fetch. Task 7 remains pending.
 
 **Files:** `supabase/deno.json`, `docs/swift-2.0/LOCAL_ECPAY_RECOVERY.md`, architecture/Task 6 handoff docs; progress checkboxes in this plan.
 
-- [ ] Add `test:billing:all` task with the exact full-suite command above. Run with local DB URL; database tests must not be ignored. Add any missing end-to-end fixture case before declaring completion.
-- [ ] Exercise first payment -> duplicate -> missing renewal recovered -> cancellation uncertainty -> confirmed recovery -> paid-through+72h end -> Free. Assert wrong-account/forged/simulation cases leave revision unchanged; mocked checkout success alone stays Free. Use the real local DB plus existing signed-entitlement tests, not a live Google/browser/payment test.
-- [ ] On the dedicated local project, first verify fixtures are empty. ROOT `supabase db reset --local`, `supabase test db`; from supabase run `YTDP_LOCAL_BILLING_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55432/postgres' deno task test:billing:all`. Expect every migration applies and all tests pass with zero ignored. Do not reset a database containing unexplained user data.
-- [ ] Run `deno lint functions/entitlement`, `deno fmt --check` on all changed TypeScript/JSON, ROOT `git diff --check`. Inspect exported trust boundaries, removed guard mutations, absence of network entrypoints/secrets, and untracked files. Seek an independent reviewer if available; otherwise record in-session review explicitly.
-- [ ] Document exact test totals, source vector provenance, commands, fixture exclusions, recovery limitations and 7B gates. Do not reuse Task 6's historical 70/39 counts as current results or label fixtures as sandbox interoperability.
-- [ ] Verify test users/orders/subscriptions/events/operations/audits all return to zero; ROOT `supabase stop`. No automatic schedule, push, merge, release, or App packaging.
-- [ ] Commit: `docs(billing): record local AIO recovery verification and handoff`.
+- [x] Add `test:billing:all` task with the full-suite command and external-vector permission ruling below. Run with local DB URL; database tests must not be ignored. Add missing end-to-end fixture cases.
+- [x] Exercise first payment -> duplicate -> missing renewal recovered -> cancellation uncertainty -> confirmed recovery -> paid-through+72h end -> Free. Assert wrong-account/forged/simulation cases leave revision unchanged; mocked checkout success alone stays Free. Use the real local DB plus existing signed-entitlement tests, not a live Google/browser/payment test.
+- [x] Verify dedicated fixtures are empty; run ROOT `supabase db reset --local`, `supabase test db`, then `deno task test:billing:all` with both documented environment variables. All migrations apply, tests pass, zero ignored. Never reset unexplained user data.
+- [x] Run `deno lint functions/entitlement`, `deno fmt --check` on changed TypeScript/JSON and ROOT `git diff --check`. Inspect trust boundaries, restored guard mutations, unchanged network entrypoints and scoped files. In-session review recorded; no independent reviewer available.
+- [x] Document exact test totals, source vector provenance, commands, fixture exclusions, recovery limitations and 7B gates. Historical totals are not current evidence; fixtures are not sandbox interoperability.
+- [x] Verify test users/orders/subscriptions/events/operations/audits all return to zero; ROOT `supabase stop`. No automatic schedule, push, merge, release, or App packaging.
+- [x] Commit: `docs(billing): record local AIO recovery verification and handoff`.
 
 ## Execution Handoff
+
+### Task 7 Execution Evidence (2026-09-28)
+
+Completed locally from base `7cb9d72`. Added `test:billing:all` and two real-DB
+scenarios: complete payment/duplicate/renewal/cancellation/72h-expiry lifecycle,
+plus forged merchant/simulation/foreign-account revision preservation.
+Successful checkout alone stays Free. Existing handler/JWS regression verifies
+signed claims separately; no live browser, App, Google or payment test is claimed.
+
+Ruling: extend the plan's older command with `YTDP_AIO_VECTOR_FILE` environment
+permission and read permission limited to `/tmp/ytdp-ecpay-vectors.json`. Task 1
+requires the external pinned source, and omitting permission silently ignores
+its test. Cost: maintainers must obtain that file before full acceptance. The
+full task fails with missing required environment values instead of skipping.
+
+The new integration scenarios passed on existing code. A temporary 72 -> 71
+hour policy mutation caused the lifecycle test to fail (Free instead of Pro);
+restored before final GREEN. No production behavior change was required.
+All six fixture counts were zero before `supabase db reset --local`. Six
+migrations applied cleanly, `supabase test db` passed 51 assertions, and
+`test:billing:all` passed 135 tests with zero failed/ignored. Focused database
+suite passed 38. Lint passed 33 files; changed TypeScript/JSON formatting passed.
+
+In-session review only; no independent reviewer available. Checked the mock-only
+boundary, trusted identity/periods, stale and replay guards, deadline/apply caps,
+unchanged deployed entrypoint, vector exclusions and scoped diff. Real provider
+mapping and sandbox integration remain 7B gates. No push, merge, packaging,
+schedule, cloud migration or billing activation is authorized by this evidence.
+Final fixture counts returned `0|0|0|0|0|0`; local Supabase was stopped.
 
 Seven reviewable tasks; each starts RED, ends GREEN/REFACTOR and a scoped local commit. Tasks 1-4 define the interfaces used by 5-6; Task 7 is integration evidence. Preserve the previously selected native execution approach after owner review of this plan. Approval to execute this plan does not authorize Task 7B or any payment-provider account action.
 

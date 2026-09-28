@@ -6,9 +6,10 @@ Date: 2026-09-28. Status: preparation only; external integration blocked.
 
 Task 7A.1 checksum, 7A.2 notification parsing and 7A.3 trusted order/period
 normalization, 7A.4 mock query validation/decisions, 7A.5 atomic recovery and
-7A.6 bounded mock-only runner are implemented locally.
-7A.7 remains: end-to-end regression and maintainer handoff. These are prerequisites,
-not features already delivered by the notification parser.
+7A.6 bounded mock-only runner are implemented locally. 7A.7 regression and
+handoff are complete: 135 backend tests and 51 pgTAP assertions passed after
+an empty-database reset. See `LOCAL_ECPAY_RECOVERY.md` for reproducible commands
+and scope exclusions. This is local evidence, not sandbox interoperability.
 
 `PAYMENT_PROVIDER_QUESTIONS.md` still records the provider inquiry as not
 submitted. No dated written approval for this product was found in the repository.
@@ -22,7 +23,7 @@ raw callback bodies in this document, Git, chat, logs or test fixtures.
 
 ## Ordered Work And Acceptance Gates
 
-1. Finish 7A.7 and review the local evidence. Simulation, mismatched merchant,
+1. Review completed 7A.7 local evidence. Simulation, mismatched merchant,
    wrong account, conflicting replay and incomplete history must never grant Pro.
 2. Obtain dated written product eligibility and recurring-payment approval;
    confirm contracted API/product, merchant identity, fees, cancellation/refund
