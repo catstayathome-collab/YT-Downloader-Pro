@@ -227,11 +227,33 @@ Review performed in-session, not independently. Tasks 6-7 and external 7B remain
 **Consumes:** Tasks 4-5.
 **Produces:** `MockBillingQuery = {mode: "mock"; lookup(orderID: string, signal: AbortSignal): Promise<Uint8Array>}`; `runRecoveryBatch(userID: string, operationIDs: readonly string[], dependencies): Promise<ReadonlyArray<{operationID: string; result: RecoveryResult}>>`. Dependencies: repository, query, trusted order loader, PeriodResolver and injected `now(): Date`. No create/cancel/refund function is accepted.
 
-- [ ] RED tests: >20 IDs/invalid UUID rejects before lookup; duplicate IDs queried once; wrong-account/missing operation not queried; nonmock mode rejected; five-second fake-clock timeout returns unavailable without unhandled rejection or later writes.
-- [ ] RED: three contiguous mock authorizations, interruption after first applied payment, restart -> final revision increments only for remaining periods. Already-succeeded checkout can recover a missed renewal. Query exception/invalid/incomplete response leaves access unchanged.
-- [ ] Run `deno test --allow-read=functions/entitlement/test-fixtures/ecpay functions/entitlement/billing_reconciliation_runner_test.ts`; implement sequential bounded runner. Race the lookup against abort/deadline; late result has no attached write path. Query once per operation; refresh snapshot between per-event transactions. Maximum 121 apply attempts (120 payments plus final operation/cancellation decision); no progress stops with needs_review.
-- [ ] Assert no payment mutation transport exists and no global `fetch` is called in all successful/error cases. Run focused DB suite for restart integration and all pure tests GREEN.
-- [ ] Commit: `feat(billing): orchestrate bounded mock-only recovery`.
+- [x] RED tests: >20 IDs/invalid UUID rejects before lookup; duplicate IDs queried once; wrong-account/missing operation not queried; nonmock mode rejected; five-second fake-clock timeout returns unavailable without unhandled rejection or later writes.
+- [x] Integration coverage: three contiguous mock authorizations, interruption after first applied payment, restart -> final revision increments only for remaining periods. Already-succeeded checkout can recover a missed renewal. Query exception/invalid/incomplete response leaves access unchanged. See execution evidence for the RED-scope deviation.
+- [x] Run `deno test --allow-read=functions/entitlement/test-fixtures/ecpay functions/entitlement/billing_reconciliation_runner_test.ts`; implement sequential bounded runner. Race the lookup against abort/deadline; late result has no attached write path. Query once per operation; refresh snapshot between per-event transactions. Maximum 121 apply attempts (120 payments plus final operation/cancellation decision); no progress stops with needs_review.
+- [x] Assert no payment mutation transport exists and no global `fetch` is called in all successful/error cases. Run focused DB suite for restart integration and all pure tests GREEN.
+- [x] Commit: `feat(billing): orchestrate bounded mock-only recovery`.
+
+### Task 6 Execution Evidence (2026-09-28)
+
+Implemented and locally verified. Nine initial runner tests failed against an
+empty stub (RED), then passed with implementation. Added three edge-case tests
+and three database integration scenarios: 12 runner tests pass, the focused
+billing database suite passes 36, and full backend regression passes 133 with
+zero failed/ignored. Database pgTAP passes 51 assertions. Lint passes 33 files.
+Database scenarios were added after the pure runner implementation; no separate
+database RED run is claimed.
+
+Deadline mutation (5000 -> 4900 ms) and apply-cap mutation (121 -> 122) each
+failed their regression test and were restored before final verification.
+The fake-clock tests cover late success and rejection without later writes;
+real-database tests cover lost commit response/restart and missed renewals on
+already-succeeded checkout. Review was in-session, not independent.
+
+The deadline applies only to mock lookup. Timers are an internal testing seam;
+trusted local repository calls are not abandoned mid-write. Per-event commits
+are intentional for resumability. The returned result is the last repository
+outcome, not a payment-success or entitlement assertion. There is no endpoint,
+schedule, provider mutation transport or global fetch. Task 7 remains pending.
 
 ## Task 7: End-To-End Regression And Maintainer Handoff
 

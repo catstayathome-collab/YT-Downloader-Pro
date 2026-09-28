@@ -9,6 +9,7 @@ import {
 } from "./billing_event_processor.ts";
 import { validateMockQuery } from "./billing_reconciliation.ts";
 import { paymentFactsDigest } from "./ecpay_billing_normalizer.ts";
+import { type RecoveryDependencies, runRecoveryBatch } from "./billing_reconciliation_runner.ts";
 
 function equal(a: unknown, b: unknown) {
   if (JSON.stringify(a) !== JSON.stringify(b)) {
@@ -16,6 +17,127 @@ function equal(a: unknown, b: unknown) {
   }
 }
 const now = new Date("2026-10-15T00:00:00Z");
+
+function runnerDependencies(
+  t: Awaited<ReturnType<typeof setup>>,
+  userID: string,
+): RecoveryDependencies {
+  return {
+    repository: t.repo,
+    now: () => now,
+    loadOrder: () =>
+      Promise.resolve({
+        userID,
+        orderID: t.orderID,
+        merchantID: "1234567",
+        currency: "TWD",
+        amountMinor: 8000,
+      }),
+    query: {
+      mode: "mock",
+      lookup: () =>
+        Promise.resolve(new TextEncoder().encode(JSON.stringify({
+          mode: "mock",
+          kind: "order",
+          merchantID: "1234567",
+          orderID: t.orderID,
+          complete: true,
+          execution: "active",
+          cancelledAt: null,
+          authorizations: t.evidence.payments.map((p, i) => ({
+            authorizationID: String(i + 1),
+            amountTWD: "80",
+            occurredAt: p.notification.occurredAt,
+            outcome: "paid",
+            simulated: false,
+          })),
+        }))),
+    },
+    resolvePeriod: ({ authorizationID }) => {
+      const n = t.evidence.payments[Number(authorizationID) - 1]?.notification;
+      return Promise.resolve(n ? { from: n.paidFrom!, through: n.paidThrough! } : null);
+    },
+  };
+}
+databaseTest(
+  "runner resumes after lost first commit response without duplicate grants",
+  (url) =>
+    withAccount(url, async (sql, user) => {
+      const t = await setup(sql, user), deps = runnerDependencies(t, user);
+      let queries = 0;
+      const query = {
+        ...deps.query,
+        lookup: (id: string, signal: AbortSignal) => {
+          queries++;
+          return deps.query.lookup(id, signal);
+        },
+      };
+      const interrupted = {
+        ...deps,
+        query,
+        repository: {
+          ...t.repo,
+          apply: async (...args: Parameters<typeof t.repo.apply>) => {
+            await t.repo.apply(...args);
+            throw new Error("simulated process interruption after commit");
+          },
+        },
+      };
+      equal(await runRecoveryBatch(user, [t.operationID], interrupted), [{
+        operationID: t.operationID,
+        result: "unavailable",
+      }]);
+      equal((await t.get()).subscription?.revision, 1);
+      equal(await runRecoveryBatch(user, [t.operationID], { ...deps, query }), [{
+        operationID: t.operationID,
+        result: "applied",
+      }]);
+      equal(queries, 2);
+      equal((await t.get()).subscription?.revision, 3);
+      equal((await counts(sql, user)).events, 3);
+      equal((await t.get()).operation.state, "succeeded");
+    }),
+);
+databaseTest(
+  "runner processes renewals on succeeded checkout and stops at verified duplicate",
+  (url) =>
+    withAccount(url, async (sql, user) => {
+      const t = await setup(sql, user),
+        first = { ...t.evidence, payments: t.evidence.payments.slice(0, 1) };
+      await t.repo.apply(await t.get(), first, now);
+      await t.repo.apply(await t.get(), first, now);
+      equal((await t.get()).operation.state, "succeeded");
+      equal(await runRecoveryBatch(user, [t.operationID], runnerDependencies(t, user)), [{
+        operationID: t.operationID,
+        result: "duplicate",
+      }]);
+      equal((await t.get()).subscription?.revision, 3);
+      equal((await counts(sql, user)).events, 3);
+    }),
+);
+databaseTest(
+  "runner invalid incomplete and failed query leaves actual database access unchanged",
+  (url) =>
+    withAccount(url, async (sql, user) => {
+      const t = await setup(sql, user), deps = runnerDependencies(t, user);
+      const before = await t.get();
+      const raw = await deps.query.lookup(t.orderID, new AbortController().signal);
+      const data = JSON.parse(new TextDecoder().decode(raw));
+      for (
+        const lookup of [() => Promise.reject(new Error("offline")), () =>
+          Promise.resolve(new Uint8Array([255])), () =>
+          Promise.resolve(new TextEncoder().encode(JSON.stringify({ ...data, complete: false })))]
+      ) {
+        const result = await runRecoveryBatch(user, [t.operationID], {
+          ...deps,
+          query: { mode: "mock", lookup },
+        });
+        equal(["unavailable", "needs_review"].includes(result[0].result), true);
+        equal(await t.get(), before);
+        equal(await counts(sql, user), { events: 0, audits: 0 });
+      }
+    }),
+);
 
 databaseTest(
   "succeeded checkout still recovers a later missing renewal",

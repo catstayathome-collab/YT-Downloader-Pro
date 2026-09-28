@@ -1,7 +1,7 @@
 # Local ECPay Recovery
 
-Updated 2026-09-28. Task 7A.1-5 implemented; 7A.6 runner and 7A.7 full scenario
-handoff remain pending. No provider transport, deployable endpoint, schedule,
+Updated 2026-09-28. Task 7A.1-6 implemented; 7A.7 full scenario
+handoff remains pending. No provider transport, deployable endpoint, schedule,
 production credentials or financial action is included.
 
 ## Trust And Transaction Boundaries
@@ -17,8 +17,9 @@ neither receipt of a callback nor a browser redirect grants Pro by itself.
 - `apply(snapshot, evidence, observedAt)`: applied, duplicate, needs_review,
   stale or unavailable. Caller must supply only validated internal evidence.
 
-The future runner must authenticate its caller, load the owned operation, query
-outside a transaction, then apply validated evidence. It must not accept arbitrary
+The future endpoint must authenticate its caller before invoking the internal
+runner, which loads the owned operation, queries outside a transaction, then
+applies validated evidence. It must not accept arbitrary
 client JSON as RecoveryEvidence or client-selected URLs. The repository copies
 input objects before yielding and reloads actual state under locks.
 
@@ -36,6 +37,33 @@ repeat with the same evidence to resume a batch. A succeeded checkout remains
 eligible for missed-renewal recovery. Once no payments remain, the policy may
 confirm checkout or cancellation. Cancellation/event/operation/audit commit as
 one transaction; terminal-state policy remains authoritative.
+
+## Bounded Mock Runner
+
+`runRecoveryBatch(userID, operationIDs, dependencies)` is an internal helper,
+not an authentication endpoint. The caller must supply an authenticated user ID.
+Dependencies include the repository, `MockBillingQuery` with `mode: "mock"`,
+trusted order loader, period resolver and clock. No create/cancel/refund transport
+is accepted. The helper never calls global `fetch`.
+
+Input is limited to 20 UUIDs before deduplication; IDs are canonicalized and
+processed sequentially. Missing or foreign operations/orders are not queried.
+Each operation is queried once. A five-second query deadline aborts the lookup;
+late success or rejection cannot trigger writes. Timer injection is an internal
+test seam. This deadline covers the query, not trusted local repository/loader
+calls, which are not raced against timers that could leave late database writes.
+
+Validated evidence is applied with refreshed snapshots, at most 121 times per
+operation (120 payments plus final confirmation). Stale, review, unavailable,
+duplicate, unchanged or cycling state stops processing. Each payment transaction
+commits independently so a restart can skip an already committed prefix safely.
+Tests simulate losing the first commit response and recover only the remaining
+payments. Already-succeeded checkout operations can still recover renewals.
+
+Results report the last repository outcome, not a summary of all writes. A
+`duplicate` result can follow successful recovery of missing renewals. Neither
+that result nor `applied` is an entitlement token; read committed subscription
+state to derive access. No automatic retry loop or schedule is installed.
 
 ## Audit And Compatibility
 
@@ -71,8 +99,12 @@ Tests inject audit SQL failure and prove subscription/event/operation rollback;
 temporary triggers/functions are removed in finally blocks. Fixture cleanup
 deletes audit rows before operations. Never reset or clean a non-test database.
 
-Latest full run: 118 Deno tests, zero failed/ignored; 51 pgTAP assertions.
-Three guard-mutation checks failed as expected and were restored. Review was
+Latest full run: 133 Deno tests, zero failed/ignored; 51 pgTAP assertions.
+The focused billing database suite passed 36 tests. Task 7A.6 adds 12 runner
+tests and three real-database scenarios. Nine initial runner tests failed against
+the empty stub before implementation. Deadline and apply-limit mutations also
+failed as expected and were restored, in addition to Task 7A.5's three guard
+mutation checks. Review was
 in-session, not independent. No App packaging, push, cloud migration or billing
 activation occurred. Written provider approval and fresh external-action approval
 remain required for 7B.
