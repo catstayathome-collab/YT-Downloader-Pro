@@ -83,6 +83,11 @@ enum OutputKind: String, Codable, Sendable {
     case mp3
 }
 
+enum MP4OutputMode: String, Codable, Sendable {
+    case quickTimeCompatible
+    case originalEncoding
+}
+
 enum SubtitleMode: String, Codable, Sendable {
     case none
     case download
@@ -97,6 +102,7 @@ enum CookieMode: String, Codable, Sendable {
 
 struct DownloadOptions: Codable, Equatable, Sendable {
     var outputKind: OutputKind
+    var mp4OutputMode: MP4OutputMode
     var videoQuality: VideoQuality
     var audioQuality: AudioQuality
     var selectedVideoFormat: PersistedFormatPresentation?
@@ -128,6 +134,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     init(
         outputKind: OutputKind = .mp4,
+        mp4OutputMode: MP4OutputMode = .quickTimeCompatible,
         videoQuality: VideoQuality = .best,
         audioQuality: AudioQuality = .best,
         selectedVideoFormat: PersistedFormatPresentation? = nil,
@@ -142,6 +149,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         outputDirectoryDisplayPath: String? = nil
     ) {
         self.outputKind = outputKind
+        self.mp4OutputMode = mp4OutputMode
         self.videoQuality = videoQuality
         self.audioQuality = audioQuality
         self.selectedVideoFormat = selectedVideoFormat ?? Self.legacyVideoFormat(for: videoQuality).map(PersistedFormatPresentation.init)
@@ -303,6 +311,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case outputKind
+        case mp4OutputMode
         case videoQuality
         case audioQuality
         case selectedVideoFormat
@@ -321,6 +330,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
+            mp4OutputMode: try container.decodeIfPresent(MP4OutputMode.self, forKey: .mp4OutputMode) ?? .quickTimeCompatible,
             videoQuality: try container.decode(VideoQuality.self, forKey: .videoQuality),
             audioQuality: try container.decode(AudioQuality.self, forKey: .audioQuality),
             selectedVideoFormat: try container.decodeIfPresent(PersistedFormatPresentation.self, forKey: .selectedVideoFormat),

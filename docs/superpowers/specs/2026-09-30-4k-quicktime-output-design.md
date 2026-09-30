@@ -1,7 +1,7 @@
 # 4K And QuickTime Output Repair
 
-Status: proposed implementation specification; owner approved the direction,
-written specification review pending. Scope: macOS Swift only. No payment,
+Status: written specification approved by the owner on 2026-09-30;
+Task 1 execution approved. Scope: macOS Swift only. No payment,
 deployment, release or Windows changes.
 
 ## Intent And Evidence

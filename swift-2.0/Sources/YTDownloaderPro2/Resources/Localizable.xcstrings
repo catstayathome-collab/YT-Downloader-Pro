@@ -2632,6 +2632,121 @@
         }
       }
     },
+    "media.mp4Mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 encoding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 エンコード"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 編碼"
+          }
+        }
+      }
+    },
+    "media.mp4Mode.compatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTime compatible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTime 互換"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTime 相容"
+          }
+        }
+      }
+    },
+    "media.mp4Mode.original": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original encoding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のエンコード"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始編碼"
+          }
+        }
+      }
+    },
+    "media.mp4Mode.conversionNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversion may take extra time and may slightly reduce quality. Resolution is preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換には追加の時間がかかり、画質がわずかに低下する場合があります。解像度は維持されます。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉檔可能需要額外時間，並可能輕微影響畫質；解析度保持不變。"
+          }
+        }
+      }
+    },
+    "media.mp4Mode.originalNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original encoding is preserved. QuickTime playback is not guaranteed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のエンコードを保持します。QuickTime での再生は保証されません。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留原始編碼，不保證 QuickTime 能播放。"
+          }
+        }
+      }
+    },
     "media.outputFormat": {
       "extractionState": "manual",
       "localizations": {

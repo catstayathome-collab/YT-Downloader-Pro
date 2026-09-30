@@ -99,6 +99,8 @@ final class LocalizationTests: XCTestCase {
             "media.cookies.none", "media.cookies.safari", "media.editAndRetry", "media.editDownload", "media.embedMetadata",
             "media.embedThumbnail", "media.folderSaveFailed", "media.highestAvailable", "media.options.title",
             "media.metadata", "media.output", "media.outputFolder", "media.outputFormat", "media.reanalyze", "media.selectedOutputFolder",
+            "media.mp4Mode", "media.mp4Mode.compatible", "media.mp4Mode.original",
+            "media.mp4Mode.conversionNotice", "media.mp4Mode.originalNotice",
             "media.subtitleLanguage", "media.subtitleMode", "media.subtitles", "media.thumbnailUnavailable",
             "media.videoFormat", "media.subtitle.automatic", "media.subtitle.choose", "media.subtitle.download",
             "media.subtitle.embed", "media.subtitle.none", "media.subtitle.official", "media.subtitle.unavailable",

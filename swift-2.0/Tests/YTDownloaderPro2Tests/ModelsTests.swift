@@ -2,6 +2,24 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ModelsTests: XCTestCase {
+    func testMP4ModeDefaultsAndRoundTripsWithoutLosingUnknownValueValidation() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(DownloadOptions.defaults)) as? [String: Any])
+        payload.removeValue(forKey: "mp4OutputMode")
+        let legacy = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))
+        let restored = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(legacy)) as? [String: Any])
+        XCTAssertEqual(restored["mp4OutputMode"] as? String, "quickTimeCompatible")
+        for mode in ["quickTimeCompatible", "originalEncoding"] {
+            payload["mp4OutputMode"] = mode
+            let options = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))
+            let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(options)) as? [String: Any])
+            XCTAssertEqual(encoded["mp4OutputMode"] as? String, mode)
+        }
+        payload["mp4OutputMode"] = "unrecognized-mode"
+        XCTAssertThrowsError(try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload)))
+    }
+
     func testDefaultsUseBestQualityAndFiveWorkers() {
         XCTAssertEqual(DownloadOptions.defaults.videoQuality, .best)
         XCTAssertEqual(DownloadOptions.defaults.audioQuality, .best)

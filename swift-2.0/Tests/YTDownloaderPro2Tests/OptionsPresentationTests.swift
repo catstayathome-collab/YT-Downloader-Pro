@@ -366,7 +366,24 @@ final class OptionsPresentationTests: XCTestCase {
         XCTAssertEqual(locked.leadingSystemImage(isSelected: true), "checkmark")
     }
 
-    func testMP4DefaultsSkipWebMCodecsAndChooseTheHighestQuickTimeCompatiblePair() {
+    func testOutputModeNoticeIsConservativeAndHiddenForMP3() {
+        var options = DownloadOptions.defaults
+        options.mp4OutputMode = .originalEncoding
+        XCTAssertEqual(DownloadOptionsViewState(options: options).mp4ModeNotice, .mediaMP4OriginalNotice)
+        options.mp4OutputMode = .quickTimeCompatible
+        XCTAssertEqual(DownloadOptionsViewState(options: options).mp4ModeNotice, .mediaMP4ConversionNotice)
+        options.selectVideoFormat(format(id: "137", label: "1080p", videoCodec: "avc1", container: "mp4", height: 1080))
+        options.selectAudioFormat(MediaFormat(id: "140", label: "AAC", audioCodec: "mp4a", container: "m4a"))
+        XCTAssertNil(DownloadOptionsViewState(options: options).mp4ModeNotice)
+        options.selectVideoFormat(format(id: "313", label: "2160p", videoCodec: "vp9", container: "webm", height: 2160))
+        XCTAssertEqual(DownloadOptionsViewState(options: options).mp4ModeNotice, .mediaMP4ConversionNotice)
+        options.selectOutputKind(.mp3)
+        XCTAssertNil(DownloadOptionsViewState(options: options).mp4ModeNotice)
+        XCTAssertEqual(options.mp4OutputMode, .quickTimeCompatible)
+        XCTAssertEqual(options.normalizedForExecution().mp4OutputMode, .quickTimeCompatible)
+    }
+
+    func testMP4DefaultsPreserveHighestSourceEvenWhenConversionIsNeeded() {
         let vp9 = MediaFormat(
             id: "248",
             label: "1080p - webm",
@@ -437,10 +454,30 @@ final class OptionsPresentationTests: XCTestCase {
             defaults: .defaults
         )
 
-        XCTAssertEqual(model.selectedVideoID, "137")
-        XCTAssertEqual(model.selectedAudioID, "140")
-        XCTAssertEqual(model.quickTimeVideoChoices.map(\.id), ["137"])
-        XCTAssertEqual(model.quickTimeAudioChoices.map(\.id), ["140"])
+        XCTAssertEqual(model.selectedVideoID, "248")
+        XCTAssertEqual(model.selectedAudioID, "251")
+        XCTAssertEqual(model.videoChoices.map(\.id), ["248", "137"])
+        XCTAssertEqual(model.audioChoices.map(\.id), ["251", "140"])
+    }
+
+    func test4KSourceFormatsRemainVisibleWhileFreeSelectionStaysAt720p() {
+        let formats = [
+            format(id: "313", label: "2160p VP9", videoCodec: "vp9", container: "webm", height: 2160),
+            format(id: "401", label: "2160p AV1", videoCodec: "av01", container: "mp4", height: 2160),
+            format(id: "136", label: "720p", videoCodec: "avc1", container: "mp4", height: 720)
+        ]
+        let analysis = videoAnalysis(videoFormats: formats, audioFormats: [])
+        let freePolicy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let free = MediaOptionsPresentation(analysis: analysis, defaults: .defaults, featurePolicy: freePolicy)
+        let pro = MediaOptionsPresentation(analysis: analysis, defaults: .defaults,
+                                         featurePolicy: .enforced(.init(snapshot: .syntheticPro)))
+        XCTAssertEqual(free.videoChoices.map(\.id), ["313", "401", "136"])
+        XCTAssertEqual(free.selectedVideoID, "136")
+        XCTAssertEqual(pro.selectedVideoID, "313")
+        let menu = VideoFormatMenuPresentation(formats: free.videoChoices, selectedID: free.selectedVideoID,
+                                               outputKind: .mp4, featurePolicy: freePolicy)
+        XCTAssertEqual(menu.accesses[0].leadingSystemImage(isSelected: false), "lock.fill")
+        XCTAssertEqual(menu.accesses[1].leadingSystemImage(isSelected: false), "lock.fill")
     }
 
     func testPersistedStructuredFormatChoicesRelocalizeWithoutReanalysis() throws {

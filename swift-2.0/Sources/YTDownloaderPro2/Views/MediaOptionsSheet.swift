@@ -36,6 +36,7 @@ struct DownloadOptionsViewState: Equatable {
     let availableSubtitleModes: [SubtitleMode]
     let outputFolderLabel: String
     let canSubmit: Bool
+    let mp4ModeNotice: L10n.Key?
 
     init(options: DownloadOptions, locale: Locale = Locale(identifier: "en")) {
         availableSubtitleModes = options.outputKind == .mp3 ? [.none, .download] : [.none, .download, .embed]
@@ -44,6 +45,16 @@ struct DownloadOptionsViewState: Equatable {
             ? options.outputDirectoryDisplayPath ?? L10n.string(.mediaSelectedOutputFolder, locale: locale)
             : L10n.string(.mediaChooseOutputFolder, locale: locale)
         canSubmit = hasBookmark
+        if options.outputKind == .mp3 {
+            mp4ModeNotice = nil
+        } else if options.mp4OutputMode == .originalEncoding {
+            mp4ModeNotice = .mediaMP4OriginalNotice
+        } else {
+            // Source metadata is advisory; the runner must probe actual streams before publication.
+            let mayNeedConversion = !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat)
+                || !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat)
+            mp4ModeNotice = mayNeedConversion ? .mediaMP4ConversionNotice : nil
+        }
     }
 }
 
@@ -56,14 +67,6 @@ struct MediaOptionsPresentation: Equatable {
     private(set) var selectedAudioID: String?
     private(set) var options: DownloadOptions
 
-    var quickTimeVideoChoices: [MediaFormat] {
-        videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
-    }
-
-    var quickTimeAudioChoices: [MediaFormat] {
-        audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
-    }
-
     // MetadataProbe sorts typed formats highest-first, so the first usable choice is the reviewed default.
     init(
         analysis: VideoAnalysis,
@@ -75,21 +78,15 @@ struct MediaOptionsPresentation: Equatable {
         audioChoices = analysis.audioFormats
         subtitleChoices = analysis.subtitleTracks
         options = defaults.normalizedForExecution()
-        let compatibleVideoFormats = defaults.outputKind == .mp4
-            ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
-            : analysis.videoFormats
-        let selectableAudioFormats = defaults.outputKind == .mp4
-            ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
-            : analysis.audioFormats
         let videoPresentation = VideoFormatMenuPresentation(
-            formats: compatibleVideoFormats,
-            selectedID: Self.selectedID(for: defaults.videoQuality, in: compatibleVideoFormats),
+            formats: analysis.videoFormats,
+            selectedID: Self.selectedID(for: defaults.videoQuality, in: analysis.videoFormats),
             outputKind: defaults.outputKind,
             featurePolicy: featurePolicy
         )
         selectedVideoID = videoPresentation.selectedID
-        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
-            ?? selectableAudioFormats.first?.id
+        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: analysis.audioFormats)
+            ?? analysis.audioFormats.first?.id
         applySelectedFormats()
         reconcileSubtitleSelection()
     }
@@ -358,6 +355,19 @@ struct DownloadOptionsEditor: View {
                 }
                 .pickerStyle(.segmented)
 
+                if options.outputKind == .mp4 {
+                    Picker(L10n.string(.mediaMP4Mode, locale: locale), selection: $options.mp4OutputMode) {
+                        Text(L10n.string(.mediaMP4Compatible, locale: locale)).tag(MP4OutputMode.quickTimeCompatible)
+                        Text(L10n.string(.mediaMP4Original, locale: locale)).tag(MP4OutputMode.originalEncoding)
+                    }
+                    if let notice = viewState.mp4ModeNotice {
+                        Text(L10n.string(notice, locale: locale))
+                            .font(.caption)
+                            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
                 VideoFormatMenu(
                     title: L10n.string(.mediaVideoFormat, locale: locale),
                     emptySelectionLabel: L10n.string(.mediaHighestAvailable, locale: locale),
@@ -369,7 +379,7 @@ struct DownloadOptionsEditor: View {
 
                 Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
                     Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(visibleAudioChoices) { format in
+                    ForEach(audioChoices) { format in
                         Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
@@ -465,29 +475,16 @@ struct DownloadOptionsEditor: View {
             set: { kind in
                 options.selectOutputKind(kind)
                 guard kind == .mp4 else { return }
-                if !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat) {
+                if videoFormatPresentation.selectedID != videoSelection.wrappedValue {
                     selectVideoFormat(id: videoFormatPresentation.highestAllowedID)
-                }
-                if !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat) {
-                    options.selectAudioFormat(visibleAudioChoices.first)
                 }
             }
         )
     }
 
-    private var visibleVideoChoices: [MediaFormat] {
-        guard options.outputKind == .mp4 else { return videoChoices }
-        return videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
-    }
-
-    private var visibleAudioChoices: [MediaFormat] {
-        guard options.outputKind == .mp4 else { return audioChoices }
-        return audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
-    }
-
     private var videoFormatPresentation: VideoFormatMenuPresentation {
         VideoFormatMenuPresentation(
-            formats: visibleVideoChoices,
+            formats: videoChoices,
             selectedID: videoSelection.wrappedValue,
             outputKind: options.outputKind,
             featurePolicy: planController.featurePolicyContext
