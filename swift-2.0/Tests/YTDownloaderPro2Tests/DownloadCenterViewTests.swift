@@ -378,7 +378,9 @@ final class DownloadCenterViewTests: XCTestCase {
             .authenticationRequired,
             .formatReselectionRequired,
             .outputPermissionDenied,
-            .diskFull
+            .diskFull,
+            .compatibleEncoderUnavailable,
+            .unsupportedMediaConversion
         ]
 
         for category in DownloadFailure.Category.allCases {

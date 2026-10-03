@@ -1,7 +1,7 @@
 # MP4 Output Planning And Validation
 
-Task 4 evidence, 2026-10-03. Internal macOS implementation only; not release
-acceptance. The download runner does not consume this planner until Task 5.
+Task 4/5 evidence, 2026-10-03 through 2026-10-04. Internal macOS implementation only; not release
+acceptance. The download runner now consumes the planner as described below.
 
 ## Contracts
 
@@ -35,15 +35,16 @@ acceptance. The download runner does not consume this planner until Task 5.
   rate when the source reports one, but does not require equal reported averages.
   Exact VFR timestamps are tested separately with `-show_frames`; stream-level
   validation alone is not a proof of every individual timestamp.
-- Planning errors are typed. Task 5 must map them to localized actionable UI,
-  retain the owned source, and never mark a failed conversion completed.
+- Planning errors are typed and mapped to localized actionable UI. Encoder or
+  unsupported color/stream errors offer edit-and-retry; a failed conversion is
+  never marked completed.
 
 ## Encoder Capability Gate
 
 `MP4EncoderCapabilities` starts empty. `recordProbe` accepts an encoder only
 after exit zero AND validation of actual HEVC/hvc1 output against its synthetic
-source. An encoder listing cannot grant capability. The future runner must
-execute that probe with the same bundled binary and arguments; do not persist
+source. An encoder listing cannot grant capability. The runner executes
+that probe with the same bundled binary and arguments; do not persist
 one machine's capability as a universal entitlement or bundled default.
 
 Candidate arguments (not a claim of lossless encoding):
@@ -103,10 +104,67 @@ incompatibility. Test files/logs remain in a printed temporary directory for QA.
   (`settb=AVTB,setpts=N/(24*TB)` on both inputs); production does not retime frames.
   This synthetic score does not prove quality parity across encoders or content.
 
+## Runner Lifecycle (Task 5)
+
+`DownloadRunner` keeps one active job token, process slot, output reservation and
+security-scoped folder access throughout download, probe, encoder capability
+test, conversion/remux and final probe. Each asynchronous pipeline boundary
+rechecks cancellation and token identity. A cancellation waits for the owned
+process to exit before cleanup. Pause remains unavailable during postprocessing.
+Large-source SHA-256 work runs in a job-owned detached task, checks cancellation
+between bounded reads, and is awaited before cleanup; it does not block the runner
+actor from handling controls for other jobs.
+
+MP4 downloads use `.ytdp-<job UUID>/source.mp4` within the selected destination
+volume, not the user's final filename. The workspace has a matching owner file;
+symlinked workspaces/media are rejected. A SHA-256 receipt binds verified source
+bytes to the URL and requested options (excluding a fallback client's identity).
+Quit retains this source and reservation, discards incomplete conversion output,
+and retry probes the source again before starting a fresh conversion. It never
+appends to an interrupted conversion. Failed downloads without a matching receipt
+must run yt-dlp again. The existing job ID/reserved basename persistence is reused;
+no new persistence schema or second coordinator job is introduced.
+A separate request digest preserves partial downloads only for unchanged options.
+Changing options invalidates old source-dependent files, including subtitle
+sidecars, before redownload. Quitting during publication recovery preserves the
+candidate inode already linked to a public file, so another retry remains
+idempotent rather than treating that file as an unrelated name collision.
+
+Both source and final measured height are checked against current feature policy.
+The source selection cap is not sufficient proof of Free compliance, and a plan
+change during processing must not grant permission to publish restricted output.
+
+`MP4Workspace.publish` uses no-replace hard links on the same volume. It publishes
+SRT sidecars with the reserved basename and publishes the main MP4 last. A conflict
+rolls back only links created by that call, never replaces existing media, and
+leaves the source available for recovery. Inode identity allows recovery after a
+publication-time crash. Filesystems without hard-link support fail closed rather
+than using a potentially overwriting copy; external-volume compatibility needs
+explicit acceptance testing before release. Cancel removes the owned private
+workspace; downloaded media outside it is not a cleanup target.
+
+FFmpeg progress uses actual `out_time_us` (or its legacy microsecond-valued
+`out_time_ms` alias). Unknown/zero duration remains indeterminate. Conversion
+progress never reaches 100% before final validation and publication. All generated
+source/probe/candidate files count toward required free space; no silent resolution
+downgrade or successful completion is substituted when space/encoding fails.
+
+### Runner Integration Evidence
+
+The opt-in `DownloadRunnerTests.testRealBundledRunnerConverts4KAndPreservesSubtitlesAndMetadata`
+runs a fake downloader only for delivery of locally generated source bytes; probe,
+capability encode, conversion and final validation use the actual bundled tools.
+The 3840x2160 MPEG-4/AAC fixture exercises required video conversion, embedded
+Japanese mov_text, sidecar SRT, an attached 64x64 PNG and title metadata. The output retained these,
+used HEVC/hvc1 and AAC, and AVFoundation decoded a 2160p frame at 0.25 seconds.
+This is not a real YouTube download or subjective quality acceptance.
+
+Initial real-run RED exposed missing color-transfer/primaries in the synthetic
+capability probe despite encoder flags. Adding `setparams` to the synthetic input
+made the same integrated test pass without relaxing output validation.
+
 ## Remaining Gates
 
-Task 5: connect probe/capability/encode/validation to owned process cancellation,
-localized errors, file safety, metadata/sidecars and atomic publication.
 Task 6: supplied-video 4K testing, real-content quality comparison, playback/audio
 and clean-Mac acceptance, then internal packaging. No public release is authorized
 by this document or by a passing synthetic test.

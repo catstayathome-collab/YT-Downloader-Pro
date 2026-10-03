@@ -44,6 +44,8 @@ actor DownloadRunner: JobRunning {
         var process: RunningProcess?
         var phase: DownloadPhase = .analyzing
         var finalOutput: URL?
+        var workspace: MP4Workspace?
+        var sourceVerification: Task<Bool, Error>?
         var control: Control = .none
     }
 
@@ -105,6 +107,7 @@ actor DownloadRunner: JobRunning {
             return false
         }
         active[jobID]?.control = .pause
+        activeDownload.sourceVerification?.cancel()
         if let process = activeDownload.process {
             await signal(process: process, for: .pause, jobID: jobID, token: activeDownload.token)
         }
@@ -114,6 +117,7 @@ actor DownloadRunner: JobRunning {
     func cancel(jobID: UUID) async {
         guard let activeDownload = active[jobID] else { return }
         active[jobID]?.control = .cancel
+        activeDownload.sourceVerification?.cancel()
         if let process = activeDownload.process {
             await process.terminate()
         }
@@ -144,6 +148,12 @@ actor DownloadRunner: JobRunning {
                 directory: scope.url,
                 jobID: job.id
             )
+            let workspaceURL = scope.url.appendingPathComponent(".ytdp-\(job.id.uuidString)")
+            if job.options.outputKind == .mp4, FileManager.default.fileExists(atPath: workspaceURL.path) {
+                guard await allocator.owns(reservation, jobID: job.id) else { return false }
+                let workspace = try MP4Workspace(directory: scope.url, jobID: job.id)
+                try workspace.remove()
+            }
             let removedArtifacts = await allocator.removeOwnedArtifacts(
                 incompleteArtifactURLs(for: job, reservation: reservation),
                 reservation: reservation,
@@ -165,6 +175,7 @@ actor DownloadRunner: JobRunning {
         guard let activeDownload = active[jobID] else { return }
         if activeDownload.phase == .merging || activeDownload.phase == .postprocessing {
             active[jobID]?.control = .quit
+            activeDownload.sourceVerification?.cancel()
             if let process = activeDownload.process {
                 await process.interrupt()
                 scheduleTerminationIfNeeded(jobID: jobID, token: activeDownload.token, control: .quit)
@@ -208,6 +219,9 @@ actor DownloadRunner: JobRunning {
         guard var activeDownload = active[jobID] else { return }
 
         let featurePolicyContext = await featurePolicyContextProvider()
+        guard let current = active[jobID], current.token == activeDownload.token else { return }
+        activeDownload = current
+        if current.control != .none { await finishForControl(jobID: jobID); return }
         if case let .denied(denial) = activeDownload.job.options.executionPolicyDecision(
             in: featurePolicyContext
         ) {
@@ -238,6 +252,9 @@ actor DownloadRunner: JobRunning {
             }
         }
 
+        guard let validated = active[jobID], validated.token == activeDownload.token else { return }
+        activeDownload = validated
+        if validated.control != .none { await finishForControl(jobID: jobID); return }
         do {
             if activeDownload.scope == nil {
                 activeDownload.scope = try outputDirectoryAccess(for: activeDownload.job)
@@ -271,6 +288,28 @@ actor DownloadRunner: JobRunning {
             return
         }
 
+        if prepared.job.options.outputKind == .mp4, let reservation = prepared.reservation {
+            do {
+                let workspace = try MP4Workspace(directory: reservation.baseURL.deletingLastPathComponent(), jobID: jobID)
+                active[jobID]?.workspace = workspace
+                try workspace.prepareRequest(for: prepared.job)
+                if try await verifySourceReceipt(workspace: workspace, job: prepared.job, token: prepared.token, write: false) {
+                    await finishMP4(jobID: jobID, token: prepared.token)
+                    return
+                }
+                // An interrupted merger must not be mistaken for a reusable finished source.
+                if FileManager.default.fileExists(atPath: workspace.source.path) {
+                    try FileManager.default.removeItem(at: workspace.source)
+                }
+            } catch {
+                if active[jobID]?.control != Control.none { await finishForControl(jobID: jobID) }
+                else { await finish(jobID: jobID, error: mediaPipelineFailure(error), removeMarker: false) }
+                return
+            }
+        }
+
+        guard let launchReady = active[jobID], launchReady.token == prepared.token else { return }
+        if launchReady.control != .none { await finishForControl(jobID: jobID); return }
         var launchedJob = prepared.job
         if let reservation = prepared.reservation {
             launchedJob.reservedOutputBasename = reservation.baseURL.lastPathComponent
@@ -291,7 +330,8 @@ actor DownloadRunner: JobRunning {
                     job: launchedJob,
                     toolchain: toolchain,
                     attempt: attempt,
-                    featurePolicy: featurePolicyContext
+                    featurePolicy: featurePolicyContext,
+                    sourceTemplate: active[jobID]?.workspace?.template
                 )
             )
         } catch {
@@ -302,6 +342,7 @@ actor DownloadRunner: JobRunning {
 
         guard var running = active[jobID] else {
             await process.terminate()
+            _ = try? await process.result()
             return
         }
         running.process = process
@@ -369,6 +410,9 @@ actor DownloadRunner: JobRunning {
                 await finish(jobID: jobID, error: failure, removeMarker: false)
                 return
             }
+            guard let latest = active[jobID], latest.token == activeDownload.token else { return }
+            activeDownload = latest
+            if latest.control != .none { await finishForControl(jobID: jobID); return }
             guard retryableClientFailure(result), attempt + 1 < YouTubeStrategy(toolchain: toolchain).maximumAttempts(for: activeDownload.job.options) else {
                 await finish(jobID: jobID, error: failure(for: result, phase: activeDownload.phase), removeMarker: false)
                 return
@@ -394,6 +438,16 @@ actor DownloadRunner: JobRunning {
                 active[jobID] = latest
             }
             await prepareAndRun(jobID: jobID, attempt: attempt + 1)
+            return
+        }
+
+        if activeDownload.workspace != nil {
+            guard activeDownload.finalOutput?.standardizedFileURL == activeDownload.workspace?.source.standardizedFileURL else {
+                await finish(jobID: jobID, error: DownloadFailure(category: .downloadFailed,
+                    technicalDetail: "The download did not produce its reserved source file."), removeMarker: false)
+                return
+            }
+            await finishMP4(jobID: jobID, token: activeDownload.token)
             return
         }
 
@@ -450,6 +504,8 @@ actor DownloadRunner: JobRunning {
             return nil
         }
 
+        guard let ready = active[jobID], ready.token == activeDownload.token else { return nil }
+        if ready.control != .none { await finishForControl(jobID: jobID); return nil }
         let process: RunningProcess
         do {
             process = try await processLauncher.start(executable: request.executable, arguments: request.arguments)
@@ -465,6 +521,7 @@ actor DownloadRunner: JobRunning {
 
         guard var running = active[jobID] else {
             await process.terminate()
+            _ = try? await process.result()
             return nil
         }
         running.process = process
@@ -514,6 +571,8 @@ actor DownloadRunner: JobRunning {
         }
         do {
             let analysis = try await metadataProbe.decodeAnalysisOutput(result.stdout, requestedURL: completed.job.sourceURL)
+            guard let latest = active[jobID], latest.token == completed.token else { return nil }
+            if latest.control != .none { await finishForControl(jobID: jobID); return nil }
             if case var .video(video) = analysis {
                 video.clientStrategy = YouTubeStrategy(toolchain: toolchain).analysisClient(options: completed.job.options, attempt: attempt)
                 return .video(video)
@@ -530,6 +589,167 @@ actor DownloadRunner: JobRunning {
             )
             return nil
         }
+    }
+
+    private func checkPipeline(jobID: UUID, token: UUID) throws {
+        guard let state = active[jobID], state.token == token, state.control == .none else {
+            throw CancellationError()
+        }
+    }
+
+    private func verifySourceReceipt(workspace: MP4Workspace, job: DownloadJob, token: UUID, write: Bool) async throws -> Bool {
+        try checkPipeline(jobID: job.id, token: token)
+        let worker = Task.detached(priority: .utility) {
+            if write {
+                try workspace.retainVerifiedSource(for: job)
+                return true
+            }
+            return workspace.hasVerifiedSource(for: job)
+        }
+        active[job.id]?.sourceVerification = worker
+        defer {
+            if active[job.id]?.token == token { active[job.id]?.sourceVerification = nil }
+        }
+        let result = try await worker.value
+        try checkPipeline(jobID: job.id, token: token)
+        return result
+    }
+
+    /// All post-download helpers share the job's process slot and termination handshake.
+    private func mediaProcess(jobID: UUID, token: UUID, executable: URL, arguments: [String], duration: Double? = nil) async throws -> ProcessResult {
+        try checkPipeline(jobID: jobID, token: token)
+        let process = try await processLauncher.start(executable: executable, arguments: arguments)
+        guard let state = active[jobID], state.token == token else {
+            await process.terminate()
+            _ = try? await process.result()
+            throw CancellationError()
+        }
+        active[jobID]?.process = process
+        if state.control != .none { await signal(process: process, for: state.control, jobID: jobID, token: token) }
+        for await event in process.events {
+            guard active[jobID]?.token == token, active[jobID]?.control == Control.none else { continue }
+            if case let .stdoutLine(line) = event, let progress = FFmpegProgressParser().parse(line: line, duration: duration) {
+                active[jobID]?.continuation.yield(.progress(progress))
+            }
+        }
+        let result: ProcessResult
+        do { result = try await process.result() }
+        catch {
+            if active[jobID]?.token == token { active[jobID]?.process = nil }
+            try checkPipeline(jobID: jobID, token: token)
+            throw error
+        }
+        if active[jobID]?.token == token { active[jobID]?.process = nil }
+        try checkPipeline(jobID: jobID, token: token)
+        return result
+    }
+
+    private func probeMedia(_ url: URL, workspace: MP4Workspace, jobID: UUID, token: UUID) async throws -> ProbedMedia {
+        try workspace.requireMedia(url)
+        let result = try await mediaProcess(jobID: jobID, token: token, executable: toolchain.ffprobe,
+            arguments: ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", url.path])
+        guard result.exitCode == 0 else { throw failure(for: result, phase: .postprocessing) }
+        return try JSONDecoder().decode(ProbedMedia.self, from: Data(result.stdout.utf8))
+    }
+
+    private func encoderCapabilities(workspace: MP4Workspace, jobID: UUID, token: UUID) async throws -> MP4EncoderCapabilities {
+        // Known synthetic input, not a codec listing. Exercise the same 4K encoder settings.
+        let source = try JSONDecoder().decode(ProbedMedia.self, from: Data(#"{"streams":[{"index":0,"codec_name":"rawvideo","codec_type":"video","width":3840,"height":2160,"pix_fmt":"yuv420p","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709","color_range":"tv","duration":"0.5","nb_frames":"12"}]}"#.utf8))
+        var capabilities = MP4EncoderCapabilities()
+        for encoder in [MP4VideoEncoder.videoToolbox, .libx265] {
+            try checkPipeline(jobID: jobID, token: token)
+            let output = workspace.directory.appendingPathComponent("probe-\(encoder.rawValue).mp4")
+            if FileManager.default.fileExists(atPath: output.path) { try FileManager.default.removeItem(at: output) }
+            defer { try? FileManager.default.removeItem(at: output) }
+            let arguments = ["-hide_banner", "-nostdin", "-n", "-f", "lavfi", "-i",
+                "testsrc2=size=3840x2160:rate=24:duration=0.5,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited", "-an"] + encoder.arguments + [
+                "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_trc", "bt709", "-color_primaries", "bt709",
+                "-color_range", "tv", "-tag:v", "hvc1", "-f", "mp4", output.path]
+            let result = try await mediaProcess(jobID: jobID, token: token, executable: toolchain.ffmpeg, arguments: arguments)
+            guard result.exitCode == 0 else { continue }
+            do {
+                let media = try await probeMedia(output, workspace: workspace, jobID: jobID, token: token)
+                try capabilities.recordProbe(encoder: encoder, exitCode: result.exitCode, source: source, output: media)
+                return capabilities
+            } catch is CancellationError { throw CancellationError() }
+            catch { continue }
+        }
+        throw MP4OutputPlanningError.encoderUnavailable
+    }
+
+    private func validateMediaPolicy(_ media: ProbedMedia, jobID: UUID, token: UUID) async throws {
+        let context = await featurePolicyContextProvider()
+        try checkPipeline(jobID: jobID, token: token)
+        if case let .denied(denial) = context.videoDecision(height: media.primaryVideo?.height,
+            isAudioOnly: false, isSourceQuality: false) { throw DownloadPolicyDeniedError(denial: denial) }
+    }
+
+    private func finishMP4(jobID: UUID, token: UUID) async {
+        guard let state = active[jobID], state.token == token, let workspace = state.workspace,
+              let reservation = state.reservation else { return }
+        do {
+            try checkPipeline(jobID: jobID, token: token)
+            active[jobID]?.phase = .postprocessing
+            state.continuation.yield(.phase(.postprocessing))
+            state.continuation.yield(.progress(JobProgress(fraction: nil, downloadedBytes: nil, totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)))
+            let source = try await probeMedia(workspace.source, workspace: workspace, jobID: jobID, token: token)
+            try await validateMediaPolicy(source, jobID: jobID, token: token)
+            let planner = MP4OutputPlanner()
+            _ = try planner.plan(media: source, mode: .originalEncoding, capabilities: MP4EncoderCapabilities())
+            _ = try await verifySourceReceipt(workspace: workspace, job: state.job, token: token, write: true)
+            var capabilities = MP4EncoderCapabilities()
+            let plan: MP4OutputPlan
+            do { plan = try planner.plan(media: source, mode: state.job.options.mp4OutputMode, capabilities: capabilities) }
+            catch MP4OutputPlanningError.encoderUnavailable {
+                capabilities = try await encoderCapabilities(workspace: workspace, jobID: jobID, token: token)
+                plan = try planner.plan(media: source, mode: state.job.options.mp4OutputMode, capabilities: capabilities)
+            }
+            try checkPipeline(jobID: jobID, token: token)
+            let destination = reservation.baseURL.appendingPathExtension("mp4")
+            if !workspace.isPublished(to: destination) {
+                try workspace.discardCandidate()
+                let result = try await mediaProcess(jobID: jobID, token: token, executable: toolchain.ffmpeg,
+                    arguments: plan.arguments(input: workspace.source, output: workspace.candidate), duration: source.duration)
+                guard result.exitCode == 0 else { throw failure(for: result, phase: .postprocessing) }
+            }
+            let output = try await probeMedia(workspace.candidate, workspace: workspace, jobID: jobID, token: token)
+            try planner.validate(output: output, source: source, mode: state.job.options.mp4OutputMode)
+            try await validateMediaPolicy(output, jobID: jobID, token: token)
+            let owned = await allocator.owns(reservation, jobID: jobID)
+            try checkPipeline(jobID: jobID, token: token)
+            guard owned else { throw MP4OutputPlanningError.outputValidationFailed }
+            // No actor suspension between the last control check and atomic publication.
+            try workspace.publish(to: destination)
+            let size = Int64(try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+            state.continuation.yield(.progress(JobProgress(fraction: 1, downloadedBytes: size, totalBytes: size, bytesPerSecond: nil, etaSeconds: 0)))
+            state.continuation.yield(.output(destination))
+            state.continuation.yield(.completed)
+            try? workspace.remove()
+            await finish(jobID: jobID, error: nil, removeMarker: true)
+        } catch {
+            guard active[jobID]?.token == token else { return }
+            if active[jobID]?.control != Control.none { await finishForControl(jobID: jobID) }
+            else {
+                await finish(jobID: jobID, error: error is DownloadPolicyDeniedError ? error : mediaPipelineFailure(error), removeMarker: false)
+            }
+        }
+    }
+
+    private func mediaPipelineFailure(_ error: Error) -> DownloadFailure {
+        if let failure = error as? DownloadFailure { return failure }
+        if let planning = error as? MP4OutputPlanningError {
+            if planning == .encoderUnavailable || planning == .encoderProbeFailed {
+                return DownloadFailure(category: .compatibleEncoderUnavailable)
+            }
+            if planning == .unsupportedColorConversion || planning == .unsupportedStreams {
+                return DownloadFailure(category: .unsupportedMediaConversion)
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteOutOfSpaceError {
+            return DownloadFailure(category: .diskFull, technicalDetail: "Insufficient space for verified media output.")
+        }
+        return DownloadFailure(category: .postProcessingFailed, technicalDetail: "Media conversion or final verification failed; the original source has not been published.")
     }
 
     private func pauseRequestedByConsumer(jobID: UUID, token: UUID) async {
@@ -555,6 +775,7 @@ actor DownloadRunner: JobRunning {
             return
         }
         active[jobID]?.control = control
+        activeDownload.sourceVerification?.cancel()
         if let process = activeDownload.process {
             await signal(process: process, for: control, jobID: jobID, token: activeDownload.token)
         }
@@ -590,6 +811,25 @@ actor DownloadRunner: JobRunning {
 
     private func finishForControl(jobID: UUID) async {
         guard let activeDownload = active[jobID] else { return }
+        if let workspace = activeDownload.workspace, let reservation = activeDownload.reservation {
+            let owned = await allocator.owns(reservation, jobID: jobID)
+            var cleaned = owned
+            if owned {
+                do {
+                    if active[jobID]?.control == .cancel { try workspace.remove() }
+                    else {
+                        if !workspace.isPublished(to: reservation.baseURL.appendingPathExtension("mp4")) {
+                            try workspace.discardCandidate()
+                        }
+                        if !workspace.hasReceipt(for: activeDownload.job), FileManager.default.fileExists(atPath: workspace.source.path) {
+                            try FileManager.default.removeItem(at: workspace.source)
+                        }
+                    }
+                } catch { cleaned = false }
+            }
+            await finish(jobID: jobID, error: nil, removeMarker: active[jobID]?.control == .cancel && cleaned)
+            return
+        }
         switch activeDownload.control {
         case .cancel:
             if activeDownload.phase == .merging || activeDownload.phase == .postprocessing {
@@ -608,9 +848,10 @@ actor DownloadRunner: JobRunning {
     }
 
     private func finish(jobID: UUID, error: Error?, removeMarker: Bool) async {
-        guard let activeDownload = active.removeValue(forKey: jobID) else { return }
+        guard let activeDownload = active[jobID] else { return }
         await allocator.release(jobID: jobID, removeMarker: removeMarker)
         activeDownload.scope?.stopAccessing()
+        active.removeValue(forKey: jobID)
         finishStream(
             continuation: activeDownload.continuation,
             terminationRelay: activeDownload.terminationRelay,

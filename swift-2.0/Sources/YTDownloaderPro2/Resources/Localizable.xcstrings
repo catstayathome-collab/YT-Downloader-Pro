@@ -4349,6 +4349,38 @@
         }
       }
     },
+    "error.compatibleEncoderUnavailable.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No verified QuickTime-compatible encoder is available on this Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac では QuickTime 互換のエンコーダを確認できませんでした。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這台 Mac 沒有通過檢查的 QuickTime 相容編碼器。" } }
+      }
+    },
+    "error.compatibleEncoderUnavailable.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry after updating the app, or select Original Encoding and use another player. Resolution will not be reduced automatically." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリを更新して再試行するか、元のエンコードを選択して別のプレーヤーを使用してください。解像度は自動的に下げません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請更新 App 後重試，或選擇原始編碼並使用其他播放器。不會自動降低解析度。" } }
+      }
+    },
+    "error.unsupportedMediaConversion.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This media cannot be converted without risking loss of color or stream information." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色やストリーム情報を保持したまま、このメディアを変換できません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前無法在保留色彩與媒體軌道資訊的前提下轉換此影片。" } }
+      }
+    },
+    "error.unsupportedMediaConversion.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select another source format, or try Original Encoding with another player. No unverified output was published." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の形式を選択するか、元のエンコードと別のプレーヤーをお試しください。未検証の出力は保存先に公開していません。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請選擇其他來源格式，或嘗試原始編碼搭配其他播放器。未通過驗證的檔案不會放入正式下載位置。" } }
+      }
+    },
     "error.postProcessingFailed.summary": {
       "extractionState": "manual",
       "localizations": {

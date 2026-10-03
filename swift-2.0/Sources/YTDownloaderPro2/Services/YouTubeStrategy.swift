@@ -21,7 +21,7 @@ struct YouTubeStrategy: Sendable {
         options.cookies == .none ? 2 : 1
     }
 
-    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int, featurePolicy: FeaturePolicyContext = .publicCompatibility) -> [String] {
+    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int, featurePolicy: FeaturePolicyContext = .publicCompatibility, sourceTemplate: String? = nil) -> [String] {
         var arguments = [
             "--no-warnings",
             "--continue",
@@ -33,7 +33,7 @@ struct YouTubeStrategy: Sendable {
             "--format",
             selectedFormat(for: job.options.normalizedForExecution(), featurePolicy: featurePolicy),
             "--output",
-            outputTemplate(for: job),
+            sourceTemplate ?? outputTemplate(for: job),
             "--print",
             "before_dl:ytdp:phase|downloading",
             "--progress-template",

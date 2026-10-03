@@ -10,8 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-4k-quicktime-output-design.md`
 
-Status: Tasks 1-4 completed; Task 4 verified on 2026-10-03. Tasks 5-6 remain pending.
-Tasks 1-2 are implemented. Preserve native execution; Tasks 3-6 remain pending.
+Status: Tasks 1-5 completed; Task 5 verified on 2026-10-04.
+Task 6 remains pending. Preserve native execution.
 
 ## Global Constraints
 
@@ -140,14 +140,14 @@ Runner tracks download/probe/encode/final-probe phases under the same job token.
 Add `FFmpegProgressParser` producing elapsed-media-time values from `-progress pipe:1`;
 use existing postprocessing progress events rather than a second scheduler job.
 
-- [ ] RED: yt-dlp exit 0 alone cannot complete; ordered fake processes must run probe, optional encode, final probe, then publish. Any failed/missing/invalid output fails the job.
-- [ ] RED: cancellation at every phase boundary terminates only the owned process, waits for exit, starts nothing else, never emits completed and removes only owned intermediates. Pause is unavailable during conversion.
-- [ ] RED: disk-full and filename collision preserve existing media; stale callbacks cannot publish; retries after quit/crash restart encoding from verified retained source, not append. Sidecar SRT, embedded subtitles, artwork and metadata survive; cleanup never removes unrelated files.
-- [ ] Run focused runner/progress/storage tests and record intended failures.
-- [ ] GREEN: download to a unique job-owned source path on the destination filesystem, retaining reservation/security scope. Probe actual streams, execute the planner, then final-probe and atomically publish without replacement. Every await checks token/control state before starting another process.
-- [ ] Preserve subtitle/attachment mappings explicitly rather than indiscriminate stream mapping. Keep owned recovery paths derivable from job identity; validate containment and source before reuse. Report probe/encoder/filesystem failures through localized app errors.
-- [ ] Implement measured progress; zero/unknown durations show indeterminate progress. Await process exit before releasing scope/reservation or deleting temporary files.
-- [ ] Rerun all five classes, refactor phase transitions, commit `fix(swift): verify converted media before completing downloads`.
+- [x] RED: yt-dlp exit 0 alone cannot complete; ordered fake processes must run probe, optional encode, final probe, then publish. Any failed/missing/invalid output fails the job.
+- [x] RED: cancellation at every phase boundary terminates only the owned process, waits for exit, starts nothing else, never emits completed and removes only owned intermediates. Pause is unavailable during conversion.
+- [x] RED: disk-full and filename collision preserve existing media; stale callbacks cannot publish; retries after quit/crash restart encoding from verified retained source, not append. Sidecar SRT, embedded subtitles, artwork and metadata survive; cleanup never removes unrelated files.
+- [x] Run focused runner/progress/storage tests and record intended failures.
+- [x] GREEN: download to a unique job-owned source path on the destination filesystem, retaining reservation/security scope. Probe actual streams, execute the planner, then final-probe and atomically publish without replacement. Every await checks token/control state before starting another process.
+- [x] Preserve subtitle/attachment mappings explicitly rather than indiscriminate stream mapping. Keep owned recovery paths derivable from job identity; validate containment and source before reuse. Report probe/encoder/filesystem failures through localized app errors.
+- [x] Implement measured progress; zero/unknown durations show indeterminate progress. Await process exit before releasing scope/reservation or deleting temporary files.
+- [x] Rerun all five classes, refactor phase transitions, commit `fix(swift): verify converted media before completing downloads`.
 
 ### Task 6: Regression, Internal Packaging And Real Playback
 
@@ -273,3 +273,39 @@ acceptance requires measured fixture evidence and must not be inferred from unit
   arguments, evidence and remaining release gates. Task 5 owns actual runner
   wiring, cancellation, UI error mapping and atomic publication. No packaging,
   push, merge, account operation or release performed.
+
+## Task 5 Execution Evidence (2026-10-04)
+
+- Initial RED: an invalid actual-media probe still produced completed/public
+  output under the old runner (three failed assertions). Workspace/progress
+  contract tests initially failed on absent types. Ordered process, failure,
+  cancellation, original-mode, policy and recovery cases then exercised the
+  integrated implementation.
+- GREEN focused run: 122 runner/progress/allocator/persistence/coordinator/workspace
+  tests passed before the additional review regressions. Final full strict run
+  includes every one of those suites: 643 tests, zero failures, three opt-in
+  skips (Keychain and two hardware media integration tests).
+- Real runner integration separately enabled outside the hardware sandbox:
+  locally generated 3840x2160 MPEG-4 source converted by the actual bundled
+  FFmpeg to HEVC/hvc1 and AAC. Embedded Japanese subtitle, external SRT, 64x64
+  attached PNG and title metadata survived. AVFoundation accepted playback and
+  decoded a 2160p frame. No remote video was fetched in this task.
+- Real-run RED found a capability-probe color-tag omission; adding input
+  setparams fixed it without weakening the planner's color validation.
+- Independent review identified quit during crash-publication recovery losing
+  inode identity, edited retries retaining stale subtitles, and synchronous
+  hashing blocking the runner actor. Regressions reproduced six failures.
+  Fixes preserve published candidates, bind partial/source files to a request
+  digest, and own cancellable detached hashing tasks. Focused recheck passed
+  48 tests (one hardware skip); static re-review found no remaining issues in
+  those fixes. Final full/runtime runs above include the revised code.
+- Initial full run's two failures were the existing actionable-error category
+  inventory omitting the two new edit-and-retry categories. Updated expectations
+  and reran the full suite. Sandbox CoreData/XPC diagnostics are environmental;
+  no test failure was omitted from the recorded final result.
+- Refactoring keeps file ownership/publication in MP4Workspace and measured
+  FFmpeg progress in its pure parser. Existing scheduler slots, persisted job
+  identities, reservations and process abstraction remain in use.
+- Hard-link publication deliberately fails closed on unsupported filesystems;
+  external-volume compatibility remains an explicit release acceptance gate.
+  No package, push, merge, version bump, payment or public release was made.

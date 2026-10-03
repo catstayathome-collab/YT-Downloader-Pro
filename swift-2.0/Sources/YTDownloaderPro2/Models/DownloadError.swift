@@ -15,6 +15,8 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
         case diskFull
         case downloadFailed
         case postProcessingFailed
+        case compatibleEncoderUnavailable
+        case unsupportedMediaConversion
         case persistenceRecovery
         case unknown
 
@@ -23,7 +25,8 @@ struct DownloadFailure: Error, Codable, Equatable, Sendable {
 
         var supportsOptionsRecovery: Bool {
             switch self {
-            case .authenticationRequired, .formatReselectionRequired, .outputPermissionDenied, .diskFull:
+            case .authenticationRequired, .formatReselectionRequired, .outputPermissionDenied, .diskFull,
+                 .compatibleEncoderUnavailable, .unsupportedMediaConversion:
                 true
             case .invalidURL, .metadataUnavailable, .networkUnavailable, .clientValidationFailed,
                  .unavailableMedia, .bundledDownloaderUnavailable, .bundledConverterUnavailable,
