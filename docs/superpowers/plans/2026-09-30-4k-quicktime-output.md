@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-4k-quicktime-output-design.md`
 
-Status: Tasks 1-3 completed; Task 3 verified on 2026-10-03. Tasks 4-6 remain pending.
+Status: Tasks 1-4 completed; Task 4 verified on 2026-10-03. Tasks 5-6 remain pending.
 Tasks 1-2 are implemented. Preserve native execution; Tasks 3-6 remain pending.
 
 ## Global Constraints
@@ -119,13 +119,13 @@ Define `MP4EncoderCapabilities: Sendable`, `MP4OutputPlan: Sendable`, and
 Plan records independent video/audio copy or encode actions and validation expectations.
 Add `MP4OutputPlanner.validate(output: ProbedMedia, source: ProbedMedia, mode: MP4OutputMode) throws`.
 
-- [ ] RED: H.264 yuv420p + AAC copy; supported HEVC yuv420p/yuv420p10le with hvc1 copy; VP9/AV1 SDR encode video; Opus encodes audio; compatible video with Opus copies only video. Cover art is not primary video.
-- [ ] RED: original mode never encodes; incompatible muxing fails clearly; malformed/empty probe, missing expected audio, changed dimensions, unsupported HDR conversion and unknown color handling fail closed. Include rotated portrait and variable-frame-rate fixtures.
-- [ ] Run MP4OutputPlannerTests and record failures.
-- [ ] GREEN: implement the pure decoder/planner. Prefer capability-tested hevc_videotoolbox, otherwise tested libx265. No available encoder is an actionable error. Preserve native timing; do not add a scaling filter or fixed frame-rate conversion. Use hvc1 for HEVC output.
-- [ ] Verify actual bundled FFmpeg options before selecting encoder arguments. Start fixture evaluation with VideoToolbox quality mode and libx265 CRF 20/medium, AAC 192k when conversion is necessary; do not ship these until fixture visual checks pass. Capability detection must include successful synthetic encode, not just encoder listing.
-- [ ] Generate short local synthetic 3840x2160 SDR fixtures, probe converted output and verify dimensions, frame timing, audio and QuickTime playback. Test HDR copy separately; reject HDR requiring conversion until preservation is verified. Document exact accepted encoder arguments and host/tool versions with evidence.
-- [ ] Rerun planner tests; commit `feat(swift): plan and validate QuickTime-compatible MP4 output`.
+- [x] RED: H.264 yuv420p + AAC copy; supported HEVC yuv420p/yuv420p10le with hvc1 copy; VP9/AV1 SDR encode video; Opus encodes audio; compatible video with Opus copies only video. Cover art is not primary video.
+- [x] RED: original mode never encodes; incompatible muxing fails clearly; malformed/empty probe, missing expected audio, changed dimensions, unsupported HDR conversion and unknown color handling fail closed. Include rotated portrait and variable-frame-rate fixtures.
+- [x] Run MP4OutputPlannerTests and record failures.
+- [x] GREEN: implement the pure decoder/planner. Prefer capability-tested hevc_videotoolbox, otherwise tested libx265. No available encoder is an actionable error. Preserve native timing; do not add a scaling filter or fixed frame-rate conversion. Use hvc1 for HEVC output.
+- [x] Verify actual bundled FFmpeg options before selecting encoder arguments. Start fixture evaluation with VideoToolbox quality mode and libx265 CRF 20/medium, AAC 192k when conversion is necessary; do not ship these until fixture visual checks pass. Capability detection must include successful synthetic encode, not just encoder listing.
+- [x] Generate short local synthetic 3840x2160 SDR fixtures, probe converted output and verify dimensions, frame timing, audio and QuickTime playback. Test HDR copy separately; reject HDR requiring conversion until preservation is verified. Document exact accepted encoder arguments and host/tool versions with evidence.
+- [x] Rerun planner tests; commit `feat(swift): plan and validate QuickTime-compatible MP4 output`.
 
 ### Task 5: Integrate Conversion With Owned Runner Lifecycle
 
@@ -241,3 +241,35 @@ acceptance requires measured fixture evidence and must not be inferred from unit
   regression tests passed. No live download, packaging, push or release occurred.
 - This is an intermediate source-selection change. QuickTime conversion and
   stream verification remain Tasks 4/5; live 4K acceptance remains Task 6.
+
+## Task 4 Execution Evidence (2026-10-03)
+
+- Added ProbedMedia, typed copy/encode decisions, successful-probe-only encoder
+  capabilities and output validation. Commands explicitly map media/subtitles/
+  artwork, preserve metadata and timing, and never scale or overwrite output.
+- RED: initial planner tests failed on missing types. Subsequent edge-case tests
+  reproduced four unknown-HDR/timing/rotation validation failures, a VFR average
+  rate false rejection, and two malformed-audio/artwork validation gaps. All
+  were corrected and rerun.
+- Full strict suite rerun: 626 tests, zero failures, two opt-in skips (Keychain
+  and hardware media integration). Initial full run had one transient existing
+  testQueueChangesPersistImmediately queued/paused assertion; isolated recheck
+  and full rerun passed. No unrelated queue implementation was changed.
+- Real bundled-tool test separately enabled outside the hardware-restricted
+  sandbox: 4K SDR conversion, Apple decoding, rotated copy, HDR Main10 copy,
+  and VFR timestamp comparison passed. QuickTime opened/played/seeked the SDR
+  output with visible nonblank frames. This is not real-content/audio-quality
+  release acceptance.
+- Ruling: libx265 is absent from the current bundle, so its candidate settings
+  are pure-test-covered only. Capability remains unavailable unless an actual
+  synthetic encode succeeds; no new tool binary or dependency was installed.
+- Ruling: only verified 8-bit BT.709 SDR is encoded. Other conversion color/
+  bit-depth cases fail closed; supported HDR HEVC is copy-only. Generic
+  attachment streams and multiple primary tracks are rejected rather than lost.
+- Ruling: ffprobe averages alone cannot validate VFR across containers. Use
+  actual counted frames/duration plus preserved passthrough timing; the tool
+  test checks every frame's relative timestamp within Matroska's time precision.
+- See `docs/swift-2.0/MP4_OUTPUT_VALIDATION.md` for contracts, tool hashes,
+  arguments, evidence and remaining release gates. Task 5 owns actual runner
+  wiring, cancellation, UI error mapping and atomic publication. No packaging,
+  push, merge, account operation or release performed.
