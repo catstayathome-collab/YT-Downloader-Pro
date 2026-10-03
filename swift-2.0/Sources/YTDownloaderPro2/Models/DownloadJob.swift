@@ -33,6 +33,11 @@ struct DownloadJob: Codable, Equatable, Sendable, Identifiable {
     var status: DownloadStatus
     var awaitsBatchAnalysis: Bool
     var progress: Double
+    // A restored/interrupted conversion must obtain fresh progress from its worker.
+    var postprocessingProgress: Double? = nil
+    var displayedProgress: Double? {
+        status == .merging ? postprocessingProgress : progress
+    }
     var downloadedBytes: Int64?
     var totalBytes: Int64?
     var speedBytesPerSecond: Double?

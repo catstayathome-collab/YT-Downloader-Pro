@@ -5,6 +5,32 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testPostprocessingClearsDownloadMetricsBeforeReceivingConversionProgress() async throws {
+        let job = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: 100,
+            totalBytes: 100, bytesPerSecond: 50, etaSeconds: 0)), for: job.id)
+        try await waitUntil("download metrics arrive") { fixture.store.jobs[0].progress == 1 }
+        await fixture.runner.emit(.phase(.postprocessing), for: job.id)
+        try await waitUntil("postprocessing starts") { fixture.store.jobs[0].status == .merging }
+        XCTAssertNil(fixture.store.jobs[0].downloadedBytes)
+        XCTAssertNil(fixture.store.jobs[0].totalBytes)
+        XCTAssertNil(fixture.store.jobs[0].speedBytesPerSecond)
+        XCTAssertNil(fixture.store.jobs[0].estimatedTimeRemaining)
+        XCTAssertLessThan(fixture.store.jobs[0].progress, 1)
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 0.4, downloadedBytes: nil,
+            totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)), for: job.id)
+        try await waitUntil("measured conversion progress arrives") {
+            fixture.store.jobs[0].displayedProgress == 0.4
+        }
+        let restored = try JSONDecoder().decode(DownloadJob.self, from: JSONEncoder().encode(fixture.store.jobs[0]))
+        XCTAssertNil(restored.displayedProgress)
+    }
+
     func testFilteredJobsShowNewestRecordsFirstWithoutReorderingQueueStorage() throws {
         let oldest = DownloadJob(
             sourceURL: "https://example.com/oldest",

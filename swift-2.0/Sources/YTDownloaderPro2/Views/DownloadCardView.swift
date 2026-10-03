@@ -363,7 +363,7 @@ struct DownloadCardView: View {
         Group {
             Group {
                 if showsProgress {
-                    ProgressView(value: max(0, min(job.progress, 1)))
+                    ProgressView(value: job.displayedProgress.map { max(0, min($0, 1)) })
                         .progressViewStyle(.linear)
                         .accessibilityLabel(L10n.string(.downloadCardProgress, locale: locale))
                         .accessibilityValue(progressAccessibilityValue)
@@ -525,10 +525,11 @@ struct DownloadCardView: View {
     }
 
     private var progressAccessibilityValue: String {
+        guard let progress = job.displayedProgress else { return "" }
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .percent
-        return formatter.string(from: NSNumber(value: max(0, min(job.progress, 1)))) ?? ""
+        return formatter.string(from: NSNumber(value: max(0, min(progress, 1)))) ?? ""
     }
 
     private func byteDescription(_ value: Int64?) -> String {

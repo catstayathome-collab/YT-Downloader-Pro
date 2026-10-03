@@ -1390,8 +1390,19 @@ final class DownloadStore: ObservableObject {
             await persist(flush: true)
         case let .phase(phase):
             transitionJob(at: index, to: status(for: phase))
+            if phase == .merging || phase == .postprocessing {
+                jobs[index].progress = 0
+                jobs[index].postprocessingProgress = nil
+                jobs[index].downloadedBytes = nil
+                jobs[index].totalBytes = nil
+                jobs[index].speedBytesPerSecond = nil
+                jobs[index].estimatedTimeRemaining = nil
+            }
             await persist(flush: true)
         case let .progress(progress):
+            if jobs[index].status == .merging {
+                jobs[index].postprocessingProgress = progress.fraction
+            }
             jobs[index].progress = progress.fraction ?? jobs[index].progress
             jobs[index].downloadedBytes = progress.downloadedBytes ?? jobs[index].downloadedBytes
             jobs[index].totalBytes = progress.totalBytes ?? jobs[index].totalBytes
