@@ -21,7 +21,7 @@ struct YouTubeStrategy: Sendable {
         options.cookies == .none ? 2 : 1
     }
 
-    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int) -> [String] {
+    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int, featurePolicy: FeaturePolicyContext = .publicCompatibility) -> [String] {
         var arguments = [
             "--no-warnings",
             "--continue",
@@ -31,7 +31,7 @@ struct YouTubeStrategy: Sendable {
             "--ffmpeg-location",
             toolchain.ffmpeg.deletingLastPathComponent().path,
             "--format",
-            selectedFormat(for: job.options),
+            selectedFormat(for: job.options.normalizedForExecution(), featurePolicy: featurePolicy),
             "--output",
             outputTemplate(for: job),
             "--print",
@@ -72,24 +72,27 @@ struct YouTubeStrategy: Sendable {
         options.cookies != .none || attempt == 0 ? .webEmbedded : .defaultClient
     }
 
-    private func selectedFormat(for options: DownloadOptions) -> String {
+    private func selectedFormat(for options: DownloadOptions, featurePolicy: FeaturePolicyContext) -> String {
         switch options.outputKind {
         case .mp4:
-            let videoID = QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat)
-                ? formatID(from: options.videoQuality)
-                : nil
-            let audioID = QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat)
-                ? formatID(from: options.audioQuality)
-                : nil
+            let videoID = formatID(from: options.videoQuality)
+            let audioID = formatID(from: options.audioQuality)
+            let heightFilter: String
+            if case let .enforced(policy) = featurePolicy,
+               case let .limited(limit) = policy.videoHeightPolicy {
+                heightFilter = "[height<=\(limit)]"
+            } else {
+                heightFilter = ""
+            }
             switch (videoID, audioID) {
             case let (videoID?, audioID?):
-                return "\(videoID)+\(audioID)"
+                return "\(videoID)\(heightFilter)+\(audioID)"
             case let (videoID?, nil):
-                return "\(videoID)+\(QuickTimeMP4Compatibility.ytDLPAudioSelector)"
+                return "\(videoID)\(heightFilter)+bestaudio"
             case let (nil, audioID?):
-                return "\(QuickTimeMP4Compatibility.ytDLPVideoSelector)+\(audioID)"
+                return "bestvideo\(heightFilter)+\(audioID)"
             case (nil, nil):
-                return QuickTimeMP4Compatibility.ytDLPFormatSelector
+                return "bestvideo\(heightFilter)+bestaudio/best\(heightFilter)"
             }
         case .mp3:
             let audioID = formatID(from: options.audioQuality) ?? "bestaudio"

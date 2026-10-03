@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-4k-quicktime-output-design.md`
 
-Status: Task 1 completed on 2026-09-30; owner approved Task 2 on 2026-10-03.
+Status: Tasks 1-3 completed; Task 3 verified on 2026-10-03. Tasks 4-6 remain pending.
 Tasks 1-2 are implemented. Preserve native execution; Tasks 3-6 remain pending.
 
 ## Global Constraints
@@ -99,12 +99,12 @@ Extend strategy argument construction to consume this bounded enum, never arbitr
 consume options from Tasks 1/2. Explicit IDs remain exact, while best selection
 is codec-neutral. Runner policy normalization remains mandatory before launching.
 
-- [ ] RED: Test Pro best can select VP9/AV1 2160p rather than avc1-only; explicit IDs are preserved in both modes; chosen client is used for download. Cookie choices remain opt-in.
-- [ ] RED: Free best is height-capped at execution; forged/resumed high-resolution options are rejected or normalized under existing policy; unavailable explicit IDs on retry yield a selection error rather than lower-resolution fallback.
-- [ ] Run YouTubeStrategyTests, FeaturePolicyTests and the focused runner regressions; record failures.
-- [ ] GREEN: remove target-compatibility constraints from source selectors, retaining video+audio and progressive fallbacks. Keep client changes explicit on reanalysis and revalidate selections. Preserve subtitle SRT conversion and metadata arguments.
-- [ ] Rerun all three classes and refactor duplicated selector construction without weakening URL validation.
-- [ ] Commit: `fix(swift): decouple source resolution from MP4 compatibility`.
+- [x] RED: Test Pro best can select VP9/AV1 2160p rather than avc1-only; explicit IDs are preserved in both modes; chosen client is used for download. Cookie choices remain opt-in.
+- [x] RED: Free best is height-capped at execution; forged/resumed high-resolution options are rejected or normalized under existing policy; unavailable explicit IDs on retry yield a selection error rather than lower-resolution fallback.
+- [x] Run YouTubeStrategyTests, FeaturePolicyTests and the focused runner regressions; record failures.
+- [x] GREEN: remove target-compatibility constraints from source selectors, retaining video+audio and progressive fallbacks. Keep client changes explicit on reanalysis and revalidate selections. Preserve subtitle SRT conversion and metadata arguments.
+- [x] Rerun all three classes and refactor duplicated selector construction without weakening URL validation.
+- [x] Commit: `fix(swift): decouple source resolution from MP4 compatibility`.
 
 ### Task 4: Probe Streams And Plan Verified Conversion
 
@@ -219,3 +219,25 @@ acceptance requires measured fixture evidence and must not be inferred from unit
 - Validation environment emitted global SwiftPM cache and macOS CoreData XPC
   diagnostics under sandbox restrictions; XCTest exited 0. No live UI or
   QuickTime acceptance is claimed by the unit-suite result.
+
+## Task 3 Execution Evidence (2026-10-03)
+
+- RED: 45 focused tests ran with 6 failing assertions/errors, reproducing the
+  discarded WebM selections, codec-constrained best selector, missing execution
+  cap and stale retry metadata. Free best initially raised a policy denial.
+- GREEN: 56 strategy, runner and policy tests passed. Full strict-concurrency,
+  warnings-as-errors suite: 613 tests, zero failures, one opt-in Keychain skip.
+  `git diff --check` passed. Sandbox SwiftPM cache/CoreData XPC diagnostics remain
+  environmental; test process exited zero.
+- Both MP4 modes use codec-neutral source selectors and retain exact IDs.
+  Free execution adds a strict height filter to every video selector, including
+  the progressive fallback and explicit IDs. Unknown actual heights do not pass
+  that filter. Best admission is runner-only; presentation policy is unchanged.
+- Explicit selections still require policy approval after normalization. Retry
+  analysis uses the bounded next client, verifies IDs, refreshes metadata and
+  pins that analysis client before a fresh policy check. Missing IDs never
+  silently fall back; missing refreshed height is denied for Free.
+- Existing cancellation, cookie opt-in, missing-format, subtitle and security
+  regression tests passed. No live download, packaging, push or release occurred.
+- This is an intermediate source-selection change. QuickTime conversion and
+  stream verification remain Tasks 4/5; live 4K acceptance remains Task 6.

@@ -3,6 +3,32 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class YouTubeStrategyTests: XCTestCase {
+    func testBothOutputModesKeepExactIDsAndCapEveryFreeVideoBranch() {
+        let strategy = YouTubeStrategy(toolchain: .fixture())
+        for mode in [MP4OutputMode.quickTimeCompatible, .originalEncoding] {
+            for (videoID, audioID, expected) in [
+                (nil, nil, "bestvideo+bestaudio/best"),
+                ("313", nil, "313+bestaudio"),
+                (nil, "251", "bestvideo+251"),
+                ("401", "251", "401+251")
+            ] as [(String?, String?, String)] {
+                var job = DownloadJob.fixture()
+                job.options.mp4OutputMode = mode
+                job.options.videoQuality = videoID.map { .format(id: $0, label: "2160p") } ?? .best
+                job.options.audioQuality = audioID.map { .format(id: $0, label: "Opus") } ?? .best
+                let pro = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
+                XCTAssertEqual(argument(after: "--format", in: pro), expected)
+                let free = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0, featurePolicy: AppPlan.free.featurePolicyContext)
+                let capped = expected.split(separator: "/").map { branch in
+                    var streams = branch.split(separator: "+").map(String.init)
+                    streams[0] += "[height<=720]"
+                    return streams.joined(separator: "+")
+                }.joined(separator: "/")
+                XCTAssertEqual(argument(after: "--format", in: free), capped)
+            }
+        }
+    }
+
     func testDownloadUsesPersistedClientButFreshAnalysisStillComparesBoth() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
         var job = DownloadJob.fixture()
@@ -122,7 +148,7 @@ final class YouTubeStrategyTests: XCTestCase {
             "--ffmpeg-location",
             "/bundle",
             "--format",
-            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]",
+            "bestvideo+bestaudio/best",
             "--output",
             "/tmp/Downloads/Example video.%(ext)s",
             "--print",
@@ -143,7 +169,7 @@ final class YouTubeStrategyTests: XCTestCase {
         ])
     }
 
-    func testMP4DownloadRejectsPersistedWebMSelectionsAndUsesQuickTimeCompatibleFormats() {
+    func testMP4DownloadPreservesExplicitWebMSelections() {
         let vp9 = MediaFormat(
             id: "248",
             label: "1080p - webm",
@@ -188,7 +214,7 @@ final class YouTubeStrategyTests: XCTestCase {
 
         XCTAssertEqual(
             argument(after: "--format", in: arguments),
-            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]"
+            "248+251"
         )
     }
 

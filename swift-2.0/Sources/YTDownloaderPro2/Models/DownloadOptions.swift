@@ -217,6 +217,29 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         )
     }
 
+    // Only the runner may admit best under a cap: it also constrains every video selector.
+    func executionPolicyDecision(in context: FeaturePolicyContext) -> FeatureDecision {
+        let options = normalizedForExecution()
+        if options.outputKind == .mp4, options.videoQuality == .best,
+           case let .enforced(policy) = context,
+           case let .limited(limit) = policy.videoHeightPolicy {
+            return context.videoDecision(height: limit, isAudioOnly: false, isSourceQuality: false)
+        }
+        return options.featurePolicyDecision(in: context)
+    }
+
+    func refreshingSelectionsForRetry(with analysis: VideoAnalysis) -> DownloadOptions {
+        var refreshed = normalizedForExecution()
+        refreshed.clientStrategy = analysis.clientStrategy
+        if let id = videoQuality.formatID {
+            refreshed.selectVideoFormat(analysis.videoFormats.first { $0.id == id })
+        }
+        if let id = audioQuality.formatID {
+            refreshed.selectAudioFormat(analysis.audioFormats.first { $0.id == id })
+        }
+        return refreshed
+    }
+
     func replacingStaleSelections(with analysis: VideoAnalysis) -> DownloadOptions {
         var refreshed = normalizedForExecution()
         refreshed.clientStrategy = analysis.clientStrategy

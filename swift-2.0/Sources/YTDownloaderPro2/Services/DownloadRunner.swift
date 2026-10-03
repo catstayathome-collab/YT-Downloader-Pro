@@ -36,7 +36,7 @@ actor DownloadRunner: JobRunning {
 
     private struct ActiveDownload {
         let token: UUID
-        let job: DownloadJob
+        var job: DownloadJob
         let continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation
         let terminationRelay: StreamTerminationRelay
         var scope: OutputDirectorySecurityScopedAccess?
@@ -208,7 +208,7 @@ actor DownloadRunner: JobRunning {
         guard var activeDownload = active[jobID] else { return }
 
         let featurePolicyContext = await featurePolicyContextProvider()
-        if case let .denied(denial) = activeDownload.job.options.featurePolicyDecision(
+        if case let .denied(denial) = activeDownload.job.options.executionPolicyDecision(
             in: featurePolicyContext
         ) {
             await finish(
@@ -290,7 +290,8 @@ actor DownloadRunner: JobRunning {
                 arguments: YouTubeStrategy(toolchain: toolchain).downloadArguments(
                     job: launchedJob,
                     toolchain: toolchain,
-                    attempt: attempt
+                    attempt: attempt,
+                    featurePolicy: featurePolicyContext
                 )
             )
         } catch {
@@ -376,7 +377,7 @@ actor DownloadRunner: JobRunning {
             activeDownload.phase = .analyzing
             activeDownload.continuation.yield(.phase(.analyzing))
             active[jobID] = activeDownload
-            guard let analysis = await reanalyze(jobID: jobID, attempt: 0) else { return }
+            guard let analysis = await reanalyze(jobID: jobID, attempt: attempt + 1) else { return }
             guard activeDownload.job.options.selectedFormatsRemainAvailable(in: analysis) else {
                 await finish(
                     jobID: jobID,
@@ -387,6 +388,10 @@ actor DownloadRunner: JobRunning {
                     removeMarker: false
                 )
                 return
+            }
+            if case let .video(video) = analysis, var latest = active[jobID] {
+                latest.job.options = latest.job.options.refreshingSelectionsForRetry(with: video)
+                active[jobID] = latest
             }
             await prepareAndRun(jobID: jobID, attempt: attempt + 1)
             return
@@ -508,7 +513,12 @@ actor DownloadRunner: JobRunning {
             return nil
         }
         do {
-            return try await metadataProbe.decodeAnalysisOutput(result.stdout, requestedURL: completed.job.sourceURL)
+            let analysis = try await metadataProbe.decodeAnalysisOutput(result.stdout, requestedURL: completed.job.sourceURL)
+            if case var .video(video) = analysis {
+                video.clientStrategy = YouTubeStrategy(toolchain: toolchain).analysisClient(options: completed.job.options, attempt: attempt)
+                return .video(video)
+            }
+            return analysis
         } catch let failure as DownloadFailure {
             await finish(jobID: jobID, error: failure, removeMarker: false)
             return nil

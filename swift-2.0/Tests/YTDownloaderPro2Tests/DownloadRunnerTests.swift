@@ -96,6 +96,34 @@ final class DownloadRunnerTests: XCTestCase {
         }
     }
 
+    func testFreeBestIsCappedInActualDownloadIncludingRetry() async throws {
+        for mode in ["success", "retry-403"] {
+            let fixture = try RunnerFixture(mode: mode, featurePolicyContext: AppPlan.free.featurePolicyContext)
+            _ = try await collect(fixture.runner.events(for: fixture.job()))
+            XCTAssertTrue(fixture.commandLog().contains("bestvideo[height<=720]+bestaudio/best[height<=720]"))
+            if mode == "retry-403" {
+                XCTAssertFalse(fixture.commandLog().split(separator: "\n").last?.contains("--extractor-args") ?? true)
+            }
+        }
+    }
+
+    func testFreeExplicitSelectionHasExecutionHeightGuard() async throws {
+        let fixture = try RunnerFixture(mode: "success", featurePolicyContext: AppPlan.free.featurePolicyContext)
+        _ = try await collect(fixture.runner.events(for: fixture.job(videoFormat: mediaFormat(id: "137", height: 720))))
+        XCTAssertTrue(fixture.commandLog().contains("137[height<=720]+bestaudio"))
+    }
+
+    func testRetryRefreshesMetadataBeforeFreePolicyCheck() async throws {
+        let fixture = try RunnerFixture(mode: "retry-403", featurePolicyContext: AppPlan.free.featurePolicyContext)
+        do {
+            _ = try await collect(fixture.runner.events(for: fixture.job(videoFormat: mediaFormat(id: "137", height: 720))))
+            XCTFail("Refreshed format has no verified height")
+        } catch let error as DownloadPolicyDeniedError {
+            XCTAssertEqual(error.denial.reason, .unknownVideoHeight)
+        }
+        XCTAssertEqual(fixture.traceLines().filter { $0 == "download" }.count, 1)
+    }
+
     func testFreePlanAllowsMP3BeforeRunnerSideEffectsProceed() async throws {
         let fixture = try RunnerFixture(
             mode: "success",
