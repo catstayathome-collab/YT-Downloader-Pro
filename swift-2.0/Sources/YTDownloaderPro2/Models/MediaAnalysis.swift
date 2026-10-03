@@ -127,6 +127,11 @@ enum QuickTimeMP4Compatibility {
     }
 }
 
+enum YouTubeClientStrategy: String, Codable, Sendable {
+    case webEmbedded
+    case defaultClient
+}
+
 struct VideoAnalysis: Codable, Equatable, Sendable {
     var sourceURL: String
     var title: String
@@ -136,6 +141,7 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
     var videoFormats: [MediaFormat]
     var audioFormats: [MediaFormat]
     var subtitleTracks: [SubtitleTrack]
+    var clientStrategy: YouTubeClientStrategy?
 
     init(
         sourceURL: String,
@@ -145,7 +151,8 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
         thumbnailURL: URL?,
         videoFormats: [MediaFormat],
         audioFormats: [MediaFormat],
-        subtitleTracks: [SubtitleTrack] = []
+        subtitleTracks: [SubtitleTrack] = [],
+        clientStrategy: YouTubeClientStrategy? = nil
     ) {
         self.sourceURL = sourceURL
         self.title = title
@@ -155,6 +162,7 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
         self.videoFormats = videoFormats
         self.audioFormats = audioFormats
         self.subtitleTracks = subtitleTracks
+        self.clientStrategy = clientStrategy
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -166,6 +174,7 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
         case videoFormats
         case audioFormats
         case subtitleTracks
+        case clientStrategy
     }
 
     init(from decoder: Decoder) throws {
@@ -178,6 +187,7 @@ struct VideoAnalysis: Codable, Equatable, Sendable {
         videoFormats = try container.decode([MediaFormat].self, forKey: .videoFormats)
         audioFormats = try container.decode([MediaFormat].self, forKey: .audioFormats)
         subtitleTracks = try container.decodeIfPresent([SubtitleTrack].self, forKey: .subtitleTracks) ?? []
+        clientStrategy = try container.decodeIfPresent(YouTubeClientStrategy.self, forKey: .clientStrategy)
     }
 }
 

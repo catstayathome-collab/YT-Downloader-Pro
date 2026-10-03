@@ -29,18 +29,28 @@ actor MetadataProbe: MetadataAnalyzing {
         }
         let strategy = YouTubeStrategy(toolchain: toolchain)
         let maximumAttempts = strategy.maximumAttempts(for: options)
+        var bestVideo: VideoAnalysis?
         for attempt in 0..<maximumAttempts {
+            try Task.checkCancellation()
             let result: ProcessResult
             do {
                 let request = try analysisRequest(url: url, options: options, attempt: attempt)
                 result = try await runAnalysisProcess(request)
+                try Task.checkCancellation()
+            } catch is CancellationError {
+                throw CancellationError()
             } catch let failure as DownloadFailure {
+                try Task.checkCancellation()
+                if let bestVideo { return .video(bestVideo) }
                 throw failure
             } catch {
+                try Task.checkCancellation()
+                if let bestVideo { return .video(bestVideo) }
                 throw Toolchain.failure(for: "yt-dlp_macos")
             }
 
             guard result.exitCode == 0 else {
+                if let bestVideo { return .video(bestVideo) }
                 let failure = failure(for: result)
                 if isRetryableClientFailure(result), attempt + 1 < maximumAttempts {
                     continue
@@ -48,13 +58,39 @@ actor MetadataProbe: MetadataAnalyzing {
                 throw failure
             }
 
-            return try decodeAnalysisOutput(result.stdout, requestedURL: url)
+            let analysis: AnalysisResult
+            do {
+                analysis = try decodeAnalysisOutput(result.stdout, requestedURL: url)
+            } catch {
+                if let bestVideo { return .video(bestVideo) }
+                throw error
+            }
+            switch analysis {
+            case .playlist:
+                // A comparison must never change a previously identified single video into a playlist.
+                return bestVideo.map(AnalysisResult.video) ?? analysis
+            case var .video(video):
+                video.clientStrategy = strategy.analysisClient(options: options, attempt: attempt)
+                if bestVideo.map({ Self.isMoreComplete(video, than: $0) }) ?? true {
+                    bestVideo = video
+                }
+            }
         }
 
+        try Task.checkCancellation()
+        if let bestVideo { return .video(bestVideo) }
         throw DownloadFailure(category: .clientValidationFailed, technicalDetail: "Video service client validation did not succeed.")
     }
 
+    private static func isMoreComplete(_ candidate: VideoAnalysis, than current: VideoAnalysis) -> Bool {
+        let candidateHeight = candidate.videoFormats.compactMap(\.height).max() ?? 0
+        let currentHeight = current.videoFormats.compactMap(\.height).max() ?? 0
+        if candidateHeight != currentHeight { return candidateHeight > currentHeight }
+        return candidate.videoFormats.count > current.videoFormats.count
+    }
+
     private func runAnalysisProcess(_ request: MetadataAnalysisRequest) async throws -> ProcessResult {
+        try Task.checkCancellation()
         guard let launcher = processRunner as? any ProcessLaunching else {
             return try await processRunner.run(executable: request.executable, arguments: request.arguments)
         }

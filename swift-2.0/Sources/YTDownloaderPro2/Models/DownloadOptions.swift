@@ -103,6 +103,7 @@ enum CookieMode: String, Codable, Sendable {
 struct DownloadOptions: Codable, Equatable, Sendable {
     var outputKind: OutputKind
     var mp4OutputMode: MP4OutputMode
+    var clientStrategy: YouTubeClientStrategy?
     var videoQuality: VideoQuality
     var audioQuality: AudioQuality
     var selectedVideoFormat: PersistedFormatPresentation?
@@ -135,6 +136,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
     init(
         outputKind: OutputKind = .mp4,
         mp4OutputMode: MP4OutputMode = .quickTimeCompatible,
+        clientStrategy: YouTubeClientStrategy? = nil,
         videoQuality: VideoQuality = .best,
         audioQuality: AudioQuality = .best,
         selectedVideoFormat: PersistedFormatPresentation? = nil,
@@ -150,6 +152,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
     ) {
         self.outputKind = outputKind
         self.mp4OutputMode = mp4OutputMode
+        self.clientStrategy = clientStrategy
         self.videoQuality = videoQuality
         self.audioQuality = audioQuality
         self.selectedVideoFormat = selectedVideoFormat ?? Self.legacyVideoFormat(for: videoQuality).map(PersistedFormatPresentation.init)
@@ -216,6 +219,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     func replacingStaleSelections(with analysis: VideoAnalysis) -> DownloadOptions {
         var refreshed = normalizedForExecution()
+        refreshed.clientStrategy = analysis.clientStrategy
         let selectedVideoID = videoQuality.formatID
         let selectedAudioID = audioQuality.formatID
         if let format = analysis.videoFormats.first(where: { $0.id == selectedVideoID }) ?? analysis.videoFormats.first {
@@ -312,6 +316,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case outputKind
         case mp4OutputMode
+        case clientStrategy
         case videoQuality
         case audioQuality
         case selectedVideoFormat
@@ -331,6 +336,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         self.init(
             outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
             mp4OutputMode: try container.decodeIfPresent(MP4OutputMode.self, forKey: .mp4OutputMode) ?? .quickTimeCompatible,
+            clientStrategy: try container.decodeIfPresent(YouTubeClientStrategy.self, forKey: .clientStrategy),
             videoQuality: try container.decode(VideoQuality.self, forKey: .videoQuality),
             audioQuality: try container.decode(AudioQuality.self, forKey: .audioQuality),
             selectedVideoFormat: try container.decodeIfPresent(PersistedFormatPresentation.self, forKey: .selectedVideoFormat),

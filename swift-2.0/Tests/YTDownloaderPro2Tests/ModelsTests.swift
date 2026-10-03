@@ -2,6 +2,40 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ModelsTests: XCTestCase {
+    func testClientStrategyRoundTripLegacyAndUnknownValues() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        var options = DownloadOptions.defaults
+        XCTAssertNil(options.clientStrategy)
+        var video = VideoAnalysis(sourceURL: "https://youtu.be/example", title: "Video", duration: nil,
+                                  thumbnailURL: nil, videoFormats: [], audioFormats: [])
+        for strategy in [YouTubeClientStrategy.webEmbedded, .defaultClient] {
+            options.clientStrategy = strategy
+            video.clientStrategy = strategy
+            XCTAssertEqual(try decoder.decode(DownloadOptions.self, from: encoder.encode(options)).clientStrategy, strategy)
+            XCTAssertEqual(try decoder.decode(VideoAnalysis.self, from: encoder.encode(video)).clientStrategy, strategy)
+            XCTAssertEqual(video.scrubbingMediaURLCredentials().clientStrategy, strategy)
+            XCTAssertEqual(DownloadOptions.defaults.replacingStaleSelections(with: video).clientStrategy, strategy)
+        }
+        for value in [try encoder.encode(options), try encoder.encode(video)] {
+            var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: value) as? [String: Any])
+            payload.removeValue(forKey: "clientStrategy")
+            let legacy = try JSONSerialization.data(withJSONObject: payload)
+            if payload["outputKind"] != nil {
+                XCTAssertNil(try decoder.decode(DownloadOptions.self, from: legacy).clientStrategy)
+            } else {
+                XCTAssertNil(try decoder.decode(VideoAnalysis.self, from: legacy).clientStrategy)
+            }
+            payload["clientStrategy"] = "unapproved-client"
+            let unknown = try JSONSerialization.data(withJSONObject: payload)
+            if payload["outputKind"] != nil {
+                XCTAssertThrowsError(try decoder.decode(DownloadOptions.self, from: unknown))
+            } else {
+                XCTAssertThrowsError(try decoder.decode(VideoAnalysis.self, from: unknown))
+            }
+        }
+    }
+
     func testMP4ModeDefaultsAndRoundTripsWithoutLosingUnknownValueValidation() throws {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()

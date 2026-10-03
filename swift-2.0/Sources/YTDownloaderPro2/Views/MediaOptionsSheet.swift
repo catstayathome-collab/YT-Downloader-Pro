@@ -78,6 +78,7 @@ struct MediaOptionsPresentation: Equatable {
         audioChoices = analysis.audioFormats
         subtitleChoices = analysis.subtitleTracks
         options = defaults.normalizedForExecution()
+        options.clientStrategy = analysis.clientStrategy
         let videoPresentation = VideoFormatMenuPresentation(
             formats: analysis.videoFormats,
             selectedID: Self.selectedID(for: defaults.videoQuality, in: analysis.videoFormats),

@@ -2,6 +2,18 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class OptionsPresentationTests: XCTestCase {
+    func testPresentationAdoptsAnalysisClientInsteadOfStaleDefaults() {
+        var analysis = videoAnalysis(videoFormats: [], audioFormats: [])
+        analysis.clientStrategy = .defaultClient
+        var defaults = DownloadOptions.defaults
+        defaults.clientStrategy = .webEmbedded
+        let presentation = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
+        XCTAssertEqual(presentation.options.clientStrategy, .defaultClient)
+        XCTAssertEqual(MediaOptionsPresentation(options: presentation.options).options.clientStrategy, .defaultClient)
+        analysis.clientStrategy = nil
+        XCTAssertNil(MediaOptionsPresentation(analysis: analysis, defaults: defaults).options.clientStrategy)
+    }
+
     func testVideoOptionsRetainAnalyzedIdentityForCompactSheetHeader() {
         let thumbnailURL = URL(string: "https://images.test/video.jpg")!
         let analysis = VideoAnalysis(

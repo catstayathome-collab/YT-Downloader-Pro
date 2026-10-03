@@ -10,8 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-4k-quicktime-output-design.md`
 
-Status: owner approved starting Task 1 on 2026-09-30. Preserve native execution;
-this turn is limited to Task 1. Tasks 2-6 remain pending.
+Status: Task 1 completed on 2026-09-30; owner approved Task 2 on 2026-10-03.
+Tasks 1-2 are implemented. Preserve native execution; Tasks 3-6 remain pending.
 
 ## Global Constraints
 
@@ -82,12 +82,12 @@ job persistence carry DownloadOptions; do not introduce another settings store.
 flow copies the winning analysis strategy to options. Unknown values throw.
 Extend strategy argument construction to consume this bounded enum, never arbitrary client text.
 
-- [ ] RED: embedded 360p success followed by default 2160p success chooses the entire second result, including its audio/subtitles/strategy. Equal maximum height chooses the result with more usable formats; exact ties choose first.
-- [ ] RED: second error retains first usable result; cancellation stops immediately; two failures throw; cookie-enabled requests make one attempt; playlist expansion is unchanged; legacy records decode nil.
-- [ ] Run MetadataProbeTests and ModelsTests and record expected failures.
-- [ ] GREEN: compare at most two successful video candidates lexicographically by maximum height and usable format count. Exclude unusable entries using the existing decoder. Keep results separate. Preserve cancellation and existing error classification.
-- [ ] Verify metadata, model and options tests; refactor candidate comparison into one pure helper used only by this probe.
-- [ ] Commit: `fix(swift): retain the most complete bounded YouTube analysis`.
+- [x] RED: embedded 360p success followed by default 2160p success chooses the entire second result, including its audio/subtitles/strategy. Equal maximum height chooses the result with more usable formats; exact ties choose first.
+- [x] RED: second error retains first usable result; cancellation stops immediately; two failures throw; cookie-enabled requests make one attempt; playlist expansion is unchanged; legacy records decode nil.
+- [x] Run MetadataProbeTests and ModelsTests and record expected failures.
+- [x] GREEN: compare at most two successful video candidates lexicographically by maximum height and usable format count. Exclude unusable entries using the existing decoder. Keep results separate. Preserve cancellation and existing error classification.
+- [x] Verify metadata, model and options tests; refactor candidate comparison into one pure helper used only by this probe.
+- [x] Commit: `fix(swift): retain the most complete bounded YouTube analysis`.
 
 ### Task 3: Select Sources Without A Codec Resolution Ceiling
 
@@ -191,3 +191,31 @@ acceptance requires measured fixture evidence and must not be inferred from unit
   sandbox-restricted global-cache warnings; these are not source compilation failures.
 - No packaged artifact, runtime conversion claim, external account action or
   release is part of Task 1. Live QuickTime/UI acceptance remains Task 6.
+
+## Task 2 Execution Evidence (2026-10-03)
+
+- RED: MetadataProbeTests ran 19 tests with 16 expected failing assertions,
+  reproducing first-success short-circuiting, missing comparison and swallowed
+  cancellation. Model/strategy tests then failed to compile for missing typed
+  clientStrategy fields, before production changes.
+- GREEN: initial focused run of MetadataProbeTests, ModelsTests,
+  OptionsPresentationTests and YouTubeStrategyTests passed 92 tests.
+- Additional coverage: duplicate/DRM/missing-URL entries do not improve a
+  candidate's score; comparison cannot replace a video with a playlist;
+  second-process launch failure retains the first result; pre-cancelled requests
+  launch nothing. Full strict suite passed 609 tests, 0 failures, 1 opt-in
+  Keychain integration test skipped. `git diff --check` passed.
+- Existing first-probe malformed metadata/non-client errors still fail without
+  retry. Existing 403/client-validation retry remains bounded to two attempts.
+- Ruling: downloads with a persisted client keep that client across attempts;
+  nil legacy jobs retain attempt-based fallback. Fresh analysis ignores the
+  persisted hint and compares the two bounded strategies. Task 3 owns the runner's
+  explicit reanalysis/selection validation changes; no silent client switch is
+  introduced here.
+- Ruling: copy strategy in replacingStaleSelections as well as sheet setup,
+  because batch and failed-job editing use that shared selection path.
+- Playlist-first and cookie-enabled success still use one request. No cookie
+  discovery, provider configuration, live media download, packaging or publishing.
+- Validation environment emitted global SwiftPM cache and macOS CoreData XPC
+  diagnostics under sandbox restrictions; XCTest exited 0. No live UI or
+  QuickTime acceptance is claimed by the unit-suite result.

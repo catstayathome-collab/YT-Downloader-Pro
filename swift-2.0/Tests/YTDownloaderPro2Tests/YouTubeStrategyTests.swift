@@ -3,6 +3,23 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class YouTubeStrategyTests: XCTestCase {
+    func testDownloadUsesPersistedClientButFreshAnalysisStillComparesBoth() {
+        let strategy = YouTubeStrategy(toolchain: .fixture())
+        var job = DownloadJob.fixture()
+        for client in [YouTubeClientStrategy.webEmbedded, .defaultClient] {
+            job.options.clientStrategy = client
+            for attempt in [0, 1] {
+                let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: attempt)
+                XCTAssertEqual(arguments.contains("--extractor-args"), client == .webEmbedded)
+                XCTAssertFalse(arguments.contains("--cookies-from-browser"))
+            }
+            let first = strategy.analysisArguments(url: job.sourceURL, options: job.options, attempt: 0)
+            let second = strategy.analysisArguments(url: job.sourceURL, options: job.options, attempt: 1)
+            XCTAssertTrue(first.contains("--extractor-args"))
+            XCTAssertFalse(second.contains("--extractor-args"))
+        }
+    }
+
     func testAnalysisArgumentsUseQuickJSVerifiedClientAndNoTLSBypass() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
 

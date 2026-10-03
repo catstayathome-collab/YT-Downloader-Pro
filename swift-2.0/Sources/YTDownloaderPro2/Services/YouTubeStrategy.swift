@@ -50,26 +50,26 @@ struct YouTubeStrategy: Sendable {
             arguments += ["--extract-audio", "--audio-format", "mp3"]
         }
 
-        arguments += commonArguments(options: job.options, attempt: attempt, toolchain: toolchain)
+        arguments += commonArguments(options: job.options, attempt: attempt, toolchain: toolchain, client: job.options.clientStrategy)
         arguments.append(job.sourceURL)
         return arguments
     }
 
-    private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil) -> [String] {
+    private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil, client: YouTubeClientStrategy? = nil) -> [String] {
         let options = options.normalizedForExecution()
         let selectedToolchain = toolchain ?? self.toolchain
         var arguments = [
             "--js-runtimes",
             "quickjs:\(selectedToolchain.qjs.path)"
         ]
-        if shouldUseExplicitWebEmbeddedClient(options: options, attempt: attempt) {
+        if (client ?? analysisClient(options: options, attempt: attempt)) == .webEmbedded {
             arguments += ["--extractor-args", "youtube:player_client=\(Self.initialClient)"]
         }
         return arguments + subtitleArguments(for: options) + metadataArguments(for: options) + cookieArguments(for: options.cookies)
     }
 
-    private func shouldUseExplicitWebEmbeddedClient(options: DownloadOptions, attempt: Int) -> Bool {
-        options.cookies != .none || attempt == 0
+    func analysisClient(options: DownloadOptions, attempt: Int) -> YouTubeClientStrategy {
+        options.cookies != .none || attempt == 0 ? .webEmbedded : .defaultClient
     }
 
     private func selectedFormat(for options: DownloadOptions) -> String {
