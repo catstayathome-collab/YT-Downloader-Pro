@@ -155,12 +155,18 @@ use existing postprocessing progress events rather than a second scheduler job.
 
 **Interfaces:** No new runtime interfaces. Exercise the integrated pipeline from Tasks 1-5.
 
-- [ ] Run the full strict suite; fix regressions through RED/GREEN tests. Run `git diff --check` and review all changed files for policy bypass, file ownership and secret leakage.
-- [ ] Build only the internal test flavor using existing `scripts/build_swift_2.sh` options. Record commit/dirty state, artifact path and SHA-256. Never reuse a stale artifact as proof.
-- [ ] Verify Chinese/Japanese/English sheets/settings, old-job migration, Free locks, Test Pro 2160p, both output modes, default and queued-job persistence, batch policy, cancellation and retry.
+- [x] Run the full strict suite; fix regressions through RED/GREEN tests. Run `git diff --check` and review all changed files for policy bypass, file ownership and secret leakage.
+- [x] Build only the internal test flavor using existing `scripts/build_swift_2.sh` options. Record commit/dirty state, artifact path and SHA-256. Never reuse a stale artifact as proof.
+- [x] Verify Chinese/Japanese/English sheets/settings, old-job migration, Free locks, Test Pro 2160p, both output modes, default and queued-job persistence, batch policy, cancellation and retry. UI observations and automated coverage are distinguished in the acceptance record.
 - [ ] Freshly analyze gsT6eKsnT0M without cookies. Download a selected 4K result in compatible mode, confirm stream details with bundled ffprobe, then open in QuickTime and verify play, seek and audio. Repeat original mode and disclose its playback limitations. Network restrictions are blockers, not passing tests.
-- [ ] Check synthetic portrait/VFR/HDR rejection, subtitles, duplicate filenames and source cleanup against the Task 4/5 fixtures. Record time/size and visual quality observations for chosen encoder settings.
-- [ ] Review the complete diff and record unresolved risks. Commit evidence as `test(swift): record 4K QuickTime regression acceptance` only after actual checks. Offer internal artifact for owner testing; no release/push/merge without approval.
+- [x] Check synthetic portrait/VFR/HDR rejection, subtitles, duplicate filenames and source cleanup against the Task 4/5 fixtures. Record time/size and visual quality observations for chosen encoder settings.
+- [x] Review the complete diff and record unresolved risks. Commit evidence as `test(swift): record 4K QuickTime regression acceptance` only after actual checks. Offer internal artifact for owner testing; no release/push/merge without approval.
+
+Task 6 engineering evidence is recorded in `docs/swift-2.0/4K_QUICKTIME_ACCEPTANCE.md`.
+The playback item remains unchecked only for human audio listening/sync/quality
+approval: no-cookie analysis, actual compatible/original 4K downloads, ffprobe,
+QuickTime play/seek and non-silent audio decode have been performed. This is not
+public-release approval; clean-Mac/signing/notarization remain separate gates.
 
 ## Self-Review
 
