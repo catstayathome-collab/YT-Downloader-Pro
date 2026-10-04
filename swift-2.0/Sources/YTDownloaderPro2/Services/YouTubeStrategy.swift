@@ -21,7 +21,7 @@ struct YouTubeStrategy: Sendable {
         options.cookies == .none ? 2 : 1
     }
 
-    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int) -> [String] {
+    func downloadArguments(job: DownloadJob, toolchain: Toolchain, attempt: Int, featurePolicy: FeaturePolicyContext = .publicCompatibility, sourceTemplate: String? = nil) -> [String] {
         var arguments = [
             "--no-warnings",
             "--continue",
@@ -31,9 +31,9 @@ struct YouTubeStrategy: Sendable {
             "--ffmpeg-location",
             toolchain.ffmpeg.deletingLastPathComponent().path,
             "--format",
-            selectedFormat(for: job.options),
+            selectedFormat(for: job.options.normalizedForExecution(), featurePolicy: featurePolicy),
             "--output",
-            outputTemplate(for: job),
+            sourceTemplate ?? outputTemplate(for: job),
             "--print",
             "before_dl:ytdp:phase|downloading",
             "--progress-template",
@@ -45,51 +45,55 @@ struct YouTubeStrategy: Sendable {
         ]
 
         if job.options.outputKind == .mp4 {
-            arguments += ["--merge-output-format", "mp4"]
+            // A progressive single-file format does not run yt-dlp's merger.
+            arguments += ["--merge-output-format", "mp4", "--remux-video", "mp4"]
         } else {
             arguments += ["--extract-audio", "--audio-format", "mp3"]
         }
 
-        arguments += commonArguments(options: job.options, attempt: attempt, toolchain: toolchain)
+        arguments += commonArguments(options: job.options, attempt: attempt, toolchain: toolchain, client: job.options.clientStrategy)
         arguments.append(job.sourceURL)
         return arguments
     }
 
-    private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil) -> [String] {
+    private func commonArguments(options: DownloadOptions, attempt: Int, toolchain: Toolchain? = nil, client: YouTubeClientStrategy? = nil) -> [String] {
         let options = options.normalizedForExecution()
         let selectedToolchain = toolchain ?? self.toolchain
         var arguments = [
             "--js-runtimes",
             "quickjs:\(selectedToolchain.qjs.path)"
         ]
-        if shouldUseExplicitWebEmbeddedClient(options: options, attempt: attempt) {
+        if (client ?? analysisClient(options: options, attempt: attempt)) == .webEmbedded {
             arguments += ["--extractor-args", "youtube:player_client=\(Self.initialClient)"]
         }
         return arguments + subtitleArguments(for: options) + metadataArguments(for: options) + cookieArguments(for: options.cookies)
     }
 
-    private func shouldUseExplicitWebEmbeddedClient(options: DownloadOptions, attempt: Int) -> Bool {
-        options.cookies != .none || attempt == 0
+    func analysisClient(options: DownloadOptions, attempt: Int) -> YouTubeClientStrategy {
+        options.cookies != .none || attempt == 0 ? .webEmbedded : .defaultClient
     }
 
-    private func selectedFormat(for options: DownloadOptions) -> String {
+    private func selectedFormat(for options: DownloadOptions, featurePolicy: FeaturePolicyContext) -> String {
         switch options.outputKind {
         case .mp4:
-            let videoID = QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat)
-                ? formatID(from: options.videoQuality)
-                : nil
-            let audioID = QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat)
-                ? formatID(from: options.audioQuality)
-                : nil
+            let videoID = formatID(from: options.videoQuality)
+            let audioID = formatID(from: options.audioQuality)
+            let heightFilter: String
+            if case let .enforced(policy) = featurePolicy,
+               case let .limited(limit) = policy.videoHeightPolicy {
+                heightFilter = "[height<=\(limit)]"
+            } else {
+                heightFilter = ""
+            }
             switch (videoID, audioID) {
             case let (videoID?, audioID?):
-                return "\(videoID)+\(audioID)"
+                return "\(videoID)\(heightFilter)+\(audioID)"
             case let (videoID?, nil):
-                return "\(videoID)+\(QuickTimeMP4Compatibility.ytDLPAudioSelector)"
+                return "\(videoID)\(heightFilter)+bestaudio"
             case let (nil, audioID?):
-                return "\(QuickTimeMP4Compatibility.ytDLPVideoSelector)+\(audioID)"
+                return "bestvideo\(heightFilter)+\(audioID)"
             case (nil, nil):
-                return QuickTimeMP4Compatibility.ytDLPFormatSelector
+                return "bestvideo\(heightFilter)+bestaudio/best\(heightFilter)"
             }
         case .mp3:
             let audioID = formatID(from: options.audioQuality) ?? "bestaudio"
@@ -139,12 +143,23 @@ struct YouTubeStrategy: Sendable {
     }
 
     private func subtitleArguments(for options: DownloadOptions) -> [String] {
-        guard options.subtitleMode != .none else { return [] }
-
-        var arguments = ["--write-subs"]
-        if let language = options.subtitleLanguage, !language.isEmpty {
-            arguments += ["--sub-langs", language]
+        guard options.subtitleMode != .none,
+              let language = options.subtitleLanguage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !language.isEmpty,
+              language.caseInsensitiveCompare("live_chat") != .orderedSame else {
+            return []
         }
+
+        var arguments: [String]
+        switch options.subtitleSource {
+        case .official:
+            arguments = ["--write-subs"]
+        case .automatic:
+            arguments = ["--write-auto-subs"]
+        case nil:
+            arguments = ["--write-subs", "--write-auto-subs"]
+        }
+        arguments += ["--sub-langs", language, "--sub-format", "srt"]
         if options.subtitleMode == .embed {
             arguments.append("--embed-subs")
         }

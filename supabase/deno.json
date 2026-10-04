@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "test:billing:all": "deno test --allow-env=YTDP_AIO_VECTOR_FILE,YTDP_LOCAL_BILLING_DATABASE_URL,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGAPPNAME,PGTARGETSESSIONATTRS --allow-net=127.0.0.1:55432 --allow-read=/tmp/ytdp-ecpay-vectors.json,../swift-2.0/Tests/YTDownloaderPro2Tests/Fixtures,functions/entitlement/test-fixtures functions/entitlement",
+    "test:billing:db": "deno test --allow-env=YTDP_LOCAL_BILLING_DATABASE_URL,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGAPPNAME,PGTARGETSESSIONATTRS --allow-net=127.0.0.1:55432 functions/entitlement/postgres_billing_repository_test.ts functions/entitlement/billing_management_database_test.ts functions/entitlement/billing_recovery_database_test.ts"
+  },
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.0",
+    "postgres": "npm:postgres@3.4.9"
+  },
+  "compilerOptions": {
+    "strict": true
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false
+  }
+}

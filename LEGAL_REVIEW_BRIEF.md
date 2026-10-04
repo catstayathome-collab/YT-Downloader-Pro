@@ -265,6 +265,7 @@ Before final Go, counsel must review the final versions of:
 - Copyright complaint and misuse process.
 - In-app onboarding, login, paywall, error, and cancellation text.
 - Instagram launch posts, claims, screenshots, and FAQ.
+- Traditional Chinese and English public-copy consistency record.
 - ECPay written response and merchant terms.
 - Dependency inventory, licenses, and exact signed release artifact.
 

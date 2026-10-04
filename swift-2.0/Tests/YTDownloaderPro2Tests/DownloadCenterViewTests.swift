@@ -2,6 +2,53 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadCenterViewTests: XCTestCase {
+    func testDefaultLivePolicyResolutionKeepsPublicCompatibility() {
+        let resolution = FeaturePolicyEnvironmentResolution.resolve(from: [:])
+
+        XCTAssertFalse(resolution.context.isEnforced)
+        XCTAssertEqual(resolution.mode, .publicCompatibility)
+    }
+
+    func testPolicyDenialPresentationMapsEveryReason() {
+        for reason in FeatureDenialReason.allCases {
+            let denial = FeatureDenial(
+                requiredFeature: nil,
+                reason: reason,
+                canChooseFreeAlternative: false
+            )
+            let presentation = FeaturePolicyDenialPresentation(denial: denial)
+
+            XCTAssertFalse(presentation.titleKey.rawValue.isEmpty)
+            XCTAssertFalse(presentation.messageKey.rawValue.isEmpty)
+        }
+    }
+
+    func testFeaturePolicyDenialAlertPrecedesAutomaticUpdateButNotConfirmation() {
+        let denial = FeatureDenial(
+            requiredFeature: .videoHD,
+            reason: .videoHeightRequiresPro,
+            canChooseFreeAlternative: true
+        )
+        let notice = UpdateNotice(id: 7, result: .upToDate, origin: .automatic)
+
+        XCTAssertEqual(
+            DownloadCenterPresentedAlert.resolve(
+                confirmation: nil,
+                automaticUpdate: notice,
+                featurePolicyDenial: denial
+            ),
+            .featurePolicy(denial)
+        )
+        XCTAssertEqual(
+            DownloadCenterPresentedAlert.resolve(
+                confirmation: .clearHistory,
+                automaticUpdate: notice,
+                featurePolicyDenial: denial
+            ),
+            .confirmation(.clearHistory)
+        )
+    }
+
     func testAccountFocusPolicySelectsOnlyControlsRenderedByResultingPresentation() {
         let google = AccountSettingsFocusInitiator(control: .google, provider: .google)
         let appleRetry = AccountSettingsFocusInitiator(control: .retry, provider: .apple)
@@ -72,6 +119,8 @@ final class DownloadCenterViewTests: XCTestCase {
             let presentation = AccountSettingsPresentation.make(
                 environment: .mock,
                 state: state,
+                plan: .free,
+                entitlementStatus: .free,
                 locale: locale
             )
 
@@ -97,6 +146,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .mock,
             state: .signedOut,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
 
@@ -117,6 +168,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .disabled,
             state: .disabled,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
 
@@ -132,6 +185,8 @@ final class DownloadCenterViewTests: XCTestCase {
         let presentation = AccountSidebarPresentation.make(
             environment: .mock,
             state: .signedOut,
+            plan: .free,
+            entitlementStatus: .free,
             locale: Locale(identifier: "en")
         )
         let footer = DownloadSidebarComposition.Region.accountFooter(presentation)
@@ -276,6 +331,24 @@ final class DownloadCenterViewTests: XCTestCase {
         XCTAssertEqual(presentation.actions, [.cancelWithConfirmation])
     }
 
+    func testMediaProcessingCardLocalizesActualStageAndDoesNotExposePause() {
+        for (stage, chinese, english, japanese) in [
+            (MediaProcessingStage.converting, "轉檔中", "Converting", "変換中"),
+            (.verifying, "驗證中", "Verifying", "検証中"),
+            (.remuxing, "封裝中", "Remuxing", "再多重化中")
+        ] {
+            var job = DownloadJob.fixture(status: .merging)
+            job.mediaProcessingStage = stage
+            let presentation = DownloadCardPresentation(job: job)
+            XCTAssertEqual(presentation.statusLabel(locale: Locale(identifier: "zh-Hant")), chinese)
+            XCTAssertEqual(presentation.statusLabel(locale: Locale(identifier: "en")), english)
+            XCTAssertEqual(presentation.statusLabel(locale: Locale(identifier: "ja")), japanese)
+            XCTAssertEqual(presentation.actions, [.cancelWithConfirmation])
+            job.status = .completed
+            XCTAssertEqual(DownloadCardPresentation(job: job).statusLabel(locale: Locale(identifier: "zh-Hant")), "已完成")
+        }
+    }
+
     func testCompletedCardExposesPlayRevealAndRemove() {
         let actions = DownloadCardPresentation(job: .fixture(status: .completed)).actions
 
@@ -323,7 +396,9 @@ final class DownloadCenterViewTests: XCTestCase {
             .authenticationRequired,
             .formatReselectionRequired,
             .outputPermissionDenied,
-            .diskFull
+            .diskFull,
+            .compatibleEncoderUnavailable,
+            .unsupportedMediaConversion
         ]
 
         for category in DownloadFailure.Category.allCases {

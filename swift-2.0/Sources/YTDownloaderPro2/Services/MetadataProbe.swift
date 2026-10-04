@@ -29,18 +29,28 @@ actor MetadataProbe: MetadataAnalyzing {
         }
         let strategy = YouTubeStrategy(toolchain: toolchain)
         let maximumAttempts = strategy.maximumAttempts(for: options)
+        var bestVideo: VideoAnalysis?
         for attempt in 0..<maximumAttempts {
+            try Task.checkCancellation()
             let result: ProcessResult
             do {
                 let request = try analysisRequest(url: url, options: options, attempt: attempt)
                 result = try await runAnalysisProcess(request)
+                try Task.checkCancellation()
+            } catch is CancellationError {
+                throw CancellationError()
             } catch let failure as DownloadFailure {
+                try Task.checkCancellation()
+                if let bestVideo { return .video(bestVideo) }
                 throw failure
             } catch {
+                try Task.checkCancellation()
+                if let bestVideo { return .video(bestVideo) }
                 throw Toolchain.failure(for: "yt-dlp_macos")
             }
 
             guard result.exitCode == 0 else {
+                if let bestVideo { return .video(bestVideo) }
                 let failure = failure(for: result)
                 if isRetryableClientFailure(result), attempt + 1 < maximumAttempts {
                     continue
@@ -48,13 +58,39 @@ actor MetadataProbe: MetadataAnalyzing {
                 throw failure
             }
 
-            return try decodeAnalysisOutput(result.stdout, requestedURL: url)
+            let analysis: AnalysisResult
+            do {
+                analysis = try decodeAnalysisOutput(result.stdout, requestedURL: url)
+            } catch {
+                if let bestVideo { return .video(bestVideo) }
+                throw error
+            }
+            switch analysis {
+            case .playlist:
+                // A comparison must never change a previously identified single video into a playlist.
+                return bestVideo.map(AnalysisResult.video) ?? analysis
+            case var .video(video):
+                video.clientStrategy = strategy.analysisClient(options: options, attempt: attempt)
+                if bestVideo.map({ Self.isMoreComplete(video, than: $0) }) ?? true {
+                    bestVideo = video
+                }
+            }
         }
 
+        try Task.checkCancellation()
+        if let bestVideo { return .video(bestVideo) }
         throw DownloadFailure(category: .clientValidationFailed, technicalDetail: "Video service client validation did not succeed.")
     }
 
+    private static func isMoreComplete(_ candidate: VideoAnalysis, than current: VideoAnalysis) -> Bool {
+        let candidateHeight = candidate.videoFormats.compactMap(\.height).max() ?? 0
+        let currentHeight = current.videoFormats.compactMap(\.height).max() ?? 0
+        if candidateHeight != currentHeight { return candidateHeight > currentHeight }
+        return candidate.videoFormats.count > current.videoFormats.count
+    }
+
     private func runAnalysisProcess(_ request: MetadataAnalysisRequest) async throws -> ProcessResult {
+        try Task.checkCancellation()
         guard let launcher = processRunner as? any ProcessLaunching else {
             return try await processRunner.run(executable: request.executable, arguments: request.arguments)
         }
@@ -124,8 +160,46 @@ actor MetadataProbe: MetadataAnalyzing {
             duration: metadata.duration,
             thumbnailURL: supportedRemoteURL(metadata.thumbnail),
             videoFormats: videoFormats,
-            audioFormats: audioFormats
+            audioFormats: audioFormats,
+            subtitleTracks: subtitleTracks(from: metadata)
         ))
+    }
+
+    private func subtitleTracks(from metadata: RawMetadata) -> [SubtitleTrack] {
+        let official = subtitleTracks(in: metadata.subtitles, source: .official) { languageCode, _ in
+            languageCode.caseInsensitiveCompare("live_chat") != .orderedSame
+        }
+        let automatic = subtitleTracks(in: metadata.automaticCaptions, source: .automatic) { languageCode, formats in
+            formats.contains(where: isOriginalAutomaticCaption) || languageCode.lowercased().hasSuffix("-orig")
+        }
+        return (official + automatic).sorted { left, right in
+            if left.source != right.source {
+                return left.source == .official
+            }
+            return left.languageCode < right.languageCode
+        }
+    }
+
+    private func subtitleTracks(
+        in groups: [String: [RawSubtitleFormat]]?,
+        source: SubtitleSource,
+        include: (String, [RawSubtitleFormat]) -> Bool
+    ) -> [SubtitleTrack] {
+        (groups ?? [:]).compactMap { languageCode, formats in
+            guard include(languageCode, formats), formats.contains(where: { $0.extensionName == "srt" }) else {
+                return nil
+            }
+            let displayName = formats.compactMap(\.name).first(where: { !$0.isEmpty }) ?? languageCode
+            return SubtitleTrack(languageCode: languageCode, displayName: displayName, source: source)
+        }
+    }
+
+    private func isOriginalAutomaticCaption(_ format: RawSubtitleFormat) -> Bool {
+        guard let value = format.url,
+              let components = URLComponents(string: value) else {
+            return false
+        }
+        return components.queryItems?.contains(where: { $0.name == "tlang" }) != true
     }
 
     private func playlistAnalysis(from metadata: RawMetadata) throws -> AnalysisResult {
@@ -275,6 +349,8 @@ private struct RawMetadata: Decodable {
     let thumbnail: String?
     let formats: [RawFormat]?
     let entries: [RawPlaylistEntry?]?
+    let subtitles: [String: [RawSubtitleFormat]]?
+    let automaticCaptions: [String: [RawSubtitleFormat]]?
 
     enum CodingKeys: String, CodingKey {
         case type = "_type"
@@ -286,6 +362,20 @@ private struct RawMetadata: Decodable {
         case thumbnail
         case formats
         case entries
+        case subtitles
+        case automaticCaptions = "automatic_captions"
+    }
+}
+
+private struct RawSubtitleFormat: Decodable {
+    let extensionName: String?
+    let name: String?
+    let url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case extensionName = "ext"
+        case name
+        case url
     }
 }
 

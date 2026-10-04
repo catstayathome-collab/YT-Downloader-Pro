@@ -4,6 +4,7 @@ enum AuthenticationProviderError: Error, Equatable, Sendable {
     case cancelled
     case invalidSession
     case expiredSession
+    case temporarilyUnavailable
 }
 
 protocol AuthenticationProvider: Sendable {

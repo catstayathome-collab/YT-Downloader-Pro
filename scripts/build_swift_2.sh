@@ -6,35 +6,45 @@ SWIFT_DIR="$ROOT_DIR/swift-2.0"
 BUILD_ROOT="$ROOT_DIR/build/swift-2.0"
 CLANG_MODULE_CACHE_PATH="$SWIFT_DIR/.build/clang-module-cache"
 export CLANG_MODULE_CACHE_PATH
-DIST_DIR="$ROOT_DIR/dist"
+DIST_ROOT="$ROOT_DIR/dist/swift-2.0"
 APP_NAME="YT Downloader Pro 2"
-APP_PATH="$DIST_DIR/$APP_NAME.app"
 EXECUTABLE_NAME="$APP_NAME"
-REPORT_PATH="$DIST_DIR/swift-2.0-bundle-report.json"
+APP_CHANNEL=""
+APP_CHANNEL_SEEN=false
+CHANNEL_DIST_DIR=""
+APP_PATH=""
+REPORT_PATH=""
+ZIP_PATH=""
 VERSION=""
 ARCHITECTURE_ARGUMENT="arm64"
 SIGNING_IDENTITY=""
 TEAM_ID=""
 PROVISIONING_PROFILE=""
 AUTH_ENTITLEMENTS=""
+AUTH_CONFIG=""
+AUTH_CONFIG_SEEN=false
 SIGNING_TEMP_DIR=""
 SBOM_CREATED=""
 BUILD_KIND=""
 HELPERS=(yt-dlp_macos ffmpeg ffprobe qjs)
 ARCHITECTURES=()
+SWIFT_CHANNEL_FLAGS=()
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/build_swift_2.sh --version VERSION [options]
+Usage: ./scripts/build_swift_2.sh --app-channel CHANNEL --version VERSION [options]
 
 Options:
+  --app-channel CHANNEL     public or internal-test (required)
   --architectures LIST       arm64, x86_64, universal, or comma-separated slices
                              (default: arm64)
-  --unsigned-test            ad-hoc sign an internal-test app and ZIP
+  --unsigned-test            ad-hoc sign a local test app and ZIP
   --signing-identity NAME    sign with a Developer ID Application identity
   --team-id TEAMID           expected 10-character Apple Team ID (Developer ID only)
   --provisioning-profile PATH
                              Developer ID profile authorizing the app ID and Keychain group
+  --auth-config PATH         validated public-material-only Supabase staging config
+                             (internal-test only)
   --sbom-created TIMESTAMP   SPDX creation time in RFC3339 UTC form
   -h, --help                 show this help
 EOF
@@ -47,6 +57,13 @@ fail() {
 
 while (($#)); do
   case "$1" in
+    --app-channel)
+      (($# >= 2)) || fail "--app-channel requires a value"
+      [[ "$APP_CHANNEL_SEEN" == false ]] || fail "--app-channel may be specified only once"
+      APP_CHANNEL="$2"
+      APP_CHANNEL_SEEN=true
+      shift 2
+      ;;
     --version)
       (($# >= 2)) || fail "--version requires a value"
       VERSION="$2"
@@ -80,6 +97,13 @@ while (($#)); do
       PROVISIONING_PROFILE="$2"
       shift 2
       ;;
+    --auth-config)
+      (($# >= 2)) || fail "--auth-config requires a value"
+      [[ "$AUTH_CONFIG_SEEN" == false ]] || fail "--auth-config may be specified only once"
+      AUTH_CONFIG="$2"
+      AUTH_CONFIG_SEEN=true
+      shift 2
+      ;;
     --sbom-created)
       (($# >= 2)) || fail "--sbom-created requires a value"
       SBOM_CREATED="$2"
@@ -94,6 +118,33 @@ while (($#)); do
       ;;
   esac
 done
+
+case "$APP_CHANNEL" in
+  public)
+    ;;
+  internal-test)
+    SWIFT_CHANNEL_FLAGS=(-Xswiftc -DYTDP_INTERNAL_TEST)
+    ;;
+  "")
+    fail "--app-channel public or --app-channel internal-test is required"
+    ;;
+  *)
+    fail "unsupported --app-channel: $APP_CHANNEL"
+    ;;
+esac
+
+if [[ -n "$AUTH_CONFIG" ]]; then
+  [[ "$APP_CHANNEL" == "internal-test" ]] || \
+    fail "--auth-config is limited to internal-test staging builds"
+  [[ -f "$AUTH_CONFIG" && ! -L "$AUTH_CONFIG" ]] || \
+    fail "--auth-config must be a regular non-symlink file"
+  python3 "$ROOT_DIR/scripts/check_supabase_configuration.py" "$AUTH_CONFIG" || \
+    fail "--auth-config failed validation"
+fi
+
+CHANNEL_DIST_DIR="$DIST_ROOT/$APP_CHANNEL"
+APP_PATH="$CHANNEL_DIST_DIR/$APP_NAME.app"
+REPORT_PATH="$CHANNEL_DIST_DIR/swift-2.0-$APP_CHANNEL-bundle-report.json"
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--version must contain three numeric components"
 [[ -n "$BUILD_KIND" ]] || fail "--unsigned-test or --signing-identity is required"
@@ -148,10 +199,7 @@ case "$ARCHITECTURE_ARGUMENT" in
 esac
 
 ARCHITECTURE_LABEL="$(IFS=-; printf '%s' "${ARCHITECTURES[*]}")"
-ZIP_PATH="$DIST_DIR/YT-Downloader-Pro-$VERSION-macOS-$ARCHITECTURE_LABEL-internal.zip"
-if [[ "$BUILD_KIND" == "developer-id" ]]; then
-  ZIP_PATH="$DIST_DIR/YT-Downloader-Pro-$VERSION-macOS-$ARCHITECTURE_LABEL.zip"
-fi
+ZIP_PATH="$CHANNEL_DIST_DIR/YT-Downloader-Pro-$VERSION-macOS-$ARCHITECTURE_LABEL-$APP_CHANNEL.zip"
 
 preflight_helper_architectures() {
   local helper helper_path available_architecture requested_architecture found
@@ -185,7 +233,8 @@ swift test \
   --package-path "$SWIFT_DIR" \
   --disable-sandbox \
   -Xswiftc -strict-concurrency=complete \
-  -Xswiftc -warnings-as-errors
+  -Xswiftc -warnings-as-errors \
+  ${SWIFT_CHANNEL_FLAGS[@]+"${SWIFT_CHANNEL_FLAGS[@]}"}
 
 rm -rf "$BUILD_ROOT"
 mkdir -p "$BUILD_ROOT"
@@ -202,20 +251,22 @@ for architecture in "${ARCHITECTURES[@]}"; do
     --triple "$triple" \
     --disable-sandbox \
     -Xswiftc -strict-concurrency=complete \
-    -Xswiftc -warnings-as-errors
+    -Xswiftc -warnings-as-errors \
+    ${SWIFT_CHANNEL_FLAGS[@]+"${SWIFT_CHANNEL_FLAGS[@]}"}
   bin_path="$(swift build \
     --package-path "$SWIFT_DIR" \
     --scratch-path "$scratch_path" \
     --configuration release \
     --triple "$triple" \
     --disable-sandbox \
+    ${SWIFT_CHANNEL_FLAGS[@]+"${SWIFT_CHANNEL_FLAGS[@]}"} \
     --show-bin-path)"
   binary_path="$bin_path/YTDownloaderPro2"
   [[ -f "$binary_path" && -x "$binary_path" ]] || fail "SwiftPM release executable is missing: $binary_path"
   BINARIES+=("$binary_path")
 done
 
-rm -rf "$APP_PATH" "$ZIP_PATH" "$REPORT_PATH"
+rm -rf "$CHANNEL_DIST_DIR"
 MACOS_DIR="$APP_PATH/Contents/MacOS"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
@@ -247,6 +298,9 @@ done
 /usr/bin/install -m 644 \
   "$SWIFT_DIR/Sources/YTDownloaderPro2/Resources/Localizable.xcstrings" \
   "$RESOURCES_DIR/Localizable.xcstrings"
+if [[ -n "$AUTH_CONFIG" ]]; then
+  /usr/bin/install -m 644 "$AUTH_CONFIG" "$RESOURCES_DIR/SupabaseConfiguration.json"
+fi
 for license_name in \
   FFmpeg-LGPL-2.1.txt \
   GPL-3.0-or-later.txt \
@@ -306,6 +360,8 @@ cat > "$APP_PATH/Contents/Info.plist" <<EOF
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>YTDPBuildChannel</key>
+  <string>$APP_CHANNEL</string>
 </dict>
 </plist>
 EOF
@@ -355,6 +411,7 @@ fi
 python3 "$ROOT_DIR/scripts/check_swift_bundle.py" \
   "$APP_PATH" \
   --expected-version "$VERSION" \
+  --expected-app-channel "$APP_CHANNEL" \
   --architectures "$ARCHITECTURE_CSV" \
   --inventory "$ROOT_DIR/tools/macos-helper-inventory.json" \
   "${VERIFY_SIGNING_ARGUMENTS[@]}" \
@@ -362,5 +419,5 @@ python3 "$ROOT_DIR/scripts/check_swift_bundle.py" \
   --archive "$ZIP_PATH"
 
 printf 'App: %s\n' "$APP_PATH"
-printf 'Internal ZIP: %s\n' "$ZIP_PATH"
+printf 'ZIP: %s\n' "$ZIP_PATH"
 printf 'Verification report: %s\n' "$REPORT_PATH"

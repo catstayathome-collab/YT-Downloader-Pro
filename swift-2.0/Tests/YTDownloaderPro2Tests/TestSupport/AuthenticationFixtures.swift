@@ -1,5 +1,105 @@
+import CryptoKit
 import Foundation
 @testable import YTDownloaderPro2
+
+func entitlementFixtureJWS() throws -> String {
+    let data = try fixtureData(named: "entitlement-valid-es256.jws")
+    guard let value = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty else {
+        throw NSError(domain: "EntitlementFixture", code: 1)
+    }
+    return value
+}
+
+func entitlementFixtureContext(subject: String, now: Date) throws -> EntitlementVerificationContext {
+    let publicKey = try P256.Signing.PublicKey(
+        x963Representation: fixtureData(named: "entitlement-es256-public-key.x963")
+    )
+    return EntitlementVerificationContext(
+        issuer: "https://accounts.ytdownloaderpro.example/staging",
+        audience: "com.tachouweng.ytdownloaderpro2",
+        subject: subject,
+        now: now,
+        allowedClockSkew: 5 * 60,
+        publicKeys: ["test-es256-2026-09": publicKey]
+    )
+}
+
+func entitlementBase64URL(_ object: Any) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    return data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+}
+
+struct EntitlementTestSigner {
+    let privateKey = P256.Signing.PrivateKey()
+    let keyID = "test-generated-key"
+    let issuer = "https://accounts.ytdownloaderpro.example/staging"
+    let audience = "com.tachouweng.ytdownloaderpro2"
+
+    func context(
+        subject: String,
+        now: Date,
+        acceptsCachedExpiry: Bool = false
+    ) -> EntitlementVerificationContext {
+        EntitlementVerificationContext(
+            issuer: issuer,
+            audience: audience,
+            subject: subject,
+            now: now,
+            allowedClockSkew: 5 * 60,
+            acceptedExpiryGrace: acceptsCachedExpiry ? VerifiedEntitlement.offlineGraceDuration : 0,
+            publicKeys: [keyID: privateKey.publicKey]
+        )
+    }
+
+    func validClaims(subject: String, now: Date) -> [String: Any] {
+        let issuedAt = Int(now.timeIntervalSince1970)
+        return [
+            "iss": issuer,
+            "aud": audience,
+            "sub": subject,
+            "iat": issuedAt,
+            "nbf": issuedAt - 30,
+            "exp": issuedAt + 86_400,
+            "jti": UUID().uuidString,
+            "schema": 1,
+            "plan": "pro",
+            "features": FeatureID.known.map(\.rawValue).sorted(),
+            "maxVideoHeight": NSNull(),
+            "subscriptionState": "active",
+            "grantRevision": 7
+        ]
+    }
+
+    func sign(
+        claims: [String: Any],
+        header: [String: Any]? = nil
+    ) throws -> String {
+        let encodedHeader = try entitlementBase64URL(header ?? [
+            "alg": "ES256",
+            "kid": keyID,
+            "typ": "JWT"
+        ])
+        let encodedClaims = try entitlementBase64URL(claims)
+        let input = Data("\(encodedHeader).\(encodedClaims)".utf8)
+        let signature = try privateKey.signature(for: input)
+        let encodedSignature = signature.rawRepresentation.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "\(encodedHeader).\(encodedClaims).\(encodedSignature)"
+    }
+}
+
+private func fixtureData(named name: String) throws -> Data {
+    guard let url = Bundle.module.url(forResource: name, withExtension: nil) else {
+        throw NSError(domain: "EntitlementFixture", code: 2)
+    }
+    return try Data(contentsOf: url)
+}
 
 enum VaultOperation: Equatable, Sendable {
     case load(AuthEnvironment)
@@ -313,7 +413,7 @@ extension AccountSummary {
             provider: provider,
             accountID: "mock-account",
             displayName: "Demo User",
-            planPreview: .pro,
+            maskedEmail: nil,
             expiresAt: Date(timeIntervalSince1970: 4_000_000_000)
         )
     }
@@ -333,7 +433,7 @@ extension AuthenticationSession {
                 provider: provider,
                 accountID: accountID,
                 displayName: displayName,
-                planPreview: .pro,
+                maskedEmail: nil,
                 expiresAt: expiresAt
             ),
             accessToken: accessToken,

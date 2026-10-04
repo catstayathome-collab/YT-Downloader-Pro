@@ -22,7 +22,7 @@ struct MockAuthenticationProvider: AuthenticationProvider {
             provider: kind,
             accountID: "mock-\(kind.rawValue)-\(identifier)",
             displayName: kind == .google ? "Demo Google User" : "Demo Apple User",
-            planPreview: .pro,
+            maskedEmail: nil,
             expiresAt: now().addingTimeInterval(30 * 24 * 60 * 60)
         )
         return AuthenticationSession(

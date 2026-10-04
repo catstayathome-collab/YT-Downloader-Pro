@@ -17,7 +17,7 @@ final class AuthenticationModelsTests: XCTestCase {
                 provider: .google,
                 accountID: "mock-account",
                 displayName: "Demo User",
-                planPreview: .pro,
+                maskedEmail: "d•••@example.com",
                 expiresAt: Date(timeIntervalSince1970: 2_000)
             ),
             accessToken: "memory-only-access",

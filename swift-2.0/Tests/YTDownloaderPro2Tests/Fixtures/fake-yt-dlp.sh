@@ -1,6 +1,58 @@
 #!/bin/sh
 set -eu
 
+root=$(dirname "$0")
+mode=$(cat "$root/fixture-mode" 2>/dev/null || true)
+last=""
+for argument in "$@"; do last="$argument"; done
+if printf '%s\n' "$@" | grep -q -- '-show_streams'; then
+    printf '%s\n' "$*" >> "$root/probe-command"
+    name=$(basename "$last")
+    printf 'probe:%s\n' "$name" >> "$root/pipeline.trace"
+    case "$mode:$name" in
+        *unknown-color*:source.mp4) printf '{"streams":[{"index":0,"codec_type":"video","codec_name":"vp9","width":1280,"height":720,"pix_fmt":"yuv420p"}]}'; exit 0 ;;
+        *invalid-probe*) printf '{}'; exit 0 ;;
+        *wait-source*:source.mp4|*wait-final*:converted.mp4|*wait-capability*:probe-*)
+            touch "$root/phase-started"
+            trap 'echo stopped >> "$root/pipeline.trace"; exit 0' INT TERM
+            while :; do sleep 1; done ;;
+    esac
+    codec=h264; tag=avc1; width=1280; height=720; duration=10; frames=240
+    case "$mode:$name" in
+        *source-decode-error*:source.mp4|*final-decode-error*:converted.mp4) echo 'Error decoding frame' >&2 ;;
+        *missing-frame*:converted.mp4) frames=239 ;;
+        *convert*:source.mp4|*capability*:source.mp4) codec=vp9 ;;
+        *bad-final*:converted.mp4) width=640 ;;
+    esac
+    case "$name" in
+        probe-*) codec=hevc; tag=hvc1; width=3840; height=2160; duration=0.5; frames=12 ;;
+        converted.mp4) case "$mode" in *convert*|*capability*) codec=hevc; tag=hvc1 ;; esac ;;
+    esac
+    case "$mode" in
+        *high-resolution*) width=3840; height=2160 ;;
+        *original*) codec=vp9 ;;
+    esac
+    printf '{"streams":[{"index":0,"codec_type":"video","codec_name":"%s","codec_tag_string":"%s","width":%s,"height":%s,"pix_fmt":"yuv420p","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709","color_range":"tv","duration":"%s","nb_read_frames":"%s"}],"format":{"format_name":"mov,mp4","duration":"%s"}}' "$codec" "$tag" "$width" "$height" "$duration" "$frames" "$duration"
+    exit 0
+fi
+if printf '%s\n' "$@" | grep -q -- '-nostdin'; then
+    printf '%s\n' "$*" >> "$root/media-command"
+    name=$(basename "$last")
+    printf 'encode:%s\n' "$name" >> "$root/pipeline.trace"
+    case "$mode:$name" in
+        *no-encoder*:probe-*) echo 'Unknown encoder' >&2; exit 1 ;;
+        *wait-encode*:converted.mp4)
+            printf 'incomplete' > "$last"
+            touch "$root/phase-started"
+            trap 'echo stopped >> "$root/pipeline.trace"; exit 0' INT TERM
+            while :; do sleep 1; done ;;
+        *encode-disk-full*:converted.mp4) echo 'No space left on device' >&2; exit 1 ;;
+    esac
+    printf 'fixture' > "$last"
+    printf 'out_time_us=5000000\nprogress=end\n'
+    exit 0
+fi
+
 template=""
 previous=""
 for argument in "$@"; do
@@ -29,12 +81,11 @@ case "$url" in
     *\?state=*) state_directory="${url#*\?state=}" ;;
 esac
 
-trace="$base.fake-trace"
-command_log="$base.fake-command"
+trace="$root/Example video.fake-trace"
+command_log="$root/Example video.fake-command"
 printf '%s\n' "$*" >> "$command_log"
 
 if printf '%s\n' "$@" | grep -q -- '--dump-single-json'; then
-    printf 'analysis\n' >> "$trace"
     if [ -n "$state_directory" ]; then
         printf 'analysis\n' >> "$state_directory/analysis.fake-trace"
     fi
@@ -63,7 +114,20 @@ case "$url" in
         printf 'ytdp:progress|50%%|50|100|10|5\n'
         : > "$base.mp4.part"
         printf 'ytdp:phase|merging\n' >&2
+        case "$mode" in
+            *progressive-webm*)
+                if ! printf '%s\n' "$*" | grep -q -- '--remux-video mp4'; then
+                    printf 'fixture' > "$base.webm"
+                    rm -f "$base.mp4.part"
+                    printf 'ytdp:filepath|%s.webm\n' "$base"
+                    exit 0
+                fi ;;
+        esac
         printf 'fixture' > "$base.mp4"
+        if [ -f "$root/real-source.mp4" ]; then
+            cp "$root/real-source.mp4" "$base.mp4"
+            cp "$root/fixture.srt" "$base.ja.srt"
+        fi
         rm -f "$base.mp4.part"
         printf 'ytdp:filepath|%s.mp4\n' "$base"
         ;;
@@ -118,10 +182,11 @@ case "$url" in
         : > "$base.f137.mp4"
         : > "$base.f137.mp4.part-Frag1"
         : > "$base.f137.mp4.ytdl"
-        : > "$base.f137.mp4.part-FragNotANumber"
-        : > "$directory/Example video2.f137.mp4.part-Frag1"
+        : > "$root/Example video.f137.mp4.part-FragNotANumber"
+        : > "$root/Example video2.f137.mp4.part-Frag1"
         : > "$base.mp4"
-        : > "$directory/Foreign.mp4.part"
+        : > "$root/Example video.mp4"
+        : > "$root/Foreign.mp4.part"
         trap 'exit 0' INT TERM
         while :; do sleep 1; done
         ;;
@@ -136,7 +201,7 @@ case "$url" in
             exit 1
         fi
         printf 'ytdp:phase|downloading\n'
-        : > "$base.mp4"
+        printf 'fixture' > "$base.mp4"
         printf 'ytdp:filepath|%s.mp4\n' "$base"
         ;;
     *arbitrary-error*)

@@ -3,6 +3,38 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class AppSettingsTests: XCTestCase {
+    func testFreshAndResetSettingsUseOriginalButPreserveSavedCompatibleChoice() throws {
+        let suite = "settings-original-default-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AppSettingsStore(defaults: defaults, key: "test-settings")
+        XCTAssertEqual(store.load().defaultOptions.mp4OutputMode, .originalEncoding)
+        var settings = store.load()
+        settings.defaultOptions.mp4OutputMode = .quickTimeCompatible
+        store.save(settings)
+        let reopened = AppSettingsStore(defaults: defaults, key: "test-settings")
+        XCTAssertEqual(reopened.load().defaultOptions.mp4OutputMode, .quickTimeCompatible)
+        reopened.reset()
+        XCTAssertEqual(reopened.load().defaultOptions.mp4OutputMode, .originalEncoding)
+    }
+
+    func testMP4ModePersistsInDefaultsAndJobEditsRemainIndependent() throws {
+        let suite = "settings-mode-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AppSettingsStore(defaults: defaults, key: "test-settings")
+        var settings = AppSettings.defaults
+        settings.defaultOptions.mp4OutputMode = .originalEncoding
+        store.save(settings)
+        XCTAssertEqual(store.load().defaultOptions.mp4OutputMode, .originalEncoding)
+        var job = DownloadJob.fixture(status: .queued)
+        job.options = store.load().defaultOptions
+        job.options.mp4OutputMode = .quickTimeCompatible
+        let restored = try JSONDecoder().decode(DownloadJob.self, from: JSONEncoder().encode(job))
+        XCTAssertEqual(restored.options.mp4OutputMode, .quickTimeCompatible)
+        XCTAssertEqual(store.load().defaultOptions.mp4OutputMode, .originalEncoding)
+    }
+
     func testResetRemovesOnlyOwnedPreferenceAndIsIdempotent() throws {
         let suite = "settings-reset-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

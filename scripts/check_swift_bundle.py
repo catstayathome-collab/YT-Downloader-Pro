@@ -15,6 +15,17 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from scripts.check_supabase_configuration import (
+        scan_resource_tree,
+        validate_configuration_path,
+    )
+except ModuleNotFoundError:
+    from check_supabase_configuration import (
+        scan_resource_tree,
+        validate_configuration_path,
+    )
+
 
 APP_BUNDLE_NAME = "YT Downloader Pro 2.app"
 APP_EXECUTABLE_NAME = "YT Downloader Pro 2"
@@ -22,6 +33,7 @@ BUNDLE_IDENTIFIER = "com.tachouweng.ytdownloaderpro2"
 MINIMUM_MACOS = "13.0"
 EXPECTED_HELPERS = ("yt-dlp_macos", "ffmpeg", "ffprobe", "qjs")
 EXPECTED_LOCALES = ("en", "ja", "zh-Hant")
+SUPPORTED_APP_CHANNELS = ("public", "internal-test")
 EXPECTED_LICENSES = (
     "FFmpeg-LGPL-2.1.txt",
     "GPL-3.0-or-later.txt",
@@ -89,6 +101,7 @@ FORBIDDEN_STATE_NAMES = {
 class BundleVerificationReport:
     checked_path: str
     expected_version: str
+    app_channel: str
     architectures: tuple[str, ...]
     executable_architectures: dict[str, tuple[str, ...]]
     helper_versions: dict[str, str]
@@ -507,7 +520,7 @@ def _check_auth_signing(bundle, expected_team_id, command_runner, errors):
     return valid
 
 
-def _validate_info_plist(bundle, expected_version, errors):
+def _validate_info_plist(bundle, expected_version, expected_app_channel, errors):
     info_path = bundle / "Contents" / "Info.plist"
     if not info_path.is_file() or info_path.is_symlink():
         errors.append("missing trusted Contents/Info.plist")
@@ -527,6 +540,7 @@ def _validate_info_plist(bundle, expected_version, errors):
         "CFBundleShortVersionString": expected_version,
         "CFBundleVersion": expected_version,
         "LSMinimumSystemVersion": MINIMUM_MACOS,
+        "YTDPBuildChannel": expected_app_channel,
     }
     for key, expected_value in expected.items():
         actual = metadata.get(key)
@@ -561,6 +575,37 @@ def _validate_resources(bundle, errors):
                 errors.append(f"empty bundle resource: {_relative(path, bundle)}")
         except OSError as error:
             errors.append(f"bundle resource is unreadable: {_relative(path, bundle)}: {error}")
+
+
+def _validate_auth_configuration(bundle, expected_app_channel, errors):
+    resources = bundle / "Contents" / "Resources"
+    configuration = resources / "SupabaseConfiguration.json"
+    configuration_exists = configuration.exists() or configuration.is_symlink()
+
+    if expected_app_channel == "public" and configuration_exists:
+        errors.append(
+            "public bundle must not contain Contents/Resources/SupabaseConfiguration.json"
+        )
+    elif expected_app_channel == "internal-test" and configuration_exists:
+        if not _trusted_regular_file(configuration, bundle):
+            errors.append(
+                "SupabaseConfiguration.json must be a trusted regular non-symlink resource"
+            )
+        else:
+            try:
+                mode = stat.S_IMODE(configuration.stat().st_mode)
+            except OSError:
+                mode = None
+            if mode != 0o644:
+                errors.append("SupabaseConfiguration.json must use mode 0644")
+            for validation_error in validate_configuration_path(configuration):
+                errors.append(f"invalid SupabaseConfiguration.json: {validation_error}")
+
+    for path, label in scan_resource_tree(resources):
+        errors.append(
+            f"forbidden secret material ({label}) in bundle resource: "
+            f"{_relative(path, bundle)}"
+        )
 
 
 def _load_canonical_inventory(inventory_path, errors):
@@ -1155,6 +1200,26 @@ def _normalize_architectures(architectures):
     return tuple(architecture for architecture in SUPPORTED_ARCHITECTURES if architecture in normalized)
 
 
+def validate_output_channel_paths(expected_app_channel, report_path=None, archive_path=None):
+    if expected_app_channel not in SUPPORTED_APP_CHANNELS:
+        raise ValueError(f"unsupported expected_app_channel: {expected_app_channel}")
+    for label, path in (("report", report_path), ("archive", archive_path)):
+        if path is None:
+            continue
+        normalized_path = Path(path).resolve(strict=False)
+        identified_channels = {
+            part for part in normalized_path.parts if part in SUPPORTED_APP_CHANNELS
+        }
+        if expected_app_channel not in identified_channels:
+            raise ValueError(
+                f"{label} path must identify channel {expected_app_channel}: {path}"
+            )
+        if identified_channels != {expected_app_channel}:
+            raise ValueError(
+                f"{label} path must identify only channel {expected_app_channel}: {path}"
+            )
+
+
 def verify_bundle(
     bundle,
     expected_version="2.0.1",
@@ -1163,11 +1228,16 @@ def verify_bundle(
     signing_mode="internal",
     expected_team_id=None,
     inventory_path=None,
+    expected_app_channel=None,
 ):
     """Return deterministic diagnostics while executing only trusted bundle code."""
     bundle = Path(bundle).absolute()
     command_runner = command_runner or _default_command_runner
     architectures = _normalize_architectures(expected_architectures)
+    if expected_app_channel is None:
+        raise ValueError("expected_app_channel is required")
+    if expected_app_channel not in SUPPORTED_APP_CHANNELS:
+        raise ValueError(f"unsupported expected_app_channel: {expected_app_channel}")
     if signing_mode not in {"internal", "developer-id"}:
         raise ValueError(f"unsupported signing mode: {signing_mode}")
     if signing_mode == "developer-id":
@@ -1183,8 +1253,9 @@ def verify_bundle(
 
     entries = _bundle_entries(bundle)
     _validate_layout(bundle, entries, errors)
-    _validate_info_plist(bundle, expected_version, errors)
+    _validate_info_plist(bundle, expected_version, expected_app_channel, errors)
     _validate_resources(bundle, errors)
+    _validate_auth_configuration(bundle, expected_app_channel, errors)
     canonical_inventory = _load_canonical_inventory(inventory_path, errors)
     sbom_package_versions = _load_and_validate_sbom(
         bundle, expected_version, canonical_inventory, errors
@@ -1278,6 +1349,7 @@ def verify_bundle(
     return BundleVerificationReport(
         checked_path=str(bundle),
         expected_version=expected_version,
+        app_channel=expected_app_channel,
         architectures=architectures,
         executable_architectures=executable_architectures,
         helper_versions=helper_versions,
@@ -1329,6 +1401,11 @@ def main(argv=None):
     parser.add_argument("app", type=Path)
     parser.add_argument("--expected-version", default="2.0.1")
     parser.add_argument(
+        "--expected-app-channel",
+        choices=SUPPORTED_APP_CHANNELS,
+        required=True,
+    )
+    parser.add_argument(
         "--signing-mode",
         choices=("internal", "developer-id"),
         default="internal",
@@ -1346,6 +1423,11 @@ def main(argv=None):
     options = parser.parse_args(argv)
     try:
         architectures = _normalize_architectures(options.architectures or ["arm64"])
+        validate_output_channel_paths(
+            options.expected_app_channel,
+            report_path=options.report,
+            archive_path=options.archive,
+        )
     except ValueError as error:
         parser.error(str(error))
     try:
@@ -1356,6 +1438,7 @@ def main(argv=None):
             signing_mode=options.signing_mode,
             expected_team_id=options.expected_team_id,
             inventory_path=options.inventory,
+            expected_app_channel=options.expected_app_channel,
         )
     except ValueError as error:
         parser.error(str(error))

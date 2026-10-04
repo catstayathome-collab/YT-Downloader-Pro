@@ -1,0 +1,25 @@
+{
+  "mode": "mock",
+  "kind": "order",
+  "merchantID": "1234567",
+  "orderID": "LOCAL001",
+  "complete": true,
+  "execution": "active",
+  "cancelledAt": null,
+  "authorizations": [
+    {
+      "authorizationID": "124",
+      "amountTWD": "80",
+      "occurredAt": "2026-10-28T04:00:00.000Z",
+      "outcome": "paid",
+      "simulated": false
+    },
+    {
+      "authorizationID": "123",
+      "amountTWD": "80",
+      "occurredAt": "2026-09-28T04:00:00.000Z",
+      "outcome": "paid",
+      "simulated": false
+    }
+  ]
+}

@@ -3,8 +3,148 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class MetadataProbeTests: XCTestCase {
+    func testSuccessfulLowResolutionProbeStillChoosesWholeHigherResolutionCandidate() async throws {
+        let runner = AnalysisProcessRunner(results: [candidate("embedded", heights: [360]), candidate("default", heights: [2160, 1080])])
+        let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+            .analyze(url: "https://youtu.be/example", options: .defaults)
+        guard case let .video(video) = result else { return XCTFail("Expected video") }
+        XCTAssertEqual(video.title, "default")
+        XCTAssertEqual(video.clientStrategy, .defaultClient)
+        XCTAssertEqual(video.videoFormats.map(\.id), ["default-2160", "default-1080"])
+        XCTAssertEqual(video.audioFormats.map(\.id), ["default-audio"])
+        XCTAssertEqual(video.subtitleTracks.map(\.languageCode), ["default-sub"])
+        let commands = await runner.commands()
+        XCTAssertEqual(commands.count, 2)
+    }
+
+    func testCandidateRankingUsesHeightThenUsableCountAndKeepsFirstOnTies() async throws {
+        for (first, second, winner) in [
+            ([2160], [1080, 720], "first"),
+            ([1080], [1080, 720], "second"),
+            ([1080, 720], [1080], "first"),
+            ([1080], [1080], "first")
+        ] {
+            let runner = AnalysisProcessRunner(results: [candidate("first", heights: first), candidate("second", heights: second)])
+            let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+                .analyze(url: "https://youtu.be/example", options: .defaults)
+            guard case let .video(video) = result else { return XCTFail("Expected video") }
+            XCTAssertEqual(video.title, winner)
+            XCTAssertEqual(video.clientStrategy, winner == "first" ? .webEmbedded : .defaultClient)
+            let count = await runner.commandCount()
+            XCTAssertEqual(count, 2)
+        }
+    }
+
+    func testSecondProbeFailureRetainsFirstUsableResult() async throws {
+        for second in [
+            ProcessResult(exitCode: 1, stdout: "", stderr: "HTTP 403 Forbidden"),
+            .init(exitCode: 0, stdout: "invalid-json", stderr: ""),
+            .init(exitCode: 0, stdout: #"{"formats":[]}"#, stderr: "")
+        ] {
+            let runner = AnalysisProcessRunner(results: [candidate("first", heights: [1080]), second])
+            let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+                .analyze(url: "https://youtu.be/example", options: .defaults)
+            guard case let .video(video) = result else { return XCTFail("Expected video") }
+            XCTAssertEqual(video.title, "first")
+            let count = await runner.commandCount()
+            XCTAssertEqual(count, 2)
+        }
+    }
+
+    func testSuccessfulCookieAnalysisDoesNotCompareAnotherClient() async throws {
+        let runner = AnalysisProcessRunner(results: [candidate("cookie", heights: [360])])
+        _ = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+            .analyze(url: "https://youtu.be/example", options: .fixture(cookies: .chrome))
+        let count = await runner.commandCount()
+        XCTAssertEqual(count, 1)
+    }
+
+    func testUnusableAndDuplicateFormatsDoNotInflateCandidateRanking() async throws {
+        let first = candidate("first", heights: [1080])
+        let second = candidate("second", heights: [1080, 1080])
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(second.stdout.utf8)) as? [String: Any])
+        var formats = try XCTUnwrap(payload["formats"] as? [[String: Any]])
+        formats += [
+            ["format_id": "drm", "height": 4320, "vcodec": "vp9", "acodec": "none", "url": "https://media.test/drm", "has_drm": true],
+            ["format_id": "no-url", "height": 2160, "vcodec": "vp9", "acodec": "none"]
+        ]
+        payload["formats"] = formats
+        let runner = AnalysisProcessRunner(results: [first, .init(exitCode: 0, stdout: String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self), stderr: "")])
+        let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+            .analyze(url: "https://youtu.be/example", options: .defaults)
+        guard case let .video(video) = result else { return XCTFail("Expected video") }
+        XCTAssertEqual(video.title, "first")
+        XCTAssertEqual(video.clientStrategy, .webEmbedded)
+        let count = await runner.commandCount()
+        XCTAssertEqual(count, 2)
+    }
+
+    func testSecondLaunchFailureRetainsSuccessfulFirstAnalysis() async throws {
+        let runner = AnalysisProcessRunner(results: [candidate("first", heights: [1080])])
+        let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+            .analyze(url: "https://youtu.be/example", options: .defaults)
+        guard case let .video(video) = result else { return XCTFail("Expected video") }
+        XCTAssertEqual(video.title, "first")
+        let count = await runner.commandCount()
+        XCTAssertEqual(count, 2)
+    }
+
+    func testComparisonCannotReplaceVideoWithPlaylist() async throws {
+        let runner = AnalysisProcessRunner(results: [candidate("first", heights: [1080]),
+            .init(exitCode: 0, stdout: try fixtureText(named: "playlist-analysis.json"), stderr: "")])
+        let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+            .analyze(url: "https://youtu.be/example", options: .defaults)
+        guard case let .video(video) = result else { return XCTFail("Expected video, not a playlist") }
+        XCTAssertEqual(video.title, "first")
+    }
+
+    func testAlreadyCancelledTaskDoesNotLaunchAnalysis() async throws {
+        let runner = AnalysisProcessRunner(results: [])
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+                .analyze(url: "https://youtu.be/example", options: .defaults)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+        let count = await runner.commandCount()
+        XCTAssertEqual(count, 0)
+    }
+
+    func testCancellationAtEitherSuccessfulProbeBoundaryNeverReturnsCandidate() async throws {
+        for cancelAfter in [1, 2] {
+            let runner = AnalysisProcessRunner(results: [candidate("first", heights: [360]), candidate("second", heights: [2160])], cancelAfterResult: cancelAfter)
+            let task = Task {
+                try await MetadataProbe(toolchain: .fixture(), processRunner: runner)
+                    .analyze(url: "https://youtu.be/example", options: .defaults)
+            }
+            do {
+                _ = try await task.value
+                XCTFail("Cancellation must not return successful metadata")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("Cancellation must remain cancellation: \(error)")
+            }
+            let count = await runner.commandCount()
+            XCTAssertEqual(count, cancelAfter)
+        }
+    }
+
+    private func candidate(_ name: String, heights: [Int]) -> ProcessResult {
+        let formats = heights.map { height in
+            #"{"format_id":"\#(name)-\#(height)","url":"https://media.test/video","vcodec":"vp9","acodec":"none","ext":"webm","height":\#(height)}"#
+        } + [#"{"format_id":"\#(name)-audio","url":"https://media.test/audio","vcodec":"none","acodec":"opus","ext":"webm"}"#]
+        return .init(exitCode: 0, stdout: #"{"title":"\#(name)","formats":[\#(formats.joined(separator: ","))],"subtitles":{"\#(name)-sub":[{"ext":"srt"}]}}"#, stderr: "")
+    }
+
     func testVideoFixtureDecodingDeduplicatesFormatsAndPreservesQualityMetadata() async throws {
         let runner = AnalysisProcessRunner(results: [
+            .init(exitCode: 0, stdout: try fixtureText(named: "video-analysis.json"), stderr: ""),
             .init(exitCode: 0, stdout: try fixtureText(named: "video-analysis.json"), stderr: "")
         ])
         let result = try await MetadataProbe(toolchain: .fixture(), processRunner: runner).analyze(
@@ -36,6 +176,78 @@ final class MetadataProbeTests: XCTestCase {
         XCTAssertFalse(video.audioFormats.map(\.id).contains("drm-audio"))
     }
 
+    func testVideoMetadataExposesOfficialAndOriginalAutomaticSubtitlesOnly() async throws {
+        let probe = MetadataProbe(toolchain: .fixture())
+        let result = try await probe.decodeAnalysisOutput(
+            """
+            {
+              "title":"Subtitle fixture",
+              "formats":[
+                {
+                  "format_id":"137",
+                  "url":"https://media.test/video",
+                  "vcodec":"avc1",
+                  "acodec":"none",
+                  "ext":"mp4",
+                  "height":1080
+                }
+              ],
+              "subtitles":{
+                "zh-Hant-official":[
+                  {
+                    "ext":"srt",
+                    "name":"Chinese (Traditional) - Official",
+                    "url":"https://captions.test/official?lang=zh-Hant"
+                  }
+                ],
+                "en-official":[
+                  {
+                    "ext":"srt",
+                    "name":"English - Official",
+                    "url":"https://captions.test/official?lang=en"
+                  }
+                ],
+                "live_chat":[
+                  {
+                    "ext":"json",
+                    "name":"Live chat",
+                    "url":"https://captions.test/chat"
+                  }
+                ]
+              },
+              "automatic_captions":{
+                "ja":[
+                  {
+                    "ext":"srt",
+                    "name":"Japanese",
+                    "url":"https://captions.test/automatic?kind=asr&lang=ja"
+                  }
+                ],
+                "en":[
+                  {
+                    "ext":"srt",
+                    "name":"English",
+                    "url":"https://captions.test/automatic?kind=asr&lang=ja&tlang=en"
+                  }
+                ]
+              }
+            }
+            """,
+            requestedURL: "https://www.youtube.com/watch?v=subtitle123"
+        )
+
+        guard case let .video(video) = result else {
+            return XCTFail("Expected video analysis")
+        }
+        XCTAssertEqual(video.subtitleTracks, [
+            SubtitleTrack(languageCode: "en-official", displayName: "English - Official", source: .official),
+            SubtitleTrack(languageCode: "zh-Hant-official", displayName: "Chinese (Traditional) - Official", source: .official),
+            SubtitleTrack(languageCode: "ja", displayName: "Japanese", source: .automatic)
+        ])
+        XCTAssertFalse(video.subtitleTracks.contains { $0.languageCode == "live_chat" })
+        XCTAssertFalse(video.subtitleTracks.contains { $0.languageCode == "en" && $0.source == .automatic })
+    }
+
     func testPlaylistFixturePreservesSourceOrderAndUnavailableEntryIdentity() async throws {
         let runner = AnalysisProcessRunner(results: [
             .init(exitCode: 0, stdout: try fixtureText(named: "playlist-analysis.json"), stderr: "")
@@ -57,6 +269,8 @@ final class MetadataProbeTests: XCTestCase {
         ])
         XCTAssertEqual(playlist.entries.map(\.isAvailable), [true, false, true])
         XCTAssertEqual(playlist.entries[1].unavailabilityReason, "private")
+        let count = await runner.commandCount()
+        XCTAssertEqual(count, 1)
     }
 
     func testMetadataTitleSourceDistinguishesRealSentinelsFromSynthesizedFallbacks() async throws {
@@ -288,9 +502,11 @@ actor AnalysisProcessRunner: ProcessRunning {
 
     private var results: [ProcessResult]
     private var recordedCommands: [Command] = []
+    private let cancelAfterResult: Int?
 
-    init(results: [ProcessResult]) {
+    init(results: [ProcessResult], cancelAfterResult: Int? = nil) {
         self.results = results
+        self.cancelAfterResult = cancelAfterResult
     }
 
     func run(executable: URL, arguments: [String]) async throws -> ProcessResult {
@@ -298,7 +514,11 @@ actor AnalysisProcessRunner: ProcessRunning {
         guard !results.isEmpty else {
             throw NSError(domain: "AnalysisProcessRunner", code: 1)
         }
-        return results.removeFirst()
+        let result = results.removeFirst()
+        if recordedCommands.count == cancelAfterResult {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return result
     }
 
     func commands() -> [Command] {

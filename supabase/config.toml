@@ -1,0 +1,41 @@
+# Dedicated disposable local billing test stack; never link to a hosted project.
+project_id = "ytdp-billing-local"
+
+[api]
+enabled = true
+port = 55431
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 55432
+shadow_port = 55430
+major_version = 17
+
+[db.seed]
+enabled = false
+
+[studio]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[storage]
+enabled = false
+
+[realtime]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = []
+enable_signup = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false

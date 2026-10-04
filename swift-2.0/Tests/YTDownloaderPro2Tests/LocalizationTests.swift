@@ -37,6 +37,17 @@ final class LocalizationTests: XCTestCase {
         "dataAction.history.retained", "dataAction.diagnostics.retained",
         "dataAction.settings.retained", "dataAction.media.retained"
     ]
+    private let featurePolicyKeys: Set<String> = [
+        "featurePolicy.development.title",
+        "featurePolicy.videoHeightRequiresPro",
+        "featurePolicy.sourceQualityRequiresPro",
+        "featurePolicy.unknownVideoHeight",
+        "featurePolicy.batchRequiresPro",
+        "featurePolicy.playlistRequiresPro",
+        "featurePolicy.advancedSubtitlesRequirePro",
+        "featurePolicy.featureUnavailable",
+        "featurePolicy.invalidRequest"
+    ]
     private let maintainedRegionalMessages = [
         "Video is region restricted",
         "This video is restricted in your region",
@@ -48,9 +59,14 @@ final class LocalizationTests: XCTestCase {
     func testVisibleKeyInventoryIsExplicitAndComplete() {
         let expected: Set<String> = Set([
             "app.settings",
-            "account.settings.title", "account.developmentMode", "account.signIn.prompt", "account.signInOrViewPlans",
+            "account.settings.title", "account.developmentMode", "account.stagingMode", "account.signIn.prompt", "account.signInOrViewPlans",
             "account.signIn.google", "account.signIn.apple", "account.free.noSignIn", "account.currentPlan",
-            "account.plan.free", "account.plan.testPro", "account.signingIn", "account.restoring",
+            "account.plan.free", "account.plan.pro", "account.plan.testPro", "account.maskedEmail",
+            "account.entitlement.refresh", "account.entitlement.free", "account.entitlement.refreshing",
+            "account.entitlement.verified", "account.entitlement.offlineGrace", "account.entitlement.unavailable",
+            "account.entitlement.unavailableUsingCache", "account.entitlement.rejected",
+            "account.entitlement.rejectedUsingCache", "account.entitlement.requiresReauthentication",
+            "account.signingIn", "account.restoring",
             "account.downloadsUnaffected", "account.reauthenticate", "account.freeStillAvailable", "account.unavailable",
             "account.openSettingsRetry", "account.retry", "account.signOut", "account.signOut.preservesData",
             "account.provider.google", "account.provider.apple", "account.error.providerUnavailable",
@@ -70,6 +86,7 @@ final class LocalizationTests: XCTestCase {
             "download.card.format.mp3", "download.card.format.mp4", "download.card.progress", "download.card.unknown", "download.card.unknownSize",
             "download.status.analyzing", "download.status.cancelled", "download.status.completed", "download.status.downloading",
             "download.status.failed", "download.status.finishing", "download.status.paused", "download.status.queued",
+            "download.status.converting", "download.status.verifying", "download.status.remuxing",
             "downloadCenter.analyze", "downloadCenter.analyzing", "downloadCenter.batch.analyzingTitle",
             "downloadCenter.batch.playlistEmpty", "downloadCenter.empty", "downloadCenter.input.accepted",
             "downloadCenter.input.duplicateSkipped", "downloadCenter.input.invalidSkipped",
@@ -83,13 +100,31 @@ final class LocalizationTests: XCTestCase {
             "media.cookies.none", "media.cookies.safari", "media.editAndRetry", "media.editDownload", "media.embedMetadata",
             "media.embedThumbnail", "media.folderSaveFailed", "media.highestAvailable", "media.options.title",
             "media.metadata", "media.output", "media.outputFolder", "media.outputFormat", "media.reanalyze", "media.selectedOutputFolder",
+            "media.mp4Mode", "media.mp4Mode.compatible", "media.mp4Mode.original",
+            "media.mp4Mode.conversionNotice", "media.mp4Mode.originalNotice",
             "media.subtitleLanguage", "media.subtitleMode", "media.subtitles", "media.thumbnailUnavailable",
-            "media.videoFormat", "media.subtitle.download", "media.subtitle.embed", "media.subtitle.none",
+            "media.videoFormat", "media.subtitle.automatic", "media.subtitle.choose", "media.subtitle.download",
+            "media.subtitle.embed", "media.subtitle.none", "media.subtitle.official", "media.subtitle.unavailable",
             "media.format.audioLabel", "media.format.original", "media.format.unknown", "media.format.videoLabel",
             "media.format.videoLabelWithNote", "media.unavailableVideo",
             "media.untitledPlaylist", "media.untitledVideo",
             "playlist.clearSelection", "playlist.entry.select", "playlist.entry.unavailable", "playlist.entry.unavailableNamed",
             "playlist.selectAll", "playlist.selectedCount",
+            "plan.settings.title", "plan.current", "plan.qualityAccess", "plan.quality.free", "plan.quality.pro",
+            "plan.viewProFeatures", "plan.proBadge", "plan.requiresPro", "plan.comparison.title",
+            "plan.comparison.reason.lockedQuality", "plan.comparison.reason.batch", "plan.comparison.reason.playlist",
+            "plan.comparison.reason.advancedSubtitles", "plan.comparison.reason.restrictedJob", "plan.comparison.reason.settings",
+            "plan.comparison.column.feature", "plan.comparison.column.free", "plan.comparison.column.pro",
+            "plan.comparison.row.quality", "plan.comparison.row.urlInput", "plan.comparison.row.playlist",
+            "plan.comparison.row.subtitles", "plan.comparison.row.history", "plan.comparison.row.support",
+            "plan.comparison.value.singleURL", "plan.comparison.value.batchURLs",
+            "plan.comparison.value.playlistUnavailable", "plan.comparison.value.playlistExpansion",
+            "plan.comparison.value.basicSubtitles", "plan.comparison.value.advancedSubtitles",
+            "plan.comparison.value.localHistory", "plan.comparison.value.historySync",
+            "plan.comparison.value.standardSupport", "plan.comparison.value.prioritySupport",
+            "plan.comparison.unavailable", "plan.development.title", "plan.development.mode",
+            "plan.development.disclaimer", "plan.development.reset",
+            "plan.selectionAdjusted.title", "plan.selectionAdjusted.message",
             "settings.automaticUpdates", "settings.concurrentDownloads", "settings.defaultOptions", "settings.downloads",
             "settings.language", "settings.language.en", "settings.language.ja", "settings.language.system",
             "settings.language.zhHant", "settings.preferences", "settings.updates",
@@ -97,7 +132,7 @@ final class LocalizationTests: XCTestCase {
             "update.checking", "update.dismiss", "update.failed.message", "update.failed.title",
             "update.openRelease", "update.unsupported.message", "update.unsupported.title",
             "update.upToDate.message", "update.upToDate.title"
-        ]).union(supportAndDataKeys)
+        ]).union(supportAndDataKeys).union(featurePolicyKeys)
 
         XCTAssertEqual(Set(L10n.Key.allCases.map(\.rawValue)), expected)
     }
@@ -112,10 +147,21 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    func testFeaturePolicyKeysResolveWithoutRawFallbacksInEveryLocale() {
+        for key in featurePolicyKeys {
+            for localeIdentifier in localeIdentifiers {
+                let value = L10n.string(key, localeIdentifier: localeIdentifier)
+                XCTAssertFalse(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Empty \(localeIdentifier) value for \(key)")
+                XCTAssertNotEqual(value, key, "Raw key fallback for \(key) in \(localeIdentifier)")
+            }
+        }
+    }
+
     func testAccountPresentationCatalogUsesTheSpecifiedTranslations() throws {
         let expected: [String: [String: String]] = [
             "account.settings.title": ["en": "Account & Plan", "zh-Hant": "帳號與方案", "ja": "アカウントとプラン"],
             "account.developmentMode": ["en": "Development Test Mode: no connection to Google, Apple, or production services.", "zh-Hant": "開發測試模式：不會連線至 Google、Apple 或正式服務。", "ja": "開発テストモード：Google、Apple、正式サービスには接続しません。"],
+            "account.stagingMode": ["en": "Staging sign-in: account access is being tested; Pro cannot be purchased yet.", "zh-Hant": "測試環境登入：帳號功能仍在測試，Pro 尚未開放購買。", "ja": "ステージングサインイン：アカウント機能をテスト中です。Pro はまだ購入できません。"],
             "account.signIn.prompt": ["en": "Sign in", "zh-Hant": "登入帳號", "ja": "サインイン"],
             "account.signInOrViewPlans": ["en": "Sign in or view plans", "zh-Hant": "登入或查看方案", "ja": "サインインまたはプランを確認"],
             "account.signIn.google": ["en": "Sign in with Google", "zh-Hant": "使用 Google 登入", "ja": "Google でサインイン"],
@@ -123,7 +169,19 @@ final class LocalizationTests: XCTestCase {
             "account.free.noSignIn": ["en": "Free; no sign-in required", "zh-Hant": "免費版 · 免登入可用", "ja": "無料版・サインイン不要"],
             "account.currentPlan": ["en": "Current plan", "zh-Hant": "目前方案", "ja": "現在のプラン"],
             "account.plan.free": ["en": "Free", "zh-Hant": "免費版", "ja": "無料版"],
+            "account.plan.pro": ["en": "Pro", "zh-Hant": "Pro", "ja": "Pro"],
             "account.plan.testPro": ["en": "Test Pro", "zh-Hant": "測試 Pro", "ja": "テスト Pro"],
+            "account.maskedEmail": ["en": "Account email", "zh-Hant": "帳號信箱", "ja": "アカウントのメール"],
+            "account.entitlement.refresh": ["en": "Refresh plan access", "zh-Hant": "重新確認方案權限", "ja": "プランの利用権を更新"],
+            "account.entitlement.free": ["en": "Free access", "zh-Hant": "免費版權限", "ja": "無料版の利用権"],
+            "account.entitlement.refreshing": ["en": "Checking plan access…", "zh-Hant": "正在確認方案權限…", "ja": "プランの利用権を確認中…"],
+            "account.entitlement.verified": ["en": "Verified %@", "zh-Hant": "已於 %@ 驗證", "ja": "%@ に確認済み"],
+            "account.entitlement.offlineGrace": ["en": "Offline access available until %@", "zh-Hant": "離線權限可使用至 %@", "ja": "%@ までオフラインで利用できます"],
+            "account.entitlement.unavailable": ["en": "Plan access could not be checked", "zh-Hant": "暫時無法確認方案權限", "ja": "プランの利用権を確認できませんでした"],
+            "account.entitlement.unavailableUsingCache": ["en": "Using previously verified plan access", "zh-Hant": "正在使用先前已驗證的方案權限", "ja": "以前に確認したプランの利用権を使用中"],
+            "account.entitlement.rejected": ["en": "Plan verification was rejected; Free remains available", "zh-Hant": "方案驗證未通過，仍可使用免費版", "ja": "プランの確認が拒否されました。無料版は引き続き利用できます"],
+            "account.entitlement.rejectedUsingCache": ["en": "New verification was rejected; using prior verified access", "zh-Hant": "新的驗證未通過，正在使用先前已驗證的權限", "ja": "新しい確認が拒否されたため、以前の確認済み利用権を使用中"],
+            "account.entitlement.requiresReauthentication": ["en": "Sign in again to verify plan access", "zh-Hant": "請重新登入以驗證方案權限", "ja": "プランの利用権を確認するには、もう一度サインインしてください"],
             "account.signingIn": ["en": "Signing in", "zh-Hant": "正在登入", "ja": "サインイン中"],
             "account.restoring": ["en": "Restoring account", "zh-Hant": "正在還原帳號", "ja": "アカウントを復元中"],
             "account.downloadsUnaffected": ["en": "Downloads are unaffected", "zh-Hant": "下載不受影響", "ja": "ダウンロードには影響しません"],
@@ -142,6 +200,33 @@ final class LocalizationTests: XCTestCase {
             "account.error.storageUnavailable": ["en": "The account session could not be saved securely on this Mac.", "zh-Hant": "無法在這台 Mac 上安全儲存帳號工作階段。", "ja": "この Mac にアカウントセッションを安全に保存できませんでした。"],
             "account.error.removalFailed": ["en": "The saved account session could not be removed. Try the cleanup again.", "zh-Hant": "無法移除儲存的帳號工作階段，請再次嘗試清除。", "ja": "保存されたアカウントセッションを削除できませんでした。削除をもう一度お試しください。"],
             "account.error.signInFailed": ["en": "Sign-in could not be completed. Try again.", "zh-Hant": "無法完成登入，請重試。", "ja": "サインインを完了できませんでした。もう一度お試しください。"]
+        ]
+
+        let catalog = try loadCatalog()
+        for (key, values) in expected {
+            let entry = try XCTUnwrap(catalog.strings[key], "Missing key: \(key)")
+            for locale in localeIdentifiers {
+                XCTAssertEqual(entry.localizations[locale]?.stringUnit?.value, values[locale], "Unexpected \(locale) value for \(key)")
+            }
+        }
+    }
+
+    func testPlanSwitchingCatalogUsesTheSpecifiedTranslations() throws {
+        let expected: [String: [String: String]] = [
+            "plan.development.title": ["en": "Development Testing", "zh-Hant": "開發測試", "ja": "開発テスト"],
+            "plan.development.mode": ["en": "Internal test mode", "zh-Hant": "內部測試模式", "ja": "内部テストモード"],
+            "plan.development.disclaimer": [
+                "en": "This changes local test access only. It is not a login, purchase, or subscription.",
+                "zh-Hant": "這只會變更本機測試權限，不代表登入、購買或訂閱。",
+                "ja": "これはローカルのテスト用アクセスだけを変更します。ログイン、購入、サブスクリプションではありません。"
+            ],
+            "plan.development.reset": ["en": "Reset to Free", "zh-Hant": "重設為免費版", "ja": "無料版にリセット"],
+            "plan.selectionAdjusted.title": ["en": "Quality adjusted", "zh-Hant": "已調整畫質", "ja": "画質を調整しました"],
+            "plan.selectionAdjusted.message": [
+                "en": "The selected quality was changed to the highest Free option available.",
+                "zh-Hant": "已將所選畫質改為免費版可用的最高畫質。",
+                "ja": "選択した画質を、利用可能な無料版の最高画質に変更しました。"
+            ]
         ]
 
         let catalog = try loadCatalog()

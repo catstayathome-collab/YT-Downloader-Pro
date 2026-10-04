@@ -24,8 +24,9 @@ Confirm the app contains one canonical helper set:
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 ```
@@ -59,10 +60,10 @@ URLs, or PO Tokens from a user.
 Run only the copied app helpers:
 
 ```bash
-'dist/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos' --version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg' -version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/ffprobe' -version
-'dist/YT Downloader Pro 2.app/Contents/Helpers/qjs' --help
+'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos' --version
+'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg' -version
+'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/ffprobe' -version
+'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/qjs' --help
 ```
 
 Expected current versions are yt-dlp `2026.07.04`, FFmpeg/FFprobe `9.0`, and
@@ -73,9 +74,9 @@ the `QuickJS version` marker is present. All other health commands require exit
 Inspect slices and dependencies:
 
 ```bash
-lipo -archs 'dist/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos'
-lipo -archs 'dist/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg'
-otool -L 'dist/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg'
+lipo -archs 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/yt-dlp_macos'
+lipo -archs 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg'
+otool -L 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Helpers/ffmpeg'
 ```
 
 The current internal app is arm64. A universal request failing on missing
@@ -159,9 +160,9 @@ record may remove its cached thumbnail but not the downloaded media.
 Verify packaged resources:
 
 ```bash
-find 'dist/YT Downloader Pro 2.app/Contents/Resources' \
+find 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Resources' \
   -path '*lproj/Localizable.strings' -print
-plutil -p 'dist/YT Downloader Pro 2.app/Contents/Info.plist'
+plutil -p 'dist/swift-2.0/public/YT Downloader Pro 2.app/Contents/Info.plist'
 ```
 
 Required locales are `en`, `ja`, and `zh-Hant`, and the source
@@ -205,11 +206,11 @@ Run the checks separately so the failing layer is visible:
 
 ```bash
 codesign --verify --deep --strict --verbose=2 \
-  'dist/YT Downloader Pro 2.app'
-codesign -dv --verbose=4 'dist/YT Downloader Pro 2.app'
+  'dist/swift-2.0/public/YT Downloader Pro 2.app'
+codesign -dv --verbose=4 'dist/swift-2.0/public/YT Downloader Pro 2.app'
 spctl --assess --type execute --verbose=4 \
-  'dist/YT Downloader Pro 2.app'
-xcrun stapler validate 'dist/YT Downloader Pro 2.app'
+  'dist/swift-2.0/public/YT Downloader Pro 2.app'
+xcrun stapler validate 'dist/swift-2.0/public/YT Downloader Pro 2.app'
 ```
 
 - codesign failure: bundle content changed after signing, nested helper signature
@@ -238,7 +239,7 @@ Primary sanitized logs:
 Packaging diagnostics:
 
 ```text
-dist/swift-2.0-bundle-report.json
+dist/swift-2.0/public/swift-2.0-public-bundle-report.json
 ```
 
 It is safe to request the relevant sanitized diagnostic lines, app version,

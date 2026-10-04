@@ -2,6 +2,65 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ModelsTests: XCTestCase {
+    func testDefaultMP4ModePreservesOriginalEncoding() {
+        XCTAssertEqual(DownloadOptions().mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(DownloadOptions.defaults.mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(DownloadOptions.defaults.normalizedForExecution().mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(AppSettings.defaults.defaultOptions.mp4OutputMode, .originalEncoding)
+    }
+
+    func testClientStrategyRoundTripLegacyAndUnknownValues() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        var options = DownloadOptions.defaults
+        XCTAssertNil(options.clientStrategy)
+        var video = VideoAnalysis(sourceURL: "https://youtu.be/example", title: "Video", duration: nil,
+                                  thumbnailURL: nil, videoFormats: [], audioFormats: [])
+        for strategy in [YouTubeClientStrategy.webEmbedded, .defaultClient] {
+            options.clientStrategy = strategy
+            video.clientStrategy = strategy
+            XCTAssertEqual(try decoder.decode(DownloadOptions.self, from: encoder.encode(options)).clientStrategy, strategy)
+            XCTAssertEqual(try decoder.decode(VideoAnalysis.self, from: encoder.encode(video)).clientStrategy, strategy)
+            XCTAssertEqual(video.scrubbingMediaURLCredentials().clientStrategy, strategy)
+            XCTAssertEqual(DownloadOptions.defaults.replacingStaleSelections(with: video).clientStrategy, strategy)
+        }
+        for value in [try encoder.encode(options), try encoder.encode(video)] {
+            var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: value) as? [String: Any])
+            payload.removeValue(forKey: "clientStrategy")
+            let legacy = try JSONSerialization.data(withJSONObject: payload)
+            if payload["outputKind"] != nil {
+                XCTAssertNil(try decoder.decode(DownloadOptions.self, from: legacy).clientStrategy)
+            } else {
+                XCTAssertNil(try decoder.decode(VideoAnalysis.self, from: legacy).clientStrategy)
+            }
+            payload["clientStrategy"] = "unapproved-client"
+            let unknown = try JSONSerialization.data(withJSONObject: payload)
+            if payload["outputKind"] != nil {
+                XCTAssertThrowsError(try decoder.decode(DownloadOptions.self, from: unknown))
+            } else {
+                XCTAssertThrowsError(try decoder.decode(VideoAnalysis.self, from: unknown))
+            }
+        }
+    }
+
+    func testMP4ModeDefaultsAndRoundTripsWithoutLosingUnknownValueValidation() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(DownloadOptions.defaults)) as? [String: Any])
+        payload.removeValue(forKey: "mp4OutputMode")
+        let legacy = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))
+        let restored = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(legacy)) as? [String: Any])
+        XCTAssertEqual(restored["mp4OutputMode"] as? String, "originalEncoding")
+        for mode in ["quickTimeCompatible", "originalEncoding"] {
+            payload["mp4OutputMode"] = mode
+            let options = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))
+            let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(options)) as? [String: Any])
+            XCTAssertEqual(encoded["mp4OutputMode"] as? String, mode)
+        }
+        payload["mp4OutputMode"] = "unrecognized-mode"
+        XCTAssertThrowsError(try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload)))
+    }
+
     func testDefaultsUseBestQualityAndFiveWorkers() {
         XCTAssertEqual(DownloadOptions.defaults.videoQuality, .best)
         XCTAssertEqual(DownloadOptions.defaults.audioQuality, .best)
@@ -179,6 +238,39 @@ final class ModelsTests: XCTestCase {
         )
 
         XCTAssertFalse(decoded.awaitsBatchAnalysis)
+    }
+
+    func testLegacyJobWithoutAccessRequirementDefaultsToNil() throws {
+        let job = DownloadJob.fixture(status: .paused)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as? [String: Any])
+        object.removeValue(forKey: "accessRequirement")
+
+        let decoded = try JSONDecoder().decode(
+            DownloadJob.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertNil(decoded.accessRequirement)
+    }
+
+    func testAccessRequirementRoundTripsOnlyStablePolicyValues() throws {
+        var job = DownloadJob.fixture(status: .paused)
+        job.accessRequirement = DownloadAccessRequirement(
+            feature: .videoHD,
+            reason: .videoHeightRequiresPro
+        )
+
+        let encoded = try JSONEncoder().encode(job)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let requirement = try XCTUnwrap(object["accessRequirement"] as? [String: Any])
+        let decoded = try JSONDecoder().decode(DownloadJob.self, from: encoded)
+
+        XCTAssertEqual(Set(requirement.keys), ["feature", "reason"])
+        XCTAssertEqual(requirement["feature"] as? String, "video.hd")
+        XCTAssertEqual(requirement["reason"] as? String, "videoHeightRequiresPro")
+        XCTAssertEqual(decoded.accessRequirement, job.accessRequirement)
+        XCTAssertFalse(String(data: try JSONEncoder().encode(job.accessRequirement), encoding: .utf8)!.contains(job.title))
+        XCTAssertFalse(String(data: try JSONEncoder().encode(job.accessRequirement), encoding: .utf8)!.contains(job.sourceURL))
     }
 
     func testDownloadFailureRedactsEveryCookieHeaderValue() throws {

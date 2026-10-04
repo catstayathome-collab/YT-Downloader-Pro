@@ -30,7 +30,7 @@ extension StoredCredentialEnvelope {
                 provider: provider,
                 accountID: "mock-account",
                 displayName: "Demo User",
-                planPreview: .pro,
+                maskedEmail: nil,
                 expiresAt: expiresAt
             ),
             refreshCredential: refreshCredential

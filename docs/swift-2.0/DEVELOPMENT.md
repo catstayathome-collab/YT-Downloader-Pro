@@ -27,6 +27,7 @@ swift-2.0/
   Package.swift
   Sources/YTDownloaderPro2/
     App/        app lifecycle
+    Entitlements/ local plan providers and pure feature policy
     Models/     Codable and Sendable domain values
     Process/    Foundation Process boundary
     Services/   actors and focused value services
@@ -40,13 +41,18 @@ scripts/
   build_swift_2.sh
   check_swift_bundle.py
 tests/
+  test_build_swift_2_script.py
   test_swift_bundle.py
 tools/
   yt-dlp_macos ffmpeg ffprobe qjs
 ```
 
-The package intentionally has no third-party Swift dependency. Do not add a
-process, persistence, or JSON library when Foundation already owns that boundary.
+The package pins `supabase-swift` `2.55.2` and imports only its `Auth` product
+inside the authentication adapter. `Package.resolved` is part of the reviewed
+dependency boundary. Supabase SDK values must be mapped immediately to app-owned
+models; do not expose broad SDK types to views, stores, policy, downloads, or
+entitlements. Continue to prefer Foundation for process, persistence, and JSON
+boundaries that it already owns.
 
 ## Helper Contract
 
@@ -85,19 +91,33 @@ swift test --disable-sandbox \
   -Xswiftc -warnings-as-errors
 ```
 
-### Local Authentication Skeleton
+Internal-channel strict Swift suite:
 
-The implemented authentication surface is development-only and local-only. Run
-the debug executable with `YTDP_AUTH_MODE=mock` to expose the synthetic Google
-and Apple-labelled account controls. Leave the variable unset, or use any value
-other than lowercase `mock`, to verify the normal disabled state with no
-account controls.
+```bash
+env CLANG_MODULE_CACHE_PATH="$PWD/swift-2.0/.build/clang-module-cache-internal" \
+  swift test --package-path swift-2.0 --disable-sandbox \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warnings-as-errors \
+  -Xswiftc -DYTDP_INTERNAL_TEST
+```
 
-The mock flow has no provider SDK, browser callback, network request, backend,
-billing, entitlement delivery, or paid feature effect. Do not use it to claim
-that Google, Apple, real accounts, production authentication, or external
-submission is implemented. The full operating contract and scoped Keychain
-cleanup details are in `AUTHENTICATION.md`.
+### Authentication And Entitlement Development
+
+Run with exact `YTDP_AUTH_MODE=mock` to expose the synthetic local Google- and
+Apple-labelled controls. Leave the variable unset to verify the normal disabled
+accountless Free state. Mock mode performs no browser or network request.
+
+The repository also contains a staging-only Supabase Google PKCE adapter and
+signed entitlement pipeline. It activates only with exact
+`YTDP_AUTH_MODE=staging` and a strictly valid configuration bundled into an
+`internal-test` app. It is not configured, deployed, or authorized for
+production. Public bundles must contain no `SupabaseConfiguration.json`.
+
+The app requests only `openid email profile`. Supabase SDK transient PKCE state
+is process-local; the app stores the refresh credential and signed entitlement
+in separate device-only Keychain records, while the access token stays in
+memory. Identity alone never grants Pro. See `AUTHENTICATION.md`,
+`ENTITLEMENT_ARCHITECTURE.md`, and `SUPABASE_STAGING.md`.
 
 The Keychain implementation deliberately uses the data-protection Keychain.
 The opt-in live Keychain test therefore needs a host signed with the same
@@ -106,6 +126,33 @@ plain `swift test` process and an ad-hoc internal app have no such restricted
 entitlement; `errSecMissingEntitlement` is expected there. Use the ordinary
 in-memory vault tests for deterministic local development, and reserve live
 save/restore/delete evidence for the provisioned Developer ID test host.
+For a live OAuth UI smoke test on an ad-hoc internal app, launch with both
+`YTDP_AUTH_MODE=staging` and `YTDP_STAGING_EPHEMERAL_SESSION=1`. This explicit
+internal-build-only option holds the refresh credential in process memory and
+signs out on app restart. It does not exercise Keychain persistence; never use
+it for a release or claim a durable account session from this test.
+
+### Local Feature Policy F1
+
+Normal development and every public compilation use enforced Free. To launch an
+internal Test Pro-capable debug executable, compile it explicitly:
+
+```bash
+swift run --package-path swift-2.0 \
+  -Xswiftc -DYTDP_INTERNAL_TEST \
+  YTDownloaderPro2
+```
+
+The internal build still starts as Free. Use the clearly labelled Settings
+control to select Test Pro. That preference is local to the internal build and
+public compilation ignores it. Test Pro is not account login, purchase
+simulation, token verification, subscription state, or proof of entitlement.
+It does not contact Google, Apple, ECPay, a backend, analytics, email, or
+support services. Authentication mock labels and Test Pro remain independent.
+
+When changing the capability matrix, update the pure policy tests, Store command
+admission tests, all three denial localizations, and both public/internal test
+variants. Free and Test Pro regressions must remain in the same focused suite.
 
 Strict macOS 13 arm64 release compile:
 
@@ -135,20 +182,85 @@ python3 -c 'import yaml'
 python3 -m unittest discover -s tests -v
 ```
 
-Build the internal app only after focused tests are green:
+Build both owner-test channels only after focused tests are green. Use the same
+candidate timestamp when comparing the two artifacts:
 
 ```bash
 ./scripts/build_swift_2.sh \
+  --app-channel public \
+  --version 2.0.1 \
+  --architectures arm64 \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
+  --unsigned-test
+
+./scripts/build_swift_2.sh \
+  --app-channel internal-test \
   --version 2.0.1 \
   --architectures arm64 \
   --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
   --unsigned-test
 ```
 
-This command runs the strict Swift suite again, release-builds for
+To create a configured staging-only internal artifact, add an external,
+public-material-only configuration after validating it:
+
+```bash
+python3 scripts/check_supabase_configuration.py \
+  /absolute/path/SupabaseConfiguration.json
+
+./scripts/build_swift_2.sh \
+  --app-channel internal-test \
+  --version 2.0.1 \
+  --architectures arm64 \
+  --sbom-created '<UTC-RFC3339-candidate-timestamp>' \
+  --unsigned-test \
+  --auth-config /absolute/path/SupabaseConfiguration.json
+```
+
+`--auth-config` is rejected for public builds. The verifier scans resources for
+service-role material, private keys, JWT secrets, Google client secrets, ECPay
+HashKey/HashIV, and Supabase secret keys. A successful internal build remains
+staging evidence only and cannot prove live Keychain persistence when ad-hoc
+signed.
+
+Each command runs its channel's strict Swift suite, release-builds for
 `arm64-apple-macosx13.0`, assembles and ad-hoc signs the app, runs every helper,
-writes `dist/swift-2.0-bundle-report.json`, and creates the internal ZIP. It
-does not embed a provisioning profile or claim Keychain persistence.
+and creates an isolated report and ZIP:
+
+```text
+dist/swift-2.0/public/
+  YT Downloader Pro 2.app
+  swift-2.0-public-bundle-report.json
+  YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip
+dist/swift-2.0/internal-test/
+  YT Downloader Pro 2.app
+  swift-2.0-internal-test-bundle-report.json
+  YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip
+```
+
+Ad-hoc candidates do not embed a provisioning profile or claim Keychain
+persistence. Neither channel is permission to publish, advertise Pro, accept
+payment, or activate production login.
+
+### Supabase Contract Tests
+
+The Edge Function is dependency-injected and testable without a cloud project:
+
+```bash
+deno fmt --check --config supabase/deno.json supabase/functions/entitlement
+deno lint --config supabase/deno.json supabase/functions/entitlement
+deno test --allow-read --config supabase/deno.json \
+  supabase/functions/entitlement
+python3 -m unittest \
+  tests.test_supabase_contract \
+  tests.test_supabase_configuration \
+  tests.test_swift_bundle -v
+```
+
+`--allow-read` is used only for committed cross-runtime fixtures. Tests grant no
+network, environment, write, run, or FFI permissions. Do not install Supabase
+CLI or Docker, create a cloud project, deploy a function, register Google
+credentials, or provision secrets without fresh owner approval.
 
 ## Localization Build
 
@@ -289,12 +401,15 @@ issues, build first and run:
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
-  --inventory tools/macos-helper-inventory.json
+  --inventory tools/macos-helper-inventory.json \
+  --report dist/swift-2.0/public/swift-2.0-public-bundle-report.json \
+  --archive dist/swift-2.0/public/YT-Downloader-Pro-2.0.1-macOS-arm64-public.zip
 codesign --verify --deep --strict --verbose=2 \
-  'dist/YT Downloader Pro 2.app'
+  'dist/swift-2.0/public/YT Downloader Pro 2.app'
 ```
 
 Diagnose from the outer layer inward: UI intent, Store state, coordinator event,

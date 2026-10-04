@@ -89,8 +89,9 @@ compares each executable's reported version with the matching SPDX package.
 
 ```bash
 python3 scripts/check_swift_bundle.py \
-  'dist/YT Downloader Pro 2.app' \
+  'dist/swift-2.0/public/YT Downloader Pro 2.app' \
   --expected-version 2.0.1 \
+  --expected-app-channel public \
   --architectures arm64 \
   --inventory tools/macos-helper-inventory.json
 ```
@@ -109,6 +110,32 @@ those transitive components are not expanded into separate SPDX packages by this
 generator. Expanding them is future audit work and may be required by counsel or
 a distributor.
 
+The Swift package now also pins these source dependencies in
+`swift-2.0/Package.resolved`:
+
+| Package | Pinned version |
+| --- | --- |
+| `supabase-swift` | `2.55.2` |
+| `swift-asn1` | `1.7.3` |
+| `swift-clocks` | `1.1.1` |
+| `swift-concurrency-extras` | `1.4.1` |
+| `swift-crypto` | `4.5.2` |
+| `swift-http-types` | `1.8.0` |
+| `xctest-dynamic-overlay` | `1.13.1` |
+
+Only the Supabase `Auth` product is a direct app dependency; the remaining
+packages are resolved transitive dependencies. Their current reviewed upstream
+license families are MIT and Apache-2.0, but that engineering observation is
+not a final distribution determination. Recheck exact tags, license files,
+notices, source obligations, and dependency graph whenever `Package.resolved`
+changes.
+
+The generated helper SPDX currently does not enumerate Swift source packages.
+Before any public or paid candidate, extend the release SBOM/notices or provide
+separate reviewed evidence that covers these exact Swift packages. A helper
+SBOM passing must not be interpreted as complete application dependency
+coverage.
+
 ## Public Distribution Blocker
 
 The current source index is not a complete corresponding-source distribution.
@@ -124,6 +151,11 @@ blocker.
 not described as a legal written offer. Counsel must determine whether hosting
 source archives, providing an offer, or another delivery mechanism is required
 for the planned distribution.
+
+`RELEASE_CANDIDATE_REVIEW.md` tracks the internal candidate evidence packet
+that must pair the generated SBOM with exact artifact hashes, signing,
+notarization, clean-Mac smoke results, public-copy checks, rollback evidence,
+and source-availability disposition before any publication decision.
 
 ## Commercial Release Gate
 

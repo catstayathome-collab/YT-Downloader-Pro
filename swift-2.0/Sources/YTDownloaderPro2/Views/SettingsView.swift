@@ -3,16 +3,66 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: DownloadStore
     @EnvironmentObject private var accountSessionStore: AccountSessionStore
+    @EnvironmentObject private var entitlementController: EntitlementController
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
     @State private var showsSupportReport = false
     @State private var showsLocalExport = false
     @State private var showsLocalDataManagement = false
+    @State private var upgradeRoute: UpgradePresentationRoute?
 
     var body: some View {
         Form {
+            let planPresentation = PlanSettingsPresentation(plan: planController.currentPlan)
+            Section(L10n.string(.planSettingsTitle, locale: locale)) {
+                LabeledContent(
+                    L10n.string(.planCurrent, locale: locale),
+                    value: planPresentation.planName(locale: locale)
+                )
+                LabeledContent(
+                    L10n.string(.planQualityAccess, locale: locale),
+                    value: planPresentation.qualityAccess(locale: locale)
+                )
+                Button {
+                    upgradeRoute = .settings
+                } label: {
+                    Label(
+                        L10n.string(.planViewProFeatures, locale: locale),
+                        systemImage: "lock.open"
+                    )
+                }
+                .accessibilityLabel(L10n.string(.planViewProFeatures, locale: locale))
+            }
+
+#if YTDP_INTERNAL_TEST
+            Section(L10n.string(.planDevelopmentTitle, locale: locale)) {
+                Picker(
+                    L10n.string(.planDevelopmentMode, locale: locale),
+                    selection: internalPlanSelection
+                ) {
+                    Text(L10n.string(.accountFreePlan, locale: locale))
+                        .tag(AppPlan.free.rawValue)
+                    Text(L10n.string(.accountTestProPlan, locale: locale))
+                        .tag(AppPlan.testPro.rawValue)
+                }
+                .pickerStyle(.segmented)
+
+                Text(L10n.string(.planDevelopmentDisclaimer, locale: locale))
+                    .font(.caption)
+                    .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+
+                Button(L10n.string(.planDevelopmentReset, locale: locale)) {
+                    planController.resetInternalPlanToFree()
+                }
+                .disabled(planController.currentPlan == .free)
+            }
+#endif
+
             let accountPresentation = AccountSettingsPresentation.make(
                 environment: accountSessionStore.environment,
                 state: accountSessionStore.state,
+                plan: planController.currentPlan,
+                entitlementStatus: entitlementController.status,
                 locale: locale
             )
             if accountPresentation.isVisible {
@@ -120,6 +170,12 @@ struct SettingsView: View {
                     .environmentObject(store)
             }
         }
+        .sheet(item: $upgradeRoute) { route in
+            LocalizedSheetRoot(locale: locale) {
+                PlanComparisonView(route: route)
+                    .environmentObject(planController)
+            }
+        }
     }
 
     private var maximumDownloads: Binding<Int> {
@@ -149,6 +205,18 @@ struct SettingsView: View {
             set: { value in updateSettings { $0.automaticallyCheckForUpdates = value } }
         )
     }
+
+#if YTDP_INTERNAL_TEST
+    private var internalPlanSelection: Binding<String> {
+        Binding(
+            get: { planController.currentPlan.rawValue },
+            set: { rawValue in
+                guard let plan = AppPlan(rawValue: rawValue) else { return }
+                planController.selectInternalPlan(plan)
+            }
+        )
+    }
+#endif
 
     private var manualUpdateNotice: Binding<UpdateNotice?> {
         Binding(

@@ -5,6 +5,57 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testVerificationClearsConversionProgressAndStagesAreNotRestored() async throws {
+        let job = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.emit(.phase(.postprocessing), for: job.id)
+        await fixture.runner.emit(.processingStage(.converting), for: job.id)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: 100,
+            totalBytes: 100, bytesPerSecond: nil, etaSeconds: 0)), for: job.id)
+        try await waitUntil("conversion progress arrives") { fixture.store.jobs[0].displayedProgress == 1 }
+        await fixture.runner.emit(.processingStage(.verifying), for: job.id)
+        try await waitUntil("verification starts") { fixture.store.jobs[0].mediaProcessingStage == .verifying }
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+        XCTAssertNil(fixture.store.jobs[0].downloadedBytes)
+        XCTAssertNil(fixture.store.jobs[0].totalBytes)
+        XCTAssertNil(fixture.store.jobs[0].estimatedTimeRemaining)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: nil,
+            totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)), for: job.id)
+        let restored = try JSONDecoder().decode(DownloadJob.self, from: JSONEncoder().encode(fixture.store.jobs[0]))
+        XCTAssertNil(restored.mediaProcessingStage)
+        XCTAssertNil(restored.displayedProgress)
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+    }
+
+    func testPostprocessingClearsDownloadMetricsBeforeReceivingConversionProgress() async throws {
+        let job = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: 100,
+            totalBytes: 100, bytesPerSecond: 50, etaSeconds: 0)), for: job.id)
+        try await waitUntil("download metrics arrive") { fixture.store.jobs[0].progress == 1 }
+        await fixture.runner.emit(.phase(.postprocessing), for: job.id)
+        try await waitUntil("postprocessing starts") { fixture.store.jobs[0].status == .merging }
+        XCTAssertNil(fixture.store.jobs[0].downloadedBytes)
+        XCTAssertNil(fixture.store.jobs[0].totalBytes)
+        XCTAssertNil(fixture.store.jobs[0].speedBytesPerSecond)
+        XCTAssertNil(fixture.store.jobs[0].estimatedTimeRemaining)
+        XCTAssertLessThan(fixture.store.jobs[0].progress, 1)
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 0.4, downloadedBytes: nil,
+            totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)), for: job.id)
+        try await waitUntil("measured conversion progress arrives") {
+            fixture.store.jobs[0].displayedProgress == 0.4
+        }
+        let restored = try JSONDecoder().decode(DownloadJob.self, from: JSONEncoder().encode(fixture.store.jobs[0]))
+        XCTAssertNil(restored.displayedProgress)
+    }
+
     func testFilteredJobsShowNewestRecordsFirstWithoutReorderingQueueStorage() throws {
         let oldest = DownloadJob(
             sourceURL: "https://example.com/oldest",
@@ -339,6 +390,457 @@ final class DownloadStoreTests: XCTestCase {
             return XCTFail("Expected the existing single-video analysis presentation")
         }
         XCTAssertEqual(video.title, "Single video")
+    }
+
+    func testMockFreeRejectsBatchBeforeCreatingJobsOrAnalyzing() async throws {
+        let recorder = AnalysisRecorder(result: .video(.fixture()))
+        let fixture = try StoreFixture(
+            analysis: { try await recorder.analyze(url: $0, options: $1) },
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+
+        let result = await fixture.store.submitURLInput(
+            "https://youtube.test/a\nhttps://youtube.test/b"
+        )
+        let recordedURLs = await recorder.recordedURLs()
+
+        XCTAssertEqual(result.acceptedCount, 0)
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(recordedURLs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .batchRequiresPro)
+    }
+
+    func testMockFreeRejectsSinglePlaylistBeforePublishingSheetOrChildren() async throws {
+        let fixture = try StoreFixture(
+            analysis: .playlist(.fixture(entryCount: 2)),
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.store.submitURLInput("https://youtube.test/playlist")
+
+        XCTAssertEqual(fixture.store.analysisState, .idle)
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .playlistRequiresPro)
+    }
+
+    func testMockFreeRejectsHighVideoBeforeCreatingOrStartingJob() async throws {
+        let fixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: .enforced(.init(snapshot: .syntheticFree))
+        )
+        defer { fixture.cleanUp() }
+        await fixture.store.analyzeURL("https://youtube.test/video")
+        var options = DownloadOptions.defaults
+        options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1080
+        ))
+
+        await fixture.store.addVideo(options: options)
+        let startedIDs = await fixture.runner.startedIDs()
+
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(startedIDs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
+    }
+
+    func testMockFreeAcceptsSingle720pVideoAndMP3() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let videoFixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: policy
+        )
+        defer { videoFixture.cleanUp() }
+        await videoFixture.store.analyzeURL("https://youtube.test/video")
+        var videoOptions = DownloadOptions.defaults
+        videoOptions.selectVideoFormat(MediaFormat(
+            id: "22",
+            label: "720p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 720
+        ))
+
+        await videoFixture.store.addVideo(options: videoOptions)
+
+        XCTAssertEqual(videoFixture.store.jobs.count, 1)
+        XCTAssertNil(videoFixture.store.featurePolicyDenial)
+
+        let audioFixture = try StoreFixture(
+            analysis: .video(.fixture()),
+            featurePolicyContext: policy
+        )
+        defer { audioFixture.cleanUp() }
+        await audioFixture.store.analyzeURL("https://youtube.test/audio")
+
+        await audioFixture.store.addVideo(options: DownloadOptions(outputKind: .mp3))
+
+        XCTAssertEqual(audioFixture.store.jobs.count, 1)
+        XCTAssertNil(audioFixture.store.featurePolicyDenial)
+    }
+
+    func testMockProPreservesBatchAndPlaylistFlows() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticPro))
+        let controlled = ControlledAnalysis()
+        let batchFixture = try StoreFixture(
+            analysis: { try await controlled.analyze(url: $0, options: $1) },
+            featurePolicyContext: policy
+        )
+        defer { batchFixture.cleanUp() }
+
+        let result = await batchFixture.store.submitURLInput(
+            "https://youtube.test/a\nhttps://youtube.test/b"
+        )
+
+        XCTAssertEqual(result.acceptedCount, 2)
+        XCTAssertEqual(batchFixture.store.jobs.count, 2)
+        XCTAssertNil(batchFixture.store.featurePolicyDenial)
+
+        let playlistFixture = try StoreFixture(
+            analysis: .playlist(.fixture(entryCount: 2)),
+            featurePolicyContext: policy
+        )
+        defer { playlistFixture.cleanUp() }
+        await playlistFixture.store.analyzeURL("https://youtube.test/playlist")
+        await playlistFixture.store.addPlaylistEntries(selectedIDs: ["1", "2"], options: .defaults)
+
+        XCTAssertEqual(playlistFixture.store.jobs.count, 2)
+        XCTAssertNil(playlistFixture.store.featurePolicyDenial)
+        await batchFixture.store.cancelActiveAndWaiting()
+        await playlistFixture.store.cancelActiveAndWaiting()
+    }
+
+    func testDeniedDirectPlaylistAddCreatesNoJobsAndDismissClearsOnlyDenial() async throws {
+        let policy = FeaturePolicyContext.enforced(.init(snapshot: .syntheticFree))
+        let playlist = PlaylistAnalysis.fixture(entryCount: 2)
+        let fixture = try StoreFixture(
+            analysisState: .playlist(playlist),
+            featurePolicyContext: policy
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.addPlaylistEntries(selectedIDs: ["1", "2"], options: .defaults)
+
+        XCTAssertTrue(fixture.store.jobs.isEmpty)
+        XCTAssertEqual(fixture.store.analysisState, .playlist(playlist))
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .playlistRequiresPro)
+
+        fixture.store.dismissFeaturePolicyDenial()
+
+        XCTAssertNil(fixture.store.featurePolicyDenial)
+        XCTAssertEqual(fixture.store.analysisState, .playlist(playlist))
+    }
+
+    func testFreeRecoveryPausesRestrictedQueuedJobAndRecordsAccessRequirement() throws {
+        var restricted = DownloadJob.fixture(status: .queued)
+        restricted.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertEqual(
+            fixture.store.jobs.first?.accessRequirement,
+            DownloadAccessRequirement(feature: .videoHD, reason: .videoHeightRequiresPro)
+        )
+    }
+
+    func testFreeResumeKeepsRestrictedJobPausedWithoutStartingRunner() async throws {
+        var restricted = DownloadJob.fixture(status: .paused)
+        restricted.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.resume(restricted.id)
+        let startedIDs = await fixture.runner.startedIDs()
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first?.accessRequirement?.feature, .videoHD)
+        XCTAssertEqual(startedIDs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
+    }
+
+    func testFreeRetryRetainsRestrictedFailureWithoutRequeueing() async throws {
+        let format = MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        )
+        var restricted = DownloadJob.fixture(status: .failed)
+        restricted.failure = DownloadFailure(category: .downloadFailed)
+        restricted.options.selectVideoFormat(format)
+        let analysis = VideoAnalysis.fixture(
+            sourceURL: restricted.sourceURL,
+            videoFormats: [format]
+        )
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            analysis: .video(analysis),
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+
+        await fixture.store.retry(restricted.id)
+        let startedIDs = await fixture.runner.startedIDs()
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first?.retryCount, 0)
+        XCTAssertEqual(fixture.store.jobs.first?.accessRequirement?.feature, .videoHD)
+        XCTAssertEqual(startedIDs, [])
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
+    }
+
+    func testStartAllUsesLatestPlanControllerStateAtCommandBoundary() async throws {
+        var restricted = DownloadJob.fixture(status: .queued)
+        restricted.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            featurePolicyContext: AppPlan.testPro.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        fixture.planController.setPlanForTesting(.pro)
+        XCTAssertEqual(fixture.store.jobs.first?.status, .queued)
+        fixture.planController.applyVerifiedEntitlement(VerifiedEntitlement(
+            compactToken: "header.payload.signature",
+            subject: "account-a",
+            grantRevision: 8,
+            issuedAt: Date(timeIntervalSince1970: 1_000),
+            expiresAt: Date(timeIntervalSince1970: 100_000),
+            snapshot: .syntheticFree
+        ))
+
+        await fixture.store.startAll()
+        let startedIDs = await fixture.runner.startedIDs()
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first?.accessRequirement?.feature, .videoHD)
+        XCTAssertEqual(startedIDs, [])
+    }
+
+    func testDowngradeRestrictsOnlyNonactiveProJobsAndLeavesActiveWorkRunning() async throws {
+        let format = MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        )
+        var queued = DownloadJob.fixture(status: .queued)
+        queued.options.selectVideoFormat(format)
+        var paused = DownloadJob.fixture(status: .paused)
+        paused.options.selectVideoFormat(format)
+        var failed = DownloadJob.fixture(status: .failed)
+        failed.failure = DownloadFailure(category: .downloadFailed)
+        failed.options.selectVideoFormat(format)
+        var downloading = DownloadJob.fixture(status: .queued)
+        downloading.options.selectVideoFormat(format)
+        var merging = DownloadJob.fixture(status: .queued)
+        merging.options.selectVideoFormat(format)
+        let fixture = try StoreFixture(
+            jobs: [downloading, merging, queued, paused, failed],
+            coordinatorLimit: 2,
+            featurePolicyContext: AppPlan.testPro.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        fixture.planController.setPlanForTesting(.pro)
+
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: downloading.id)
+        try await fixture.runner.waitForStart(of: merging.id)
+        await fixture.runner.emit(.phase(.downloading), for: downloading.id)
+        await fixture.runner.emit(.phase(.merging), for: merging.id)
+        try await waitUntil("two jobs become active") {
+            fixture.store.jobs.first(where: { $0.id == downloading.id })?.status == .downloading
+                && fixture.store.jobs.first(where: { $0.id == merging.id })?.status == .merging
+        }
+
+        fixture.planController.applyVerifiedEntitlement(VerifiedEntitlement(
+            compactToken: "header.payload.signature",
+            subject: "account-a",
+            grantRevision: 8,
+            issuedAt: Date(timeIntervalSince1970: 1_000),
+            expiresAt: Date(timeIntervalSince1970: 100_000),
+            snapshot: .syntheticFree
+        ))
+        try await waitUntil("latest Free plan reconciles nonactive jobs") {
+            fixture.store.jobs.first(where: { $0.id == queued.id })?.accessRequirement != nil
+                && fixture.store.jobs.first(where: { $0.id == paused.id })?.accessRequirement != nil
+                && fixture.store.jobs.first(where: { $0.id == failed.id })?.accessRequirement != nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == queued.id })?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == paused.id })?.status, .paused)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == failed.id })?.status, .failed)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == downloading.id })?.status, .downloading)
+        XCTAssertEqual(fixture.store.jobs.first(where: { $0.id == merging.id })?.status, .merging)
+        XCTAssertNil(fixture.store.jobs.first(where: { $0.id == downloading.id })?.accessRequirement)
+        XCTAssertNil(fixture.store.jobs.first(where: { $0.id == merging.id })?.accessRequirement)
+        let startedIDs = await fixture.runner.startedIDs()
+        let cancelledIDs = await fixture.runner.cancelledIDs()
+        XCTAssertEqual(Set(startedIDs), [downloading.id, merging.id])
+        XCTAssertEqual(cancelledIDs, [])
+        await fixture.store.cancelActiveAndWaiting()
+    }
+
+    func testUpgradeClearsRestrictionButKeepsJobPausedUntilManualResume() async throws {
+        var restricted = DownloadJob.fixture(status: .paused)
+        restricted.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [restricted],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        XCTAssertNotNil(fixture.store.jobs.first?.accessRequirement)
+
+        fixture.planController.setPlanForTesting(.testPro)
+        try await waitUntil("Test Pro clears the cached access requirement") {
+            fixture.store.jobs.first?.accessRequirement == nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        let startsBeforeResume = await fixture.runner.startedIDs()
+        XCTAssertEqual(startsBeforeResume, [])
+
+        await fixture.store.resume(restricted.id)
+        try await fixture.runner.waitForStart(of: restricted.id)
+        let startsAfterResume = await fixture.runner.startedIDs()
+        XCTAssertEqual(startsAfterResume, [restricted.id])
+    }
+
+    func testRapidPlanChangesApplyOnlyNewestPlanWithoutAutoStart() async throws {
+        var queued = DownloadJob.fixture(status: .queued)
+        queued.options.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+        let fixture = try StoreFixture(
+            jobs: [queued],
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertNotNil(fixture.store.jobs.first?.accessRequirement)
+
+        fixture.planController.setPlanForTesting(.testPro)
+        fixture.planController.setPlanForTesting(.free)
+        fixture.planController.setPlanForTesting(.testPro)
+        try await waitUntil("newest Test Pro state clears the restriction") {
+            fixture.store.jobs.first?.accessRequirement == nil
+        }
+
+        XCTAssertEqual(fixture.store.jobs.first?.status, .paused)
+        XCTAssertNil(fixture.store.jobs.first?.accessRequirement)
+        let startedIDs = await fixture.runner.startedIDs()
+        XCTAssertEqual(startedIDs, [])
+    }
+
+    func testQueuedEditUsesLatestPlanControllerStateWithoutMutatingJob() async throws {
+        let original = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(
+            jobs: [original],
+            featurePolicyContext: AppPlan.testPro.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        fixture.planController.setPlanForTesting(.free)
+        var restrictedOptions = original.options
+        restrictedOptions.selectVideoFormat(MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        ))
+
+        let applied = await fixture.store.editQueuedJob(
+            original.id,
+            options: restrictedOptions
+        )
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(fixture.store.jobs.first?.options, original.options)
+        XCTAssertEqual(fixture.store.jobs.first?.status, .queued)
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
+    }
+
+    func testFreeFailedEditRejectsRestrictedFormatWithoutMutatingRecord() async throws {
+        let format = MediaFormat(
+            id: "137",
+            label: "1080p",
+            videoCodec: "avc1",
+            container: "mp4",
+            height: 1_080
+        )
+        var failed = DownloadJob.fixture(status: .failed, outputKind: .mp3)
+        failed.failure = DownloadFailure(category: .formatReselectionRequired)
+        let fixture = try StoreFixture(
+            jobs: [failed],
+            analysis: .video(VideoAnalysis.fixture(
+                sourceURL: failed.sourceURL,
+                videoFormats: [format]
+            )),
+            featurePolicyContext: AppPlan.free.featurePolicyContext
+        )
+        defer { fixture.cleanUp() }
+        let prepared = await fixture.store.prepareFailedJobEdit(
+            failed.id,
+            options: failed.options
+        )
+        let session = try XCTUnwrap(prepared)
+        var restrictedOptions = session.options
+        restrictedOptions.selectOutputKind(.mp4)
+        restrictedOptions.selectVideoFormat(format)
+
+        let applied = await fixture.store.applyFailedJobEdit(
+            session,
+            options: restrictedOptions
+        )
+
+        let retained = try XCTUnwrap(fixture.store.jobs.first)
+        XCTAssertFalse(applied)
+        XCTAssertEqual(retained.status, .failed)
+        XCTAssertEqual(retained.options.outputKind, .mp3)
+        XCTAssertEqual(retained.retryCount, 0)
+        XCTAssertEqual(fixture.store.featurePolicyDenial?.reason, .videoHeightRequiresPro)
     }
 
     func testBatchSubmissionCreatesPlaceholdersThenAnalyzesFIFOAndStartsFirstSuccess() async throws {
@@ -1933,7 +2435,8 @@ final class DownloadStoreTests: XCTestCase {
             diagnostics: DiagnosticsLogger(root: root),
             metadataAnalyzer: ClosureMetadataAnalyzer { _, _ in
                 .video(.fixture(thumbnailURL: URL(string: "https://images.test/thumb.png")))
-            }
+            },
+            planController: StorePlanController.make(.testPro)
         )
         await store?.analyzeURL("https://youtube.test/video")
         await store?.addVideo(options: .defaults)
@@ -1988,6 +2491,7 @@ private final class StoreFixture {
     let coordinator: DownloadCoordinator
     let persistence: PersistenceController
     let thumbnailCache: ThumbnailCache
+    let planController: PlanController
     let store: DownloadStore
 
     convenience init(
@@ -1999,7 +2503,9 @@ private final class StoreFixture {
         settings: AppSettings = .defaults,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         try self.init(
             root: temporaryDirectory(),
@@ -2011,7 +2517,9 @@ private final class StoreFixture {
             settings: settings,
             settingsStore: settingsStore,
             updateChecker: updateChecker,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            analysisState: analysisState,
+            featurePolicyContext: featurePolicyContext
         )
     }
 
@@ -2019,14 +2527,18 @@ private final class StoreFixture {
         jobs: [DownloadJob] = [],
         analysis: @escaping @Sendable (String, DownloadOptions) async throws -> AnalysisResult,
         coordinatorLimit: Int = 1,
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         try self.init(
             root: temporaryDirectory(),
             jobs: jobs,
             analysis: analysis,
             coordinatorLimit: coordinatorLimit,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            analysisState: analysisState,
+            featurePolicyContext: featurePolicyContext
         )
     }
 
@@ -2044,15 +2556,20 @@ private final class StoreFixture {
         settings: AppSettings = .defaults,
         settingsStore: AppSettingsStore = AppSettingsStore(),
         updateChecker: any UpdateChecking = StoreUpdateChecker(result: .upToDate),
-        toolchainValidator: (any ToolchainHealthValidating)? = nil
+        toolchainValidator: (any ToolchainHealthValidating)? = nil,
+        analysisState: AnalysisState = .idle,
+        featurePolicyContext: FeaturePolicyContext = .publicCompatibility
     ) throws {
         self.root = root
         runner = StoreRunner()
         coordinator = DownloadCoordinator(limit: coordinatorLimit, runner: runner)
         persistence = PersistenceController(root: root)
         thumbnailCache = ThumbnailCache(root: root, loader: thumbnailLoader)
+        let plan: AppPlan = featurePolicyContext.plan == .free ? .free : .testPro
+        planController = StorePlanController.make(plan)
         store = DownloadStore(
             jobs: jobs,
+            analysisState: analysisState,
             settings: settings,
             coordinator: coordinator,
             persistence: persistence,
@@ -2062,7 +2579,8 @@ private final class StoreFixture {
             outputDirectoryBookmarks: bookmarks,
             metadataAnalyzer: ClosureMetadataAnalyzer(analysis),
             updateChecker: updateChecker,
-            toolchainValidator: toolchainValidator
+            toolchainValidator: toolchainValidator,
+            planController: planController
         )
     }
 
@@ -2078,6 +2596,22 @@ private final class StoreFixture {
     func cleanUp() {
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+@MainActor
+private enum StorePlanController {
+    static func make(_ plan: AppPlan) -> PlanController {
+        PlanController(
+            buildChannel: .internalTest,
+            provider: StorePlanProvider(plan: plan)
+        )
+    }
+}
+
+private struct StorePlanProvider: PlanProviding {
+    let plan: AppPlan
+
+    func loadPlan() -> AppPlan { plan }
 }
 
 private enum BookmarkFixtureError: Error {

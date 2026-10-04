@@ -1,0 +1,69 @@
+{
+  "components": [
+    {
+      "evidenceFiles": [
+        "tools/licenses/GPL-3.0-or-later.txt",
+        "tools/licenses/yt-dlp-Unlicense.txt",
+        "tools/licenses/yt-dlp-THIRD_PARTY_LICENSES.txt"
+      ],
+      "id": "yt-dlp",
+      "name": "yt-dlp macOS standalone source",
+      "source": {
+        "fileName": "yt-dlp-2026.07.04.tar.gz",
+        "sha256": "31c32457d1a573a341bb0929386c624fe47339a5338829e6e9c9454bdfa7397a",
+        "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.tar.gz"
+      },
+      "version": "2026.07.04"
+    },
+    {
+      "evidenceFiles": [
+        "tools/FFMPEG_BUILD_INFO.md",
+        "tools/licenses/FFmpeg-LGPL-2.1.txt"
+      ],
+      "id": "ffmpeg",
+      "name": "FFmpeg",
+      "source": {
+        "fileName": "ffmpeg-9.0.tar.xz",
+        "sha256": "7f607a00dd0d28a729d5a4811205812eef01cf6ef6155025febb6f36a9062d52",
+        "url": "https://ffmpeg.org/releases/ffmpeg-9.0.tar.xz"
+      },
+      "version": "9.0"
+    },
+    {
+      "evidenceFiles": [
+        "tools/FFMPEG_BUILD_INFO.md",
+        "tools/licenses/LAME-LGPL-2.0.txt"
+      ],
+      "id": "lame",
+      "name": "LAME",
+      "source": {
+        "fileName": "lame-3.100.tar.gz",
+        "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+        "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz"
+      },
+      "version": "3.100"
+    },
+    {
+      "evidenceFiles": [
+        "tools/QUICKJS_BUILD_INFO.md",
+        "tools/licenses/QuickJS-MIT.txt"
+      ],
+      "id": "quickjs",
+      "name": "QuickJS",
+      "source": {
+        "fileName": "quickjs-2026-06-04.tar.xz",
+        "sha256": "b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a",
+        "url": "https://bellard.org/quickjs/quickjs-2026-06-04.tar.xz"
+      },
+      "version": "2026-06-04"
+    }
+  ],
+  "limitations": [
+    "The yt-dlp standalone aggregate still requires a reviewed transitive corresponding-source disposition.",
+    "The static FFmpeg and LAME integration still requires a reviewed relinking or object-file delivery disposition."
+  ],
+  "platform": "macos",
+  "publicDistributionReady": false,
+  "releaseVersion": "2.0.1",
+  "schemaVersion": 1
+}

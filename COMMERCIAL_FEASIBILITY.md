@@ -7,9 +7,10 @@
 | Status | Approved Phase 1 decision baseline |
 | Decision | Conditional Go for validation only; No-Go for paid launch |
 | Owner | Ta-Chou Weng |
-| Last reviewed | 2026-08-26 |
+| Last reviewed | 2026-09-24 |
 | Owner approval | Approved on 2026-08-26 for Phase 1 validation work only |
-| Next review | After written payment-provider and legal responses |
+| Free release scope | Owner approved preparation of a no-account, no-payment macOS 2.0.1 release on 2026-09-21 |
+| Next review | Free release: after Apple, legal/platform, license, privacy, and clean-Mac evidence; paid release: after all section 10 evidence |
 
 This document is a product and engineering decision record. It is not legal,
 tax, accounting, or financial advice. A qualified Taiwan lawyer and accountant
@@ -73,7 +74,9 @@ offer greater convenience and capability, but not weaker safety for free users.
   by the YT Downloader Pro backend, not by Google.
 - Download failures use a documented controlled recovery ladder. The product
   does not silently switch to unreviewed third-party download services.
-- No paid-system implementation begins before written approval is obtained.
+- Local contracts, tests, and staging-only account/entitlement preparation may
+  proceed without enabling production access or payment. External provider
+  setup, deployment, users, billing, and paid claims require fresh approval.
 - Documentation, tests, release runbooks, and ownership boundaries are required
   parts of the product rather than post-launch cleanup.
 
@@ -124,8 +127,8 @@ redistribution obligations. A lawyer must review the final bundle composition.
 | Area | Rating | Current assessment |
 | --- | --- | --- |
 | Desktop product | High | Swift 2.0 already supplies a strong technical base. |
-| Account and entitlement backend | High | Standard architecture; not yet implemented. |
-| Google authentication | High | Use system-browser OIDC with PKCE and immutable `sub`. |
+| Account and entitlement backend | High | Local migration, Edge Function contract, signed grant, verifier, cache, and bridge are implemented; no cloud deployment or production operation is verified. |
+| Google authentication | High | Staging adapter uses system-browser OAuth PKCE and immutable Supabase user UUID; Google/Supabase external setup is not performed. |
 | ECPay recurring billing | Medium | Technically supported; product approval and exact contract terms unresolved. |
 | Outside-App-Store distribution | High | Requires Developer ID signing and notarization. |
 | Legal/platform permission | Low/unknown | Largest launch risk; written professional review is mandatory. |
@@ -133,6 +136,37 @@ redistribution obligations. A lawyer must review the final bundle composition.
 | Reliability over time | Medium | yt-dlp and YouTube behavior require continuous maintenance. |
 
 Overall status: **Conditional Go for validation; No-Go for paid public launch.**
+
+As of 2026-09-24, the repository contains local and staging-only Google/Supabase
+authentication and signed entitlement implementation with deterministic tests.
+This technical preparation does not change the No-Go decision. No cloud
+project, OAuth consent screen, provider credential, Edge Function deployment,
+production user, checkout, subscription, or billing action is authorized by
+that implementation.
+
+### 5.1 Free macOS 2.0.1 release lane
+
+The owner has separately approved preparation of a free public macOS 2.0.1
+release. This lane contains no production login, account backend, entitlement,
+checkout, recurring payment, analytics, cloud history, or external support
+submission. ECPay and paid-plan accounting evidence therefore do not block the
+free binary, but they remain mandatory before any paid claim or transaction.
+
+The free release remains No-Go until all of these release-specific gates pass:
+
+- Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper,
+  and clean-Mac installation for the exact artifact;
+- written legal review of the free product's platform, copyright, naming,
+  acceptable-use, privacy, support, and public download claims;
+- release-specific licensing approval and complete source-delivery evidence for
+  yt-dlp, FFmpeg, FFprobe, LAME, QuickJS, and every distributed dependency;
+- privacy and operations review confirming the local-only behavior and rollback
+  path represented by the candidate;
+- bilingual public-copy review and a final owner Go decision for the exact
+  artifact, checksum, release notes, and update manifest.
+
+The free release is not permission to advertise Pro, collect payment, activate
+real Google or Apple login, or publish subscription terms.
 
 ## 6. Revenue Model
 
@@ -229,6 +263,9 @@ Allowed before approval:
 - Conduct free closed-beta testing and reliability work.
 - Prepare Developer ID signing and notarization.
 - Inventory dependencies and licenses.
+- Implement and test provider-neutral account/entitlement contracts locally.
+- Prepare a secret-free staging configuration validator, migration, Edge
+  Function, key-rotation runbook, and internal-only packaging path.
 
 Prohibited before approval:
 
@@ -239,6 +276,9 @@ Prohibited before approval:
 - Collect cloud download history before privacy design and explicit consent.
 - Implement a fallback that sends URLs, cookies, or media to an unreviewed
   third-party service.
+- Create or configure external Supabase/Google production resources, deploy an
+  entitlement service, provision real users/secrets, or treat a staging token
+  as a paid subscription without fresh owner approval.
 
 ## 10. Paid Launch Gates
 
@@ -252,6 +292,9 @@ Verbal assurances and screenshots of general account enablement are not enough.
 - [ ] A Taiwan lawyer reviews YouTube/platform terms, copyright exposure,
       product naming, marketing copy, Terms of Use, Acceptable Use Policy,
       privacy policy, refund terms, and complaint handling.
+- [ ] Traditional Chinese and English public copy is reviewed for consistency
+      against legal, provider, accounting, licensing, privacy, and support
+      evidence.
 - [ ] A Taiwan accountant confirms registration, invoice, tax, and entity
       requirements for the intended launch volume.
 - [ ] A licensing review covers yt-dlp, FFmpeg, FFprobe, QuickJS/JavaScript
@@ -259,6 +302,10 @@ Verbal assurances and screenshots of general account enablement are not enough.
 - [ ] The owner approves measured waitlist demand and a conservative cost model.
 - [ ] The macOS release is Developer ID signed, notarized, stapled, and tested on
       clean supported Macs; the Windows release has an explicit signing plan.
+- [ ] The exact macOS release candidate has a completed internal evidence
+      packet covering hashes, SBOM/license checks, source-availability status,
+      clean-Mac smoke tests, public-copy review, rollback, and final owner
+      disposition.
 - [ ] Privacy threat model, deletion/export flow, credential rotation, backup,
       incident response, refund, cancellation, and service shutdown are tested.
 - [ ] The owner signs a final Go decision that links to all evidence above.
@@ -296,8 +343,18 @@ This decision is implemented by the following reviewable documents:
   response, cancellation/refund handling, and shutdown drills.
 - `PUBLIC_POLICY_DRAFTS.md`: Terms, Acceptable Use, Privacy Policy, refund,
   cancellation, complaint, and public-claim draft requirements.
+- `PUBLIC_COPY_LOCALIZATION_REVIEW.md`: internal public-copy inventory,
+  Traditional Chinese/English consistency checks, and publication gates.
+- `RELEASE_CANDIDATE_REVIEW.md`: internal candidate identity, signing,
+  notarization, clean-Mac, SBOM/license, source-availability, rollback, and
+  owner-disposition evidence gates.
 - `ENTITLEMENT_ARCHITECTURE.md`: account, billing, subscription, and feature
-  grant contracts; implementation remains blocked by launch gates.
+  grant contracts and the implemented staging-only signed grant boundary;
+  production deployment remains blocked by launch gates.
+- `docs/swift-2.0/SUPABASE_STAGING.md`: owner-controlled staging setup,
+  secret-free configuration, tests, cleanup, and explicit non-production use.
+- `docs/swift-2.0/ENTITLEMENT_KEY_ROTATION.md`: planned P-256 signing-key
+  rotation and compromise response.
 - `RECOVERY_LADDER.md`: bounded local recovery, retry, client, cookie, and
   optional PO Token provider policy.
 - `REPOSITORY_AND_SUPPORT_STRATEGY.md`: private development/public release

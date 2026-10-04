@@ -83,6 +83,11 @@ enum OutputKind: String, Codable, Sendable {
     case mp3
 }
 
+enum MP4OutputMode: String, Codable, Sendable {
+    case quickTimeCompatible
+    case originalEncoding
+}
+
 enum SubtitleMode: String, Codable, Sendable {
     case none
     case download
@@ -97,12 +102,15 @@ enum CookieMode: String, Codable, Sendable {
 
 struct DownloadOptions: Codable, Equatable, Sendable {
     var outputKind: OutputKind
+    var mp4OutputMode: MP4OutputMode
+    var clientStrategy: YouTubeClientStrategy?
     var videoQuality: VideoQuality
     var audioQuality: AudioQuality
     var selectedVideoFormat: PersistedFormatPresentation?
     var selectedAudioFormat: PersistedFormatPresentation?
     var subtitleMode: SubtitleMode
     var subtitleLanguage: String?
+    var subtitleSource: SubtitleSource?
     var embedThumbnail: Bool
     var embedMetadata: Bool
     var cookies: CookieMode
@@ -117,6 +125,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         selectedAudioFormat: nil,
         subtitleMode: .none,
         subtitleLanguage: nil,
+        subtitleSource: nil,
         embedThumbnail: false,
         embedMetadata: false,
         cookies: .none,
@@ -126,12 +135,15 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     init(
         outputKind: OutputKind = .mp4,
+        mp4OutputMode: MP4OutputMode = .originalEncoding,
+        clientStrategy: YouTubeClientStrategy? = nil,
         videoQuality: VideoQuality = .best,
         audioQuality: AudioQuality = .best,
         selectedVideoFormat: PersistedFormatPresentation? = nil,
         selectedAudioFormat: PersistedFormatPresentation? = nil,
         subtitleMode: SubtitleMode = .none,
         subtitleLanguage: String? = nil,
+        subtitleSource: SubtitleSource? = nil,
         embedThumbnail: Bool = false,
         embedMetadata: Bool = false,
         cookies: CookieMode = .none,
@@ -139,12 +151,15 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         outputDirectoryDisplayPath: String? = nil
     ) {
         self.outputKind = outputKind
+        self.mp4OutputMode = mp4OutputMode
+        self.clientStrategy = clientStrategy
         self.videoQuality = videoQuality
         self.audioQuality = audioQuality
         self.selectedVideoFormat = selectedVideoFormat ?? Self.legacyVideoFormat(for: videoQuality).map(PersistedFormatPresentation.init)
         self.selectedAudioFormat = selectedAudioFormat ?? Self.legacyAudioFormat(for: audioQuality).map(PersistedFormatPresentation.init)
         self.subtitleMode = subtitleMode
         self.subtitleLanguage = subtitleLanguage
+        self.subtitleSource = subtitleSource
         self.embedThumbnail = embedThumbnail
         self.embedMetadata = embedMetadata
         self.cookies = cookies
@@ -182,6 +197,11 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         audioQuality = format.map { .format(id: $0.id, label: $0.label) } ?? .best
     }
 
+    mutating func selectSubtitleTrack(_ track: SubtitleTrack?) {
+        subtitleLanguage = track?.languageCode
+        subtitleSource = track?.source
+    }
+
     func normalizedForExecution() -> DownloadOptions {
         var normalized = self
         normalized.selectOutputKind(outputKind)
@@ -189,8 +209,40 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         return normalized
     }
 
+    func featurePolicyDecision(in context: FeaturePolicyContext) -> FeatureDecision {
+        context.videoDecision(
+            height: selectedVideoFormat?.height,
+            isAudioOnly: outputKind == .mp3,
+            isSourceQuality: selectedVideoFormat.map(Self.isSourceQuality) ?? false
+        )
+    }
+
+    // Only the runner may admit best under a cap: it also constrains every video selector.
+    func executionPolicyDecision(in context: FeaturePolicyContext) -> FeatureDecision {
+        let options = normalizedForExecution()
+        if options.outputKind == .mp4, options.videoQuality == .best,
+           case let .enforced(policy) = context,
+           case let .limited(limit) = policy.videoHeightPolicy {
+            return context.videoDecision(height: limit, isAudioOnly: false, isSourceQuality: false)
+        }
+        return options.featurePolicyDecision(in: context)
+    }
+
+    func refreshingSelectionsForRetry(with analysis: VideoAnalysis) -> DownloadOptions {
+        var refreshed = normalizedForExecution()
+        refreshed.clientStrategy = analysis.clientStrategy
+        if let id = videoQuality.formatID {
+            refreshed.selectVideoFormat(analysis.videoFormats.first { $0.id == id })
+        }
+        if let id = audioQuality.formatID {
+            refreshed.selectAudioFormat(analysis.audioFormats.first { $0.id == id })
+        }
+        return refreshed
+    }
+
     func replacingStaleSelections(with analysis: VideoAnalysis) -> DownloadOptions {
         var refreshed = normalizedForExecution()
+        refreshed.clientStrategy = analysis.clientStrategy
         let selectedVideoID = videoQuality.formatID
         let selectedAudioID = audioQuality.formatID
         if let format = analysis.videoFormats.first(where: { $0.id == selectedVideoID }) ?? analysis.videoFormats.first {
@@ -227,6 +279,12 @@ struct DownloadOptions: Codable, Equatable, Sendable {
                 }
             }
         }
+    }
+
+    private static func isSourceQuality(_ format: PersistedFormatPresentation) -> Bool {
+        format.height.map({ $0 >= 2_160 }) == true
+            || format.note?.localizedCaseInsensitiveContains("source") == true
+            || format.resolution?.localizedCaseInsensitiveContains("4k") == true
     }
 
     private static func legacyVideoFormat(for quality: VideoQuality) -> MediaFormat? {
@@ -280,12 +338,15 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case outputKind
+        case mp4OutputMode
+        case clientStrategy
         case videoQuality
         case audioQuality
         case selectedVideoFormat
         case selectedAudioFormat
         case subtitleMode
         case subtitleLanguage
+        case subtitleSource
         case embedThumbnail
         case embedMetadata
         case cookies
@@ -297,12 +358,15 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
+            mp4OutputMode: try container.decodeIfPresent(MP4OutputMode.self, forKey: .mp4OutputMode) ?? .originalEncoding,
+            clientStrategy: try container.decodeIfPresent(YouTubeClientStrategy.self, forKey: .clientStrategy),
             videoQuality: try container.decode(VideoQuality.self, forKey: .videoQuality),
             audioQuality: try container.decode(AudioQuality.self, forKey: .audioQuality),
             selectedVideoFormat: try container.decodeIfPresent(PersistedFormatPresentation.self, forKey: .selectedVideoFormat),
             selectedAudioFormat: try container.decodeIfPresent(PersistedFormatPresentation.self, forKey: .selectedAudioFormat),
             subtitleMode: try container.decode(SubtitleMode.self, forKey: .subtitleMode),
             subtitleLanguage: try container.decodeIfPresent(String.self, forKey: .subtitleLanguage),
+            subtitleSource: try container.decodeIfPresent(SubtitleSource.self, forKey: .subtitleSource),
             embedThumbnail: try container.decode(Bool.self, forKey: .embedThumbnail),
             embedMetadata: try container.decode(Bool.self, forKey: .embedMetadata),
             cookies: try container.decode(CookieMode.self, forKey: .cookies),

@@ -3,12 +3,18 @@ import Foundation
 enum AuthEnvironment: String, Equatable, Hashable, Sendable {
     case disabled
     case mock
+    case staging
+    case production
 
     static func resolve(from environment: [String: String] = ProcessInfo.processInfo.environment) -> AuthEnvironment {
         environment["YTDP_AUTH_MODE"] == "mock" ? .mock : .disabled
     }
 
     var storageNamespace: String { rawValue }
+
+    var supportsAuthentication: Bool {
+        self == .mock || self == .staging
+    }
 }
 
 enum AuthenticationProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
@@ -16,16 +22,17 @@ enum AuthenticationProviderKind: String, Codable, CaseIterable, Hashable, Sendab
     case apple
 }
 
-enum MockPlanPreview: String, Codable, Equatable, Sendable {
-    case free
-    case pro
-}
-
 struct AccountSummary: Codable, Equatable, Sendable {
     let provider: AuthenticationProviderKind
     let accountID: String
     let displayName: String
-    let planPreview: MockPlanPreview
+    let maskedEmail: String?
+    let expiresAt: Date
+}
+
+struct AuthenticatedSessionContext: Equatable, Sendable {
+    let accountID: String
+    let accessToken: String
     let expiresAt: Date
 }
 

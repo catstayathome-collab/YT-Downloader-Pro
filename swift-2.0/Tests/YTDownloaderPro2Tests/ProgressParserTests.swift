@@ -3,6 +3,16 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ProgressParserTests: XCTestCase {
+    func testConversionProgressUsesMediaTimeAndNeverDeclaresCompletion() {
+        let parser = FFmpegProgressParser()
+        XCTAssertEqual(parser.parse(line: "out_time_us=5000000", duration: 10)?.fraction, 0.5)
+        XCTAssertEqual(parser.parse(line: "out_time_ms=5000000", duration: 10)?.fraction, 0.5)
+        XCTAssertEqual(parser.parse(line: "out_time_us=11000000", duration: 10)?.fraction, 0.99)
+        XCTAssertNil(parser.parse(line: "out_time_us=5000000", duration: nil)?.fraction)
+        XCTAssertNil(parser.parse(line: "out_time_us=-1", duration: 10))
+        XCTAssertNil(parser.parse(line: "out_time_us=nan", duration: 10))
+        XCTAssertNil(parser.parse(line: "progress=end", duration: 10))
+    }
     func testParsesStructuredProgressTemplateWithWhitespaceAndPercentSign() {
         let events = ProgressParser().parse(
             line: "ytdp:progress| 67.5 % |245000000|366000000|12400000|12"

@@ -161,6 +161,11 @@ Before publication, maintain an internal register with:
 | Website check | Final published copy matches approved versions |
 | Support route check | Intake categories, privacy warning, and escalation routing verified |
 
+`PUBLIC_COPY_LOCALIZATION_REVIEW.md` tracks the public-copy inventory,
+Traditional Chinese/English consistency criteria, claim evidence, and
+publication gates for landing pages, app-facing purchase text, support text,
+launch posts, screenshots, FAQs, and release/support surfaces.
+
 `ACCOUNTING_REVIEW_BRIEF.md` tracks the accountant-facing questions and the
 restricted evidence record for tax, invoice, seller-registration, refund,
 retention, and entity guidance.
@@ -179,6 +184,8 @@ The following remain blocked until fresh owner approval and dated evidence:
 
 - publishing Terms, Acceptable Use Policy, Privacy Policy, refund rules, or
   cancellation rules as final public commitments;
+- publishing landing-page, pricing, FAQ, app-facing purchase, support, launch,
+  screenshot, or localized copy as final public commitments;
 - production ECPay configuration, checkout, recurring billing, cancellation, or
   refund actions;
 - support email, ticket submission, external forms, or vendor setup;

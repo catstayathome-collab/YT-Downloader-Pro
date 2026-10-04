@@ -24,12 +24,14 @@ Result values: `Pass`, `Fail`, `Blocked`, or `Not run`.
 | --- | --- | --- | --- |
 | Bundle verifier unit tests | `python3 -m unittest tests.test_swift_bundle -v` | | |
 | Full pinned Python suite | `python3 -c 'import yaml' && python3 -m unittest discover -s tests -v` (after activating the project venv) | | |
-| Full strict Swift suite | `cd swift-2.0 && swift test --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
+| Public strict Swift suite | `swift test --package-path swift-2.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
+| Internal strict Swift suite | `swift test --package-path swift-2.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors -Xswiftc -DYTDP_INTERNAL_TEST` | | |
 | macOS 13 arm64 release build | `swift build --package-path swift-2.0 --configuration release --triple arm64-apple-macosx13.0 --disable-sandbox -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` | | |
-| End-to-end internal bundle | `./scripts/build_swift_2.sh --version 2.0.1 --architectures arm64 --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
-| Independent bundle verification | `python3 scripts/check_swift_bundle.py 'dist/YT Downloader Pro 2.app' --expected-version 2.0.1 --architectures arm64 --inventory tools/macos-helper-inventory.json` | | |
-| Strict signature check | `codesign --verify --deep --strict --verbose=2 'dist/YT Downloader Pro 2.app'` | | |
-| Universal request fails closed | `./scripts/build_swift_2.sh --version 2.0.1 --architectures universal --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
+| End-to-end public bundle | `./scripts/build_swift_2.sh --app-channel public --version 2.0.1 --architectures arm64 --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
+| End-to-end internal bundle | `./scripts/build_swift_2.sh --app-channel internal-test --version 2.0.1 --architectures arm64 --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
+| Independent public verification | `python3 scripts/check_swift_bundle.py 'dist/swift-2.0/public/YT Downloader Pro 2.app' --expected-version 2.0.1 --expected-app-channel public --architectures arm64 --inventory tools/macos-helper-inventory.json` | | |
+| Strict public signature check | `codesign --verify --deep --strict --verbose=2 'dist/swift-2.0/public/YT Downloader Pro 2.app'` | | |
+| Universal request fails closed | `./scripts/build_swift_2.sh --app-channel public --version 2.0.1 --architectures universal --sbom-created <UTC-RFC3339-candidate-timestamp> --unsigned-test` | | |
 
 ## Platform And Installation
 

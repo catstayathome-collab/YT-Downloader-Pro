@@ -36,6 +36,7 @@ struct DownloadOptionsViewState: Equatable {
     let availableSubtitleModes: [SubtitleMode]
     let outputFolderLabel: String
     let canSubmit: Bool
+    let mp4ModeNotice: L10n.Key?
 
     init(options: DownloadOptions, locale: Locale = Locale(identifier: "en")) {
         availableSubtitleModes = options.outputKind == .mp3 ? [.none, .download] : [.none, .download, .embed]
@@ -44,6 +45,16 @@ struct DownloadOptionsViewState: Equatable {
             ? options.outputDirectoryDisplayPath ?? L10n.string(.mediaSelectedOutputFolder, locale: locale)
             : L10n.string(.mediaChooseOutputFolder, locale: locale)
         canSubmit = hasBookmark
+        if options.outputKind == .mp3 {
+            mp4ModeNotice = nil
+        } else if options.mp4OutputMode == .originalEncoding {
+            mp4ModeNotice = .mediaMP4OriginalNotice
+        } else {
+            // Source metadata is advisory; the runner must probe actual streams before publication.
+            let mayNeedConversion = !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat)
+                || !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat)
+            mp4ModeNotice = mayNeedConversion ? .mediaMP4ConversionNotice : nil
+        }
     }
 }
 
@@ -51,41 +62,41 @@ struct MediaOptionsPresentation: Equatable {
     let identity: MediaIdentityPresentation?
     let videoChoices: [MediaFormat]
     let audioChoices: [MediaFormat]
+    let subtitleChoices: [SubtitleTrack]?
     private(set) var selectedVideoID: String?
     private(set) var selectedAudioID: String?
     private(set) var options: DownloadOptions
 
-    var quickTimeVideoChoices: [MediaFormat] {
-        videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
-    }
-
-    var quickTimeAudioChoices: [MediaFormat] {
-        audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
-    }
-
     // MetadataProbe sorts typed formats highest-first, so the first usable choice is the reviewed default.
-    init(analysis: VideoAnalysis, defaults: DownloadOptions) {
+    init(
+        analysis: VideoAnalysis,
+        defaults: DownloadOptions,
+        featurePolicy: FeaturePolicyContext = .publicCompatibility
+    ) {
         identity = MediaIdentityPresentation(analysis: analysis)
         videoChoices = analysis.videoFormats
         audioChoices = analysis.audioFormats
+        subtitleChoices = analysis.subtitleTracks
         options = defaults.normalizedForExecution()
-        let selectableVideoFormats = defaults.outputKind == .mp4
-            ? analysis.videoFormats.filter(QuickTimeMP4Compatibility.supportsVideo)
-            : analysis.videoFormats
-        let selectableAudioFormats = defaults.outputKind == .mp4
-            ? analysis.audioFormats.filter(QuickTimeMP4Compatibility.supportsAudio)
-            : analysis.audioFormats
-        selectedVideoID = Self.selectedID(for: defaults.videoQuality, in: selectableVideoFormats)
-            ?? selectableVideoFormats.first?.id
-        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: selectableAudioFormats)
-            ?? selectableAudioFormats.first?.id
+        options.clientStrategy = analysis.clientStrategy
+        let videoPresentation = VideoFormatMenuPresentation(
+            formats: analysis.videoFormats,
+            selectedID: Self.selectedID(for: defaults.videoQuality, in: analysis.videoFormats),
+            outputKind: defaults.outputKind,
+            featurePolicy: featurePolicy
+        )
+        selectedVideoID = videoPresentation.selectedID
+        selectedAudioID = Self.selectedID(for: defaults.audioQuality, in: analysis.audioFormats)
+            ?? analysis.audioFormats.first?.id
         applySelectedFormats()
+        reconcileSubtitleSelection()
     }
 
     init(options: DownloadOptions) {
         let options = options.normalizedForExecution()
         identity = nil
         self.options = options
+        subtitleChoices = nil
         selectedVideoID = Self.selectedID(for: options.videoQuality, in: [])
         selectedAudioID = Self.selectedID(for: options.audioQuality, in: [])
         videoChoices = Self.currentChoice(for: options.videoQuality, structured: options.selectedVideoFormat)
@@ -100,6 +111,10 @@ struct MediaOptionsPresentation: Equatable {
     mutating func selectAudio(_ id: String?) {
         selectedAudioID = id
         applySelectedFormats()
+    }
+
+    func decisionForSelectedOptions(in featurePolicy: FeaturePolicyContext) -> FeatureDecision {
+        options.featurePolicyDecision(in: featurePolicy)
     }
 
     private static func selectedID(for quality: VideoQuality, in choices: [MediaFormat]) -> String? {
@@ -162,6 +177,19 @@ struct MediaOptionsPresentation: Equatable {
             options.selectAudioFormat(nil)
         }
     }
+
+    private mutating func reconcileSubtitleSelection() {
+        guard options.subtitleMode != .none else { return }
+        guard let subtitleChoices, !subtitleChoices.isEmpty else {
+            options.subtitleMode = .none
+            options.selectSubtitleTrack(nil)
+            return
+        }
+        let selectedTrack = subtitleChoices.first {
+            $0.languageCode == options.subtitleLanguage && $0.source == options.subtitleSource
+        }
+        options.selectSubtitleTrack(selectedTrack ?? subtitleChoices[0])
+    }
 }
 
 struct MediaOptionsSheet: View {
@@ -173,6 +201,7 @@ struct MediaOptionsSheet: View {
     private let identity: MediaIdentityPresentation?
     private let videoChoices: [MediaFormat]
     private let audioChoices: [MediaFormat]
+    private let subtitleChoices: [SubtitleTrack]?
     private let onConfirm: (DownloadOptions) -> Void
 
     @State private var options: DownloadOptions
@@ -180,16 +209,22 @@ struct MediaOptionsSheet: View {
     init(
         analysis: VideoAnalysis,
         defaults: DownloadOptions,
+        featurePolicy: FeaturePolicyContext = .publicCompatibility,
         titleKey: L10n.Key = .mediaOptionsTitle,
         actionKey: L10n.Key = .commonAddToQueue,
         onConfirm: @escaping (DownloadOptions) -> Void
     ) {
-        let presentation = MediaOptionsPresentation(analysis: analysis, defaults: defaults)
+        let presentation = MediaOptionsPresentation(
+            analysis: analysis,
+            defaults: defaults,
+            featurePolicy: featurePolicy
+        )
         self.titleKey = titleKey
         self.actionKey = actionKey
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
+        subtitleChoices = presentation.subtitleChoices
         self.onConfirm = onConfirm
         _options = State(initialValue: presentation.options)
     }
@@ -206,6 +241,7 @@ struct MediaOptionsSheet: View {
         identity = presentation.identity
         videoChoices = presentation.videoChoices
         audioChoices = presentation.audioChoices
+        subtitleChoices = presentation.subtitleChoices
         self.onConfirm = onConfirm
         _options = State(initialValue: presentation.options)
     }
@@ -221,7 +257,12 @@ struct MediaOptionsSheet: View {
 
             ScrollView {
                 Form {
-                    DownloadOptionsEditor(options: $options, videoChoices: videoChoices, audioChoices: audioChoices)
+                    DownloadOptionsEditor(
+                        options: $options,
+                        videoChoices: videoChoices,
+                        audioChoices: audioChoices,
+                        subtitleChoices: subtitleChoices
+                    )
                 }
                 .formStyle(.grouped)
             }
@@ -294,13 +335,17 @@ struct MediaOptionsSheet: View {
 
 struct DownloadOptionsEditor: View {
     @EnvironmentObject private var store: DownloadStore
+    @EnvironmentObject private var planController: PlanController
     @Environment(\.locale) private var locale
     @Binding var options: DownloadOptions
 
     let videoChoices: [MediaFormat]
     let audioChoices: [MediaFormat]
+    var subtitleChoices: [SubtitleTrack]? = nil
 
     @State private var folderError: String?
+    @State private var requestedUpgradeRoute: UpgradePresentationRoute?
+    @State private var planChangeNotice: PlanChangeNotice?
 
     var body: some View {
         Group {
@@ -311,18 +356,31 @@ struct DownloadOptionsEditor: View {
                 }
                 .pickerStyle(.segmented)
 
-                Picker(L10n.string(.mediaVideoFormat, locale: locale), selection: videoSelection) {
-                    Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(visibleVideoChoices) { format in
-                        Text(MediaFormatPresentation.label(for: format, locale: locale))
+                if options.outputKind == .mp4 {
+                    Picker(L10n.string(.mediaMP4Mode, locale: locale), selection: $options.mp4OutputMode) {
+                        Text(L10n.string(.mediaMP4Compatible, locale: locale)).tag(MP4OutputMode.quickTimeCompatible)
+                        Text(L10n.string(.mediaMP4Original, locale: locale)).tag(MP4OutputMode.originalEncoding)
+                    }
+                    if let notice = viewState.mp4ModeNotice {
+                        Text(L10n.string(notice, locale: locale))
+                            .font(.caption)
+                            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
                             .fixedSize(horizontal: false, vertical: true)
-                            .tag(Optional(format.id))
                     }
                 }
 
+                VideoFormatMenu(
+                    title: L10n.string(.mediaVideoFormat, locale: locale),
+                    emptySelectionLabel: L10n.string(.mediaHighestAvailable, locale: locale),
+                    accesses: videoFormatPresentation.accesses,
+                    selectedID: videoSelection.wrappedValue,
+                    onSelect: { videoSelection.wrappedValue = $0 },
+                    onRequestUpgrade: { requestedUpgradeRoute = UpgradePresentationRoute(denial: $0) }
+                )
+
                 Picker(L10n.string(.mediaAudioFormat, locale: locale), selection: audioSelection) {
                     Text(L10n.string(.mediaHighestAvailable, locale: locale)).tag(nil as String?)
-                    ForEach(visibleAudioChoices) { format in
+                    ForEach(audioChoices) { format in
                         Text(MediaFormatPresentation.label(for: format, locale: locale))
                             .fixedSize(horizontal: false, vertical: true)
                             .tag(Optional(format.id))
@@ -331,13 +389,32 @@ struct DownloadOptionsEditor: View {
             }
 
             Section(L10n.string(.mediaSubtitles, locale: locale)) {
-                Picker(L10n.string(.mediaSubtitleMode, locale: locale), selection: $options.subtitleMode) {
+                Picker(L10n.string(.mediaSubtitleMode, locale: locale), selection: subtitleModeSelection) {
                     ForEach(viewState.availableSubtitleModes, id: \.self) { mode in
                         Text(subtitleModeLabel(mode)).tag(mode)
                     }
                 }
-                TextField(L10n.string(.mediaSubtitleLanguage, locale: locale), text: subtitleLanguage)
-                    .disabled(options.subtitleMode == .none)
+                .disabled(subtitleChoices?.isEmpty == true)
+
+                if let subtitleChoices {
+                    if subtitleChoices.isEmpty {
+                        Text(L10n.string(.mediaSubtitleUnavailable, locale: locale))
+                            .foregroundStyle(DownloadCenterAppearance.palette.secondaryText.color)
+                    } else {
+                        Picker(
+                            L10n.string(.mediaSubtitleLanguage, locale: locale),
+                            selection: subtitleTrackSelection
+                        ) {
+                            Text(L10n.string(.mediaSubtitleChoose, locale: locale)).tag(nil as String?)
+                            subtitlePickerSection(source: .official, tracks: subtitleChoices)
+                            subtitlePickerSection(source: .automatic, tracks: subtitleChoices)
+                        }
+                        .disabled(options.subtitleMode == .none)
+                    }
+                } else {
+                    TextField(L10n.string(.mediaSubtitleLanguage, locale: locale), text: subtitleLanguage)
+                        .disabled(options.subtitleMode == .none)
+                }
             }
 
             Section(L10n.string(.mediaMetadata, locale: locale)) {
@@ -371,6 +448,22 @@ struct DownloadOptionsEditor: View {
                 }
             }
         }
+        .sheet(item: $requestedUpgradeRoute) { route in
+            LocalizedSheetRoot(locale: locale) {
+                PlanComparisonView(route: route)
+                    .environmentObject(planController)
+            }
+        }
+        .alert(item: $planChangeNotice) { _ in
+            Alert(
+                title: Text(L10n.string(.planSelectionAdjustedTitle, locale: locale)),
+                message: Text(L10n.string(.planSelectionAdjustedMessage, locale: locale)),
+                dismissButton: .default(Text(L10n.string(.commonDone, locale: locale)))
+            )
+        }
+        .onChange(of: planController.currentPlan) { _ in
+            reconcileVideoSelectionForPlanChange()
+        }
     }
 
     private var viewState: DownloadOptionsViewState {
@@ -383,24 +476,20 @@ struct DownloadOptionsEditor: View {
             set: { kind in
                 options.selectOutputKind(kind)
                 guard kind == .mp4 else { return }
-                if !QuickTimeMP4Compatibility.supportsVideo(options.selectedVideoFormat) {
-                    options.selectVideoFormat(visibleVideoChoices.first)
-                }
-                if !QuickTimeMP4Compatibility.supportsAudio(options.selectedAudioFormat) {
-                    options.selectAudioFormat(visibleAudioChoices.first)
+                if videoFormatPresentation.selectedID != videoSelection.wrappedValue {
+                    selectVideoFormat(id: videoFormatPresentation.highestAllowedID)
                 }
             }
         )
     }
 
-    private var visibleVideoChoices: [MediaFormat] {
-        guard options.outputKind == .mp4 else { return videoChoices }
-        return videoChoices.filter(QuickTimeMP4Compatibility.supportsVideo)
-    }
-
-    private var visibleAudioChoices: [MediaFormat] {
-        guard options.outputKind == .mp4 else { return audioChoices }
-        return audioChoices.filter(QuickTimeMP4Compatibility.supportsAudio)
+    private var videoFormatPresentation: VideoFormatMenuPresentation {
+        VideoFormatMenuPresentation(
+            formats: videoChoices,
+            selectedID: videoSelection.wrappedValue,
+            outputKind: options.outputKind,
+            featurePolicy: planController.featurePolicyContext
+        )
     }
 
     private func subtitleModeLabel(_ mode: SubtitleMode) -> String {
@@ -418,13 +507,24 @@ struct DownloadOptionsEditor: View {
                 return id
             },
             set: { selectedID in
-                guard let selectedID, let format = videoChoices.first(where: { $0.id == selectedID }) else {
-                    options.selectVideoFormat(nil)
-                    return
-                }
-                options.selectVideoFormat(format)
+                selectVideoFormat(id: selectedID)
             }
         )
+    }
+
+    private func selectVideoFormat(id: String?) {
+        guard let id, let format = videoChoices.first(where: { $0.id == id }) else {
+            options.selectVideoFormat(nil)
+            return
+        }
+        options.selectVideoFormat(format)
+    }
+
+    private func reconcileVideoSelectionForPlanChange() {
+        let reconciliation = videoFormatPresentation.selectionReconciliation()
+        guard reconciliation.didNormalize else { return }
+        selectVideoFormat(id: reconciliation.selectedID)
+        planChangeNotice = .videoQualityAdjusted
     }
 
     private var audioSelection: Binding<String?> {
@@ -450,6 +550,66 @@ struct DownloadOptionsEditor: View {
         )
     }
 
+    private var subtitleModeSelection: Binding<SubtitleMode> {
+        Binding(
+            get: { options.subtitleMode },
+            set: { mode in
+                options.subtitleMode = mode
+                guard mode != .none,
+                      options.subtitleLanguage == nil,
+                      let first = subtitleChoices?.first else {
+                    return
+                }
+                options.selectSubtitleTrack(first)
+            }
+        )
+    }
+
+    private var subtitleTrackSelection: Binding<String?> {
+        Binding(
+            get: {
+                guard let language = options.subtitleLanguage,
+                      let source = options.subtitleSource else {
+                    return nil
+                }
+                return "\(source.rawValue):\(language)"
+            },
+            set: { selectedID in
+                let track = subtitleChoices?.first { $0.id == selectedID }
+                options.selectSubtitleTrack(track)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func subtitlePickerSection(source: SubtitleSource, tracks: [SubtitleTrack]) -> some View {
+        let matchingTracks = tracks.filter { $0.source == source }
+        if !matchingTracks.isEmpty {
+            Section(subtitleSourceLabel(source)) {
+                ForEach(matchingTracks) { track in
+                    Text(subtitleTrackLabel(track)).tag(Optional(track.id))
+                }
+            }
+        }
+    }
+
+    private func subtitleTrackLabel(_ track: SubtitleTrack) -> String {
+        let officialSuffix = " - Official"
+        let name = track.displayName.hasSuffix(officialSuffix)
+            ? String(track.displayName.dropLast(officialSuffix.count))
+            : track.displayName
+        return "\(name) · \(subtitleSourceLabel(track.source))"
+    }
+
+    private func subtitleSourceLabel(_ source: SubtitleSource) -> String {
+        switch source {
+        case .official:
+            L10n.string(.mediaSubtitleOfficial, locale: locale)
+        case .automatic:
+            L10n.string(.mediaSubtitleAutomatic, locale: locale)
+        }
+    }
+
     @MainActor
     private func chooseFolder() {
         guard let directory = OutputFolderPicker.choose(prompt: L10n.string(.commonChoose, locale: locale)) else { return }
@@ -460,6 +620,12 @@ struct DownloadOptionsEditor: View {
             folderError = L10n.string(.mediaFolderSaveFailed, locale: locale)
         }
     }
+}
+
+private enum PlanChangeNotice: String, Identifiable {
+    case videoQualityAdjusted
+
+    var id: String { rawValue }
 }
 
 enum OutputFolderPicker {

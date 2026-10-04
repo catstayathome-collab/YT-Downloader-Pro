@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 enum DownloadCardAction: Equatable, Hashable {
+    case viewProFeatures
     case edit
     case editAndRetry
     case startNow
@@ -18,6 +19,7 @@ enum DownloadCardAction: Equatable, Hashable {
 
     var symbolName: String {
         switch self {
+        case .viewProFeatures: "lock.fill"
         case .edit, .editAndRetry: "slider.horizontal.3"
         case .startNow: "play.fill"
         case .pause: "pause.fill"
@@ -36,6 +38,7 @@ enum DownloadCardAction: Equatable, Hashable {
 
     func accessibilityLabel(locale: Locale) -> String {
         switch self {
+        case .viewProFeatures: L10n.string(.planViewProFeatures, locale: locale)
         case .edit: L10n.string(.downloadActionEdit, locale: locale)
         case .editAndRetry: L10n.string(.downloadActionEditAndRetry, locale: locale)
         case .startNow: L10n.string(.downloadActionStartNow, locale: locale)
@@ -134,7 +137,10 @@ struct DownloadCardPresentation: Equatable {
 
     // This keeps each lifecycle state tied to its approved, testable command set.
     var actions: [DownloadCardAction] {
-        switch job.status {
+        if job.accessRequirement != nil {
+            return [.viewProFeatures, .cancel]
+        }
+        return switch job.status {
         case .queued:
             [.edit, .startNow, .cancel]
         case .analyzing where job.awaitsBatchAnalysis:
@@ -159,15 +165,27 @@ struct DownloadCardPresentation: Equatable {
     var statusLabel: String { statusLabel(locale: Locale(identifier: "en")) }
 
     func statusLabel(locale: Locale) -> String {
-        switch job.status {
+        if job.accessRequirement != nil {
+            return L10n.string(.planRequiresPro, locale: locale)
+        }
+        return switch job.status {
         case .queued: L10n.string(.downloadStatusQueued, locale: locale)
         case .analyzing: L10n.string(.downloadStatusAnalyzing, locale: locale)
         case .downloading: L10n.string(.downloadStatusDownloading, locale: locale)
         case .paused: L10n.string(.downloadStatusPaused, locale: locale)
-        case .merging: L10n.string(.downloadStatusFinishing, locale: locale)
+        case .merging: L10n.string(mediaProcessingStatusKey, locale: locale)
         case .completed: L10n.string(.downloadStatusCompleted, locale: locale)
         case .failed: L10n.string(.downloadStatusFailed, locale: locale)
         case .cancelled: L10n.string(.downloadStatusCancelled, locale: locale)
+        }
+    }
+
+    private var mediaProcessingStatusKey: L10n.Key {
+        switch job.mediaProcessingStage {
+        case .converting: .downloadStatusConverting
+        case .verifying: .downloadStatusVerifying
+        case .remuxing: .downloadStatusRemuxing
+        case nil: .downloadStatusFinishing
         }
     }
 
@@ -194,7 +212,7 @@ struct DownloadCardPresentation: Equatable {
             .cancelMerging
         case .removeRecord:
             .removeRecord
-        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .play, .revealInFinder, .retry, .errorDetails, .reAdd:
+        case .viewProFeatures, .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .play, .revealInFinder, .retry, .errorDetails, .reAdd:
             nil
         }
     }
@@ -203,7 +221,7 @@ struct DownloadCardPresentation: Equatable {
         switch action {
         case .play, .revealInFinder:
             validatedOutputFileURL != nil
-        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+        case .viewProFeatures, .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
             true
         }
     }
@@ -217,7 +235,7 @@ struct DownloadCardPresentation: Equatable {
         return switch action {
         case .play: L10n.string(.downloadActionPlayUnavailable, locale: locale)
         case .revealInFinder: L10n.string(.downloadActionRevealUnavailable, locale: locale)
-        case .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
+        case .viewProFeatures, .edit, .editAndRetry, .startNow, .pause, .resume, .cancel, .cancelWithConfirmation, .retry, .errorDetails, .reAdd, .removeRecord:
             action.accessibilityLabel(locale: locale)
         }
     }
@@ -248,16 +266,23 @@ struct DownloadCardView: View {
     let job: DownloadJob
     var isSelected = false
     var onEdit: (DownloadJob) -> Void = { _ in }
+    var onRequestUpgrade: (UpgradePresentationRoute) -> Void = { _ in }
 
     @State private var pendingConfirmation: DownloadConfirmation?
     @State private var showsErrorDetails = false
 
     private let presentation: DownloadCardPresentation
 
-    init(job: DownloadJob, isSelected: Bool = false, onEdit: @escaping (DownloadJob) -> Void = { _ in }) {
+    init(
+        job: DownloadJob,
+        isSelected: Bool = false,
+        onEdit: @escaping (DownloadJob) -> Void = { _ in },
+        onRequestUpgrade: @escaping (UpgradePresentationRoute) -> Void = { _ in }
+    ) {
         self.job = job
         self.isSelected = isSelected
         self.onEdit = onEdit
+        self.onRequestUpgrade = onRequestUpgrade
         presentation = DownloadCardPresentation(job: job)
     }
 
@@ -347,7 +372,7 @@ struct DownloadCardView: View {
         Group {
             Group {
                 if showsProgress {
-                    ProgressView(value: max(0, min(job.progress, 1)))
+                    ProgressView(value: job.displayedProgress.map { max(0, min($0, 1)) })
                         .progressViewStyle(.linear)
                         .accessibilityLabel(L10n.string(.downloadCardProgress, locale: locale))
                         .accessibilityValue(progressAccessibilityValue)
@@ -420,6 +445,10 @@ struct DownloadCardView: View {
             return
         }
         switch action {
+        case .viewProFeatures:
+            if let requirement = job.accessRequirement {
+                onRequestUpgrade(UpgradePresentationRoute(requirement: requirement))
+            }
         case .edit, .editAndRetry:
             onEdit(job)
         case .startNow:
@@ -505,10 +534,11 @@ struct DownloadCardView: View {
     }
 
     private var progressAccessibilityValue: String {
+        guard let progress = job.displayedProgress else { return "" }
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .percent
-        return formatter.string(from: NSNumber(value: max(0, min(job.progress, 1)))) ?? ""
+        return formatter.string(from: NSNumber(value: max(0, min(progress, 1)))) ?? ""
     }
 
     private func byteDescription(_ value: Int64?) -> String {

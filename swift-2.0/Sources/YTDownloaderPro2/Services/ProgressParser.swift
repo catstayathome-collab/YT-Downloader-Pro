@@ -1,5 +1,18 @@
 import Foundation
 
+struct FFmpegProgressParser {
+    func parse(line: String, duration: Double?) -> JobProgress? {
+        let parts = line.split(separator: "=", maxSplits: 1)
+        guard parts.count == 2, ["out_time_us", "out_time_ms"].contains(String(parts[0])),
+              let microseconds = Double(parts[1]), microseconds.isFinite, microseconds >= 0 else { return nil }
+        let fraction = duration.flatMap { duration -> Double? in
+            guard duration.isFinite, duration > 0 else { return nil }
+            return min(0.99, microseconds / 1_000_000 / duration)
+        }
+        return JobProgress(fraction: fraction, downloadedBytes: nil, totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)
+    }
+}
+
 struct ProgressParser: Sendable {
     func parse(line: String) -> [DownloadEvent] {
         let filepathPrefix = "ytdp:filepath|"

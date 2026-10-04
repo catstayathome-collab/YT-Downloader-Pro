@@ -3,6 +3,49 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class YouTubeStrategyTests: XCTestCase {
+    func testBothOutputModesKeepExactIDsAndCapEveryFreeVideoBranch() {
+        let strategy = YouTubeStrategy(toolchain: .fixture())
+        for mode in [MP4OutputMode.quickTimeCompatible, .originalEncoding] {
+            for (videoID, audioID, expected) in [
+                (nil, nil, "bestvideo+bestaudio/best"),
+                ("313", nil, "313+bestaudio"),
+                (nil, "251", "bestvideo+251"),
+                ("401", "251", "401+251")
+            ] as [(String?, String?, String)] {
+                var job = DownloadJob.fixture()
+                job.options.mp4OutputMode = mode
+                job.options.videoQuality = videoID.map { .format(id: $0, label: "2160p") } ?? .best
+                job.options.audioQuality = audioID.map { .format(id: $0, label: "Opus") } ?? .best
+                let pro = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
+                XCTAssertEqual(argument(after: "--format", in: pro), expected)
+                let free = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0, featurePolicy: AppPlan.free.featurePolicyContext)
+                let capped = expected.split(separator: "/").map { branch in
+                    var streams = branch.split(separator: "+").map(String.init)
+                    streams[0] += "[height<=720]"
+                    return streams.joined(separator: "+")
+                }.joined(separator: "/")
+                XCTAssertEqual(argument(after: "--format", in: free), capped)
+            }
+        }
+    }
+
+    func testDownloadUsesPersistedClientButFreshAnalysisStillComparesBoth() {
+        let strategy = YouTubeStrategy(toolchain: .fixture())
+        var job = DownloadJob.fixture()
+        for client in [YouTubeClientStrategy.webEmbedded, .defaultClient] {
+            job.options.clientStrategy = client
+            for attempt in [0, 1] {
+                let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: attempt)
+                XCTAssertEqual(arguments.contains("--extractor-args"), client == .webEmbedded)
+                XCTAssertFalse(arguments.contains("--cookies-from-browser"))
+            }
+            let first = strategy.analysisArguments(url: job.sourceURL, options: job.options, attempt: 0)
+            let second = strategy.analysisArguments(url: job.sourceURL, options: job.options, attempt: 1)
+            XCTAssertTrue(first.contains("--extractor-args"))
+            XCTAssertFalse(second.contains("--extractor-args"))
+        }
+    }
+
     func testAnalysisArgumentsUseQuickJSVerifiedClientAndNoTLSBypass() {
         let strategy = YouTubeStrategy(toolchain: .fixture())
 
@@ -105,7 +148,7 @@ final class YouTubeStrategyTests: XCTestCase {
             "--ffmpeg-location",
             "/bundle",
             "--format",
-            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]",
+            "bestvideo+bestaudio/best",
             "--output",
             "/tmp/Downloads/Example video.%(ext)s",
             "--print",
@@ -118,6 +161,8 @@ final class YouTubeStrategyTests: XCTestCase {
             "after_move:ytdp:filepath|%(filepath)s",
             "--merge-output-format",
             "mp4",
+            "--remux-video",
+            "mp4",
             "--js-runtimes",
             "quickjs:/bundle/qjs",
             "--extractor-args",
@@ -126,7 +171,7 @@ final class YouTubeStrategyTests: XCTestCase {
         ])
     }
 
-    func testMP4DownloadRejectsPersistedWebMSelectionsAndUsesQuickTimeCompatibleFormats() {
+    func testMP4DownloadPreservesExplicitWebMSelections() {
         let vp9 = MediaFormat(
             id: "248",
             label: "1080p - webm",
@@ -171,7 +216,7 @@ final class YouTubeStrategyTests: XCTestCase {
 
         XCTAssertEqual(
             argument(after: "--format", in: arguments),
-            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]/best[vcodec^=avc1][acodec^=mp4a][ext=mp4]"
+            "248+251"
         )
     }
 
@@ -225,12 +270,68 @@ final class YouTubeStrategyTests: XCTestCase {
         var job = DownloadJob.fixture(outputKind: .mp3)
         job.options.subtitleMode = .embed
         job.options.subtitleLanguage = "ja"
+        job.options.subtitleSource = .official
 
         let arguments = strategy.downloadArguments(job: job, toolchain: .fixture(), attempt: 0)
 
         XCTAssertTrue(arguments.contains("--write-subs"))
         XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "ja")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
         XCTAssertFalse(arguments.contains("--embed-subs"))
+    }
+
+    func testOfficialSubtitleSelectionDownloadsOnlyTheExactOfficialTrackAsSRT() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = "zh-Hant-official"
+        job.options.subtitleSource = .official
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertTrue(arguments.contains("--write-subs"))
+        XCTAssertFalse(arguments.contains("--write-auto-subs"))
+        XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "zh-Hant-official")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
+    }
+
+    func testAutomaticSubtitleSelectionDownloadsOnlyTheExactAutomaticTrackAsSRT() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = "ja"
+        job.options.subtitleSource = .automatic
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertFalse(arguments.contains("--write-subs"))
+        XCTAssertTrue(arguments.contains("--write-auto-subs"))
+        XCTAssertEqual(argument(after: "--sub-langs", in: arguments), "ja")
+        XCTAssertEqual(argument(after: "--sub-format", in: arguments), "srt")
+    }
+
+    func testSubtitleModeWithoutASelectedTrackDoesNotFallBackToLiveChat() {
+        var job = DownloadJob.fixture()
+        job.options.subtitleMode = .download
+        job.options.subtitleLanguage = nil
+        job.options.subtitleSource = nil
+
+        let arguments = YouTubeStrategy(toolchain: .fixture()).downloadArguments(
+            job: job,
+            toolchain: .fixture(),
+            attempt: 0
+        )
+
+        XCTAssertFalse(arguments.contains("--write-subs"))
+        XCTAssertFalse(arguments.contains("--write-auto-subs"))
+        XCTAssertFalse(arguments.contains("--sub-langs"))
+        XCTAssertFalse(arguments.contains("--sub-format"))
     }
 
     private func argument(after flag: String, in arguments: [String]) -> String? {
