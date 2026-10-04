@@ -63,6 +63,12 @@ Both scans returned exactly equal stream JSON, including 9983 video frames and
 throughput for this scan. CPU work is similar; it is parallelized, not omitted.
 This is a single-file observation, not a guaranteed end-to-end speed multiplier.
 
+A separate scan of the already converted 3840 x 2160 HEVC/AAC output measured
+78.50 seconds with default threading and 26.33 seconds with four decoder threads.
+The complete stream JSON was again equal (9983 video frames, 15615 AAC frames).
+The optimized output scan was run first, then the default scan; no encoder or
+other probe was run concurrently with this comparison.
+
 Reproduce with the same local file and bundled tools, sequentially without other
 encoders/probes running:
 
@@ -90,5 +96,28 @@ jq -s '.[0].streams == .[1].streams' default.json four-threads.json
 - Compiler warnings are errors; `git diff --check` passed.
 
 Reproduction commands are the same strict and opt-in commands in
-`4K_QUICKTIME_ACCEPTANCE.md`. Artifact and native-UI evidence will be recorded
-after rebuilding the internal candidate.
+`4K_QUICKTIME_ACCEPTANCE.md`.
+
+## Internal Candidate
+
+- Source commit: `dfa6706`, clean tree at build time.
+- Version/channel/architecture: 2.0.1 / internal-test / arm64, ad-hoc signed,
+  not notarized and not for public distribution.
+- Internal-flavor strict build suite: 658 tests, 3 opt-in skips, zero failures.
+- Build exited zero; bundle verification reports `ok: true`, with no errors.
+- App: `dist/swift-2.0/internal-test/YT Downloader Pro 2.app`.
+- ZIP: `dist/swift-2.0/internal-test/YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip`.
+- ZIP SHA-256: `a934f9b2552b250a1802b21013fea1dcc866b90397609d68c15780b972cef4f9`.
+- Native launch smoke test: main window and settings opened successfully; 32
+  existing records were retained. Traditional Chinese, Test Pro, five concurrent
+  downloads, QuickTime-compatible mode and the original output directory remained
+  unchanged. No owner history/media was cleared or fresh network job added.
+- Actual processing-stage order is verified through runner/store/presentation
+  tests and real bundled-media integration, not claimed as a manually observed
+  live network-download UI session. Owner acceptance of the stage labels remains
+  the next manual check.
+
+Suggested owner check: download a 4K source in QuickTime-compatible mode and
+observe verification, conversion and final verification. The verification label
+must not retain the prior conversion's 100%. Open the completed output in
+QuickTime, then repeat in original-encoding mode to check remuxing behavior.
