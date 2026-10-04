@@ -111,6 +111,15 @@ case "$url" in
         printf 'ytdp:progress|50%%|50|100|10|5\n'
         : > "$base.mp4.part"
         printf 'ytdp:phase|merging\n' >&2
+        case "$mode" in
+            *progressive-webm*)
+                if ! printf '%s\n' "$*" | grep -q -- '--remux-video mp4'; then
+                    printf 'fixture' > "$base.webm"
+                    rm -f "$base.mp4.part"
+                    printf 'ytdp:filepath|%s.webm\n' "$base"
+                    exit 0
+                fi ;;
+        esac
         printf 'fixture' > "$base.mp4"
         if [ -f "$root/real-source.mp4" ]; then
             cp "$root/real-source.mp4" "$base.mp4"

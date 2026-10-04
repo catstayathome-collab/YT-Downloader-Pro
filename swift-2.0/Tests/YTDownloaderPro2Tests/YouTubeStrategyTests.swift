@@ -161,6 +161,8 @@ final class YouTubeStrategyTests: XCTestCase {
             "after_move:ytdp:filepath|%(filepath)s",
             "--merge-output-format",
             "mp4",
+            "--remux-video",
+            "mp4",
             "--js-runtimes",
             "quickjs:/bundle/qjs",
             "--extractor-args",

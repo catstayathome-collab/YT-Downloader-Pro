@@ -694,6 +694,10 @@ actor DownloadRunner: JobRunning {
             state.continuation.yield(.progress(JobProgress(fraction: nil, downloadedBytes: nil, totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)))
             let source = try await probeMedia(workspace.source, workspace: workspace, jobID: jobID, token: token)
             try await validateMediaPolicy(source, jobID: jobID, token: token)
+            if case .format = state.job.options.audioQuality, source.primaryAudio == nil {
+                throw DownloadFailure(category: .postProcessingFailed,
+                    technicalDetail: "The downloaded source is missing the requested audio track.")
+            }
             let planner = MP4OutputPlanner()
             _ = try planner.plan(media: source, mode: .originalEncoding, capabilities: MP4EncoderCapabilities())
             _ = try await verifySourceReceipt(workspace: workspace, job: state.job, token: token, write: true)

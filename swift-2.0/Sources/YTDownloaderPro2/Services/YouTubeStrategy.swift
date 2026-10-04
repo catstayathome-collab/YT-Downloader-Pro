@@ -45,7 +45,8 @@ struct YouTubeStrategy: Sendable {
         ]
 
         if job.options.outputKind == .mp4 {
-            arguments += ["--merge-output-format", "mp4"]
+            // A progressive single-file format does not run yt-dlp's merger.
+            arguments += ["--merge-output-format", "mp4", "--remux-video", "mp4"]
         } else {
             arguments += ["--extract-audio", "--audio-format", "mp3"]
         }

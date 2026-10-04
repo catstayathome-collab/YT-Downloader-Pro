@@ -4,6 +4,28 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadRunnerTests: XCTestCase {
+    func testProgressiveWebMIsRemuxedIntoOwnedMP4SourceBeforeVerification() async throws {
+        let fixture = try RunnerFixture(mode: "success-progressive-webm")
+        let events = try await collect(fixture.runner.events(for: fixture.job()))
+        XCTAssertEqual(events.last, .completed)
+        XCTAssertTrue(fixture.commandLog().contains("--remux-video mp4"))
+        XCTAssertEqual(fixture.pipelineTrace(), ["probe:source.mp4", "encode:converted.mp4", "probe:converted.mp4"])
+    }
+
+    func testExplicitAudioSelectionCannotPublishSilentSource() async throws {
+        let fixture = try RunnerFixture(mode: "success")
+        var job = fixture.job()
+        job.options.audioQuality = .format(id: "140", label: "AAC")
+        do {
+            _ = try await collect(fixture.runner.events(for: job))
+            XCTFail("A requested audio track must not disappear silently")
+        } catch let failure as DownloadFailure {
+            XCTAssertEqual(failure.category, .postProcessingFailed)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))
+        XCTAssertFalse(fixture.pipelineTrace().contains("encode:converted.mp4"))
+    }
+
     func testQuitDuringCrashRecoveryPreservesPublishedCandidateIdentity() async throws {
         let fixture = try RunnerFixture(mode: "success-wait-source")
         let job = fixture.job()
