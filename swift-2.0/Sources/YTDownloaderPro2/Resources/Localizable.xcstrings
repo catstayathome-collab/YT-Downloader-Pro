@@ -1479,6 +1479,30 @@
         }
       }
     },
+    "download.status.converting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Converting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変換中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "轉檔中" } }
+      }
+    },
+    "download.status.verifying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Verifying" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検証中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "驗證中" } }
+      }
+    },
+    "download.status.remuxing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remuxing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再多重化中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "封裝中" } }
+      }
+    },
     "download.status.finishing": {
       "extractionState": "manual",
       "localizations": {

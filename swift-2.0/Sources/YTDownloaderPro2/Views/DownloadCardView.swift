@@ -173,10 +173,19 @@ struct DownloadCardPresentation: Equatable {
         case .analyzing: L10n.string(.downloadStatusAnalyzing, locale: locale)
         case .downloading: L10n.string(.downloadStatusDownloading, locale: locale)
         case .paused: L10n.string(.downloadStatusPaused, locale: locale)
-        case .merging: L10n.string(.downloadStatusFinishing, locale: locale)
+        case .merging: L10n.string(mediaProcessingStatusKey, locale: locale)
         case .completed: L10n.string(.downloadStatusCompleted, locale: locale)
         case .failed: L10n.string(.downloadStatusFailed, locale: locale)
         case .cancelled: L10n.string(.downloadStatusCancelled, locale: locale)
+        }
+    }
+
+    private var mediaProcessingStatusKey: L10n.Key {
+        switch job.mediaProcessingStage {
+        case .converting: .downloadStatusConverting
+        case .verifying: .downloadStatusVerifying
+        case .remuxing: .downloadStatusRemuxing
+        case nil: .downloadStatusFinishing
         }
     }
 

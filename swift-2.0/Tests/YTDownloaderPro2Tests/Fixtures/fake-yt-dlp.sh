@@ -6,6 +6,7 @@ mode=$(cat "$root/fixture-mode" 2>/dev/null || true)
 last=""
 for argument in "$@"; do last="$argument"; done
 if printf '%s\n' "$@" | grep -q -- '-show_streams'; then
+    printf '%s\n' "$*" >> "$root/probe-command"
     name=$(basename "$last")
     printf 'probe:%s\n' "$name" >> "$root/pipeline.trace"
     case "$mode:$name" in
@@ -18,6 +19,8 @@ if printf '%s\n' "$@" | grep -q -- '-show_streams'; then
     esac
     codec=h264; tag=avc1; width=1280; height=720; duration=10; frames=240
     case "$mode:$name" in
+        *source-decode-error*:source.mp4|*final-decode-error*:converted.mp4) echo 'Error decoding frame' >&2 ;;
+        *missing-frame*:converted.mp4) frames=239 ;;
         *convert*:source.mp4|*capability*:source.mp4) codec=vp9 ;;
         *bad-final*:converted.mp4) width=640 ;;
     esac

@@ -647,8 +647,12 @@ actor DownloadRunner: JobRunning {
     private func probeMedia(_ url: URL, workspace: MP4Workspace, jobID: UUID, token: UUID) async throws -> ProbedMedia {
         try workspace.requireMedia(url)
         let result = try await mediaProcess(jobID: jobID, token: token, executable: toolchain.ffprobe,
-            arguments: ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", url.path])
+            arguments: ["-v", "error", "-threads", "4", "-count_frames", "-show_streams", "-show_format", "-of", "json", url.path])
         guard result.exitCode == 0 else { throw failure(for: result, phase: .postprocessing) }
+        // ffprobe can report decoder errors yet return success after a full scan.
+        guard result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MP4OutputPlanningError.invalidProbe
+        }
         return try JSONDecoder().decode(ProbedMedia.self, from: Data(result.stdout.utf8))
     }
 
@@ -692,6 +696,7 @@ actor DownloadRunner: JobRunning {
             active[jobID]?.phase = .postprocessing
             state.continuation.yield(.phase(.postprocessing))
             state.continuation.yield(.progress(JobProgress(fraction: nil, downloadedBytes: nil, totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)))
+            state.continuation.yield(.processingStage(.verifying))
             let source = try await probeMedia(workspace.source, workspace: workspace, jobID: jobID, token: token)
             try await validateMediaPolicy(source, jobID: jobID, token: token)
             if case .format = state.job.options.audioQuality, source.primaryAudio == nil {
@@ -712,10 +717,12 @@ actor DownloadRunner: JobRunning {
             let destination = reservation.baseURL.appendingPathExtension("mp4")
             if !workspace.isPublished(to: destination) {
                 try workspace.discardCandidate()
+                state.continuation.yield(.processingStage(plan.videoAction == .copy && plan.audioAction != .aac ? .remuxing : .converting))
                 let result = try await mediaProcess(jobID: jobID, token: token, executable: toolchain.ffmpeg,
                     arguments: plan.arguments(input: workspace.source, output: workspace.candidate), duration: source.duration)
                 guard result.exitCode == 0 else { throw failure(for: result, phase: .postprocessing) }
             }
+            state.continuation.yield(.processingStage(.verifying))
             let output = try await probeMedia(workspace.candidate, workspace: workspace, jobID: jobID, token: token)
             try planner.validate(output: output, source: source, mode: state.job.options.mp4OutputMode)
             try await validateMediaPolicy(output, jobID: jobID, token: token)

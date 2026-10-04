@@ -86,6 +86,7 @@ final class LocalizationTests: XCTestCase {
             "download.card.format.mp3", "download.card.format.mp4", "download.card.progress", "download.card.unknown", "download.card.unknownSize",
             "download.status.analyzing", "download.status.cancelled", "download.status.completed", "download.status.downloading",
             "download.status.failed", "download.status.finishing", "download.status.paused", "download.status.queued",
+            "download.status.converting", "download.status.verifying", "download.status.remuxing",
             "downloadCenter.analyze", "downloadCenter.analyzing", "downloadCenter.batch.analyzingTitle",
             "downloadCenter.batch.playlistEmpty", "downloadCenter.empty", "downloadCenter.input.accepted",
             "downloadCenter.input.duplicateSkipped", "downloadCenter.input.invalidSkipped",

@@ -4,6 +4,56 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadRunnerTests: XCTestCase {
+    func testMediaStagesReflectVerificationAndActualCodecWork() async throws {
+        for (mode, expectedWork) in [("success", MediaProcessingStage.remuxing), ("success-convert", .converting)] {
+            let fixture = try RunnerFixture(mode: mode)
+            let events = try await collect(fixture.runner.events(for: fixture.job()))
+            let stages = events.compactMap { event -> MediaProcessingStage? in
+                if case let .processingStage(stage) = event { return stage }
+                return nil
+            }
+            XCTAssertEqual(stages, [.verifying, expectedWork, .verifying])
+            XCTAssertEqual(events.last, .completed)
+        }
+    }
+
+    func testMediaProbesKeepFullFrameScanWithBoundedDecoderThreads() async throws {
+        let fixture = try RunnerFixture(mode: "success")
+        let events = try await collect(fixture.runner.events(for: fixture.job()))
+        XCTAssertEqual(events.last, .completed)
+        let commands = try String(contentsOf: fixture.directory.appendingPathComponent("probe-command"), encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(commands.count, 2)
+        for command in commands {
+            XCTAssertTrue(command.contains("-threads 4 -count_frames"))
+            XCTAssertTrue(command.contains("-show_streams -show_format"))
+        }
+    }
+
+    func testDecoderErrorsCannotPublishEvenWhenProbeExitsSuccessfully() async throws {
+        for mode in ["success-source-decode-error", "success-final-decode-error"] {
+            let fixture = try RunnerFixture(mode: mode)
+            do {
+                _ = try await collect(fixture.runner.events(for: fixture.job()))
+                XCTFail("Decoder errors must fail verification: \(mode)")
+            } catch let failure as DownloadFailure {
+                XCTAssertEqual(failure.category, .postProcessingFailed)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))
+        }
+    }
+
+    func testMissingFinalFrameStillFailsFullVerification() async throws {
+        let fixture = try RunnerFixture(mode: "success-missing-frame")
+        do {
+            _ = try await collect(fixture.runner.events(for: fixture.job()))
+            XCTFail("A missing final frame must not publish")
+        } catch let failure as DownloadFailure {
+            XCTAssertEqual(failure.category, .postProcessingFailed)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))
+    }
+
     func testProgressiveWebMIsRemuxedIntoOwnedMP4SourceBeforeVerification() async throws {
         let fixture = try RunnerFixture(mode: "success-progressive-webm")
         let events = try await collect(fixture.runner.events(for: fixture.job()))
@@ -66,6 +116,8 @@ final class DownloadRunnerTests: XCTestCase {
         job.options.mp4OutputMode = .originalEncoding
         let events = try await collect(fixture.runner.events(for: job))
         XCTAssertEqual(events.last, .completed)
+        XCTAssertTrue(events.contains(.processingStage(.remuxing)))
+        XCTAssertFalse(events.contains(.processingStage(.converting)))
         XCTAssertEqual(fixture.pipelineTrace(), ["probe:source.mp4", "encode:converted.mp4", "probe:converted.mp4"])
         XCTAssertFalse(fixture.mediaCommandLog().contains("hevc_videotoolbox"))
         XCTAssertTrue(fixture.mediaCommandLog().contains("-c copy"))
@@ -98,6 +150,8 @@ final class DownloadRunnerTests: XCTestCase {
         XCTAssertEqual(generated.exitCode, 0, generated.stderr)
         let events = try await collect(fixture.runner.events(for: fixture.job()))
         XCTAssertEqual(events.last, .completed)
+        XCTAssertTrue(events.contains(.processingStage(.converting)))
+        XCTAssertEqual(events.filter { $0 == .processingStage(.verifying) }.count, 2)
         let result = try await launcher.run(executable: tools.appendingPathComponent("ffprobe"), arguments: [
             "-v", "error", "-show_streams", "-show_format", "-of", "json", fixture.finalURL.path])
         let media = try JSONDecoder().decode(ProbedMedia.self, from: Data(result.stdout.utf8))
@@ -163,6 +217,7 @@ final class DownloadRunnerTests: XCTestCase {
             XCTAssertFalse(accepted)
             await fixture.runner.cancel(jobID: job.id)
             let events = try await task.value
+            XCTAssertTrue(events.contains(.processingStage(.verifying)))
             XCTAssertEqual(fixture.pipelineTrace().last, "stopped")
             XCTAssertFalse(events.contains(.completed))
             XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalURL.path))

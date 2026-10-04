@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class DownloadStoreTests: XCTestCase {
+    func testVerificationClearsConversionProgressAndStagesAreNotRestored() async throws {
+        let job = DownloadJob.fixture(status: .queued)
+        let fixture = try StoreFixture(jobs: [job])
+        defer { fixture.cleanUp() }
+        await fixture.store.startAll()
+        try await fixture.runner.waitForStart(of: job.id)
+        await fixture.runner.emit(.phase(.postprocessing), for: job.id)
+        await fixture.runner.emit(.processingStage(.converting), for: job.id)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: 100,
+            totalBytes: 100, bytesPerSecond: nil, etaSeconds: 0)), for: job.id)
+        try await waitUntil("conversion progress arrives") { fixture.store.jobs[0].displayedProgress == 1 }
+        await fixture.runner.emit(.processingStage(.verifying), for: job.id)
+        try await waitUntil("verification starts") { fixture.store.jobs[0].mediaProcessingStage == .verifying }
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+        XCTAssertNil(fixture.store.jobs[0].downloadedBytes)
+        XCTAssertNil(fixture.store.jobs[0].totalBytes)
+        XCTAssertNil(fixture.store.jobs[0].estimatedTimeRemaining)
+        await fixture.runner.emit(.progress(JobProgress(fraction: 1, downloadedBytes: nil,
+            totalBytes: nil, bytesPerSecond: nil, etaSeconds: nil)), for: job.id)
+        let restored = try JSONDecoder().decode(DownloadJob.self, from: JSONEncoder().encode(fixture.store.jobs[0]))
+        XCTAssertNil(restored.mediaProcessingStage)
+        XCTAssertNil(restored.displayedProgress)
+        XCTAssertNil(fixture.store.jobs[0].displayedProgress)
+    }
+
     func testPostprocessingClearsDownloadMetricsBeforeReceivingConversionProgress() async throws {
         let job = DownloadJob.fixture(status: .queued)
         let fixture = try StoreFixture(jobs: [job])

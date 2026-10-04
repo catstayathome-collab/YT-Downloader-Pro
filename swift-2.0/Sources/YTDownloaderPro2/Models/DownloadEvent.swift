@@ -7,6 +7,12 @@ enum DownloadPhase: String, Codable, Equatable, Sendable {
     case postprocessing
 }
 
+enum MediaProcessingStage: String, Codable, Equatable, Sendable {
+    case verifying
+    case converting
+    case remuxing
+}
+
 struct JobProgress: Codable, Equatable, Sendable {
     let fraction: Double?
     let downloadedBytes: Int64?
@@ -32,6 +38,7 @@ struct JobProgress: Codable, Equatable, Sendable {
 enum DownloadEvent: Codable, Equatable, Sendable {
     case reservedBasename(String)
     case phase(DownloadPhase)
+    case processingStage(MediaProcessingStage)
     case progress(JobProgress)
     case output(URL)
     case diagnostic(String)

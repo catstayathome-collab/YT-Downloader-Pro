@@ -1390,6 +1390,7 @@ final class DownloadStore: ObservableObject {
             await persist(flush: true)
         case let .phase(phase):
             transitionJob(at: index, to: status(for: phase))
+            jobs[index].mediaProcessingStage = nil
             if phase == .merging || phase == .postprocessing {
                 jobs[index].progress = 0
                 jobs[index].postprocessingProgress = nil
@@ -1399,6 +1400,15 @@ final class DownloadStore: ObservableObject {
                 jobs[index].estimatedTimeRemaining = nil
             }
             await persist(flush: true)
+        case let .processingStage(stage):
+            guard jobs[index].status == .merging, jobs[index].mediaProcessingStage != stage else { return }
+            jobs[index].mediaProcessingStage = stage
+            jobs[index].postprocessingProgress = nil
+            jobs[index].progress = 0
+            jobs[index].downloadedBytes = nil
+            jobs[index].totalBytes = nil
+            jobs[index].speedBytesPerSecond = nil
+            jobs[index].estimatedTimeRemaining = nil
         case let .progress(progress):
             if jobs[index].status == .merging {
                 jobs[index].postprocessingProgress = progress.fraction
