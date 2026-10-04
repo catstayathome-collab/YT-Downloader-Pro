@@ -26,6 +26,21 @@ encoder for the default source. After the change, the full public-flavor strict
 suite passed 655 tests with three opt-in skips and zero failures. Compatibility
 fixtures choose compatible mode explicitly so those tests retain their intent.
 
+Internal candidate rebuilt from clean source `b11c278`: version 2.0.1,
+internal-test, arm64, ad-hoc signed (not notarized). Internal-flavor build tests
+passed 661 tests with three opt-in skips and zero failures; real bundled-media
+tests passed 14 tests, and bundle verification returned `ok: true`.
+
+ZIP: `dist/swift-2.0/internal-test/YT-Downloader-Pro-2.0.1-macOS-arm64-internal-test.zip`.
+SHA-256: `ff07f2dcbc99f83b7cf5d2e53667c75d5087c574726b60a9592b39d807b7f333`.
+This supersedes the earlier internal artifact, not a public release.
+
+Native smoke test confirmed the owner's prior saved compatible default was not
+silently overwritten. At the owner's explicit request, that local setting was
+then changed to original encoding through the App UI and survived quit/relaunch.
+All 34 existing records, Test Pro, five workers, Traditional Chinese and the
+existing output directory were retained. No network test job or cleanup was run.
+
 ## Contracts
 
 - `ProbedMedia` decodes actual ffprobe JSON, not yt-dlp labels. Probe with
