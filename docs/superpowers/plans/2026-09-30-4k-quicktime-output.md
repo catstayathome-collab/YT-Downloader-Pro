@@ -1,5 +1,9 @@
 # 4K And QuickTime Output Implementation Plan
 
+Default-policy revision, 2026-10-04: original encoding replaces the earlier
+compatible default. See `docs/swift-2.0/MP4_OUTPUT_VALIDATION.md`; the remaining
+resolution, validation, recovery and policy requirements are unchanged.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** Restore all available resolutions without sacrificing QuickTime output compatibility or Free/Pro enforcement.

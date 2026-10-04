@@ -1,5 +1,9 @@
 # 4K And QuickTime Output Repair
 
+Historical default superseded on 2026-10-04 by the owner: original encoding is
+now the default; compatibility is opt-in. See the current policy in
+`docs/swift-2.0/MP4_OUTPUT_VALIDATION.md`. Explicit saved choices are preserved.
+
 Status: written specification approved by the owner on 2026-09-30;
 Task 1 execution approved. Scope: macOS Swift only. No payment,
 deployment, release or Windows changes.

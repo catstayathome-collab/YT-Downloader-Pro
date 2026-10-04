@@ -2,6 +2,13 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class ModelsTests: XCTestCase {
+    func testDefaultMP4ModePreservesOriginalEncoding() {
+        XCTAssertEqual(DownloadOptions().mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(DownloadOptions.defaults.mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(DownloadOptions.defaults.normalizedForExecution().mp4OutputMode, .originalEncoding)
+        XCTAssertEqual(AppSettings.defaults.defaultOptions.mp4OutputMode, .originalEncoding)
+    }
+
     func testClientStrategyRoundTripLegacyAndUnknownValues() throws {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
@@ -43,7 +50,7 @@ final class ModelsTests: XCTestCase {
         payload.removeValue(forKey: "mp4OutputMode")
         let legacy = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))
         let restored = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(legacy)) as? [String: Any])
-        XCTAssertEqual(restored["mp4OutputMode"] as? String, "quickTimeCompatible")
+        XCTAssertEqual(restored["mp4OutputMode"] as? String, "originalEncoding")
         for mode in ["quickTimeCompatible", "originalEncoding"] {
             payload["mp4OutputMode"] = mode
             let options = try decoder.decode(DownloadOptions.self, from: JSONSerialization.data(withJSONObject: payload))

@@ -4,6 +4,19 @@ import XCTest
 @testable import YTDownloaderPro2
 
 final class DownloadRunnerTests: XCTestCase {
+    func testDefaultEncodingPreservesIncompatibleSourceWithoutAcquiringEncoder() async throws {
+        let fixture = try RunnerFixture(mode: "success-convert-original")
+        let job = fixture.job(mp4OutputMode: DownloadOptions.defaults.mp4OutputMode)
+        let events = try await collect(fixture.runner.events(for: job))
+        XCTAssertEqual(events.last, .completed)
+        XCTAssertTrue(events.contains(.processingStage(.remuxing)))
+        XCTAssertFalse(events.contains(.processingStage(.converting)))
+        XCTAssertTrue(fixture.mediaCommandLog().contains("-c copy"))
+        XCTAssertFalse(fixture.mediaCommandLog().contains("hevc_videotoolbox"))
+        XCTAssertFalse(fixture.pipelineTrace().contains { $0.contains("probe-hevc") })
+        XCTAssertEqual(fixture.pipelineTrace(), ["probe:source.mp4", "encode:converted.mp4", "probe:converted.mp4"])
+    }
+
     func testMediaStagesReflectVerificationAndActualCodecWork() async throws {
         for (mode, expectedWork) in [("success", MediaProcessingStage.remuxing), ("success-convert", .converting)] {
             let fixture = try RunnerFixture(mode: mode)
@@ -922,10 +935,12 @@ private final class RunnerFixture: @unchecked Sendable {
         id: UUID = UUID(),
         reservedBasename: String? = nil,
         videoFormatID: String? = nil,
-        videoFormat: MediaFormat? = nil
+        videoFormat: MediaFormat? = nil,
+        mp4OutputMode: MP4OutputMode = .quickTimeCompatible
     ) -> DownloadJob {
         lastJobID = id
         var options = DownloadOptions.fixture()
+        options.mp4OutputMode = mp4OutputMode
         options.outputDirectoryBookmark = Data("fixture-bookmark".utf8)
         options.outputDirectoryDisplayPath = (try? String(contentsOf: directory.appendingPathComponent("fixture-display-directory"), encoding: .utf8)) ?? directory.path
         if let videoFormatID {

@@ -3,10 +3,33 @@
 Task 4/5 evidence, 2026-10-03 through 2026-10-04. Internal macOS implementation only; not release
 acceptance. The download runner now consumes the planner as described below.
 
+## Current Default Policy
+
+Owner revision, 2026-10-04: default MP4 output to `originalEncoding`; QuickTime
+compatibility is opt-in in settings or per-job media options. Fresh settings,
+reset settings, direct construction and legacy records without `mp4OutputMode`
+use original encoding. Explicitly saved modes are preserved; this is not a
+forced migration of user preferences or existing queued jobs.
+
+Original encoding preserves video/audio codecs and avoids compatibility-driven
+re-encoding, but does not guarantee QuickTime playback. H.264/AAC sources can
+still be playable in QuickTime. Both modes retain full source/final integrity
+checks and Free/Pro limits. Unknown persisted mode values still fail decoding.
+
+The earlier 2026-09-30 spec/plan's compatible-default requirement is superseded
+only for this default policy; its media safety and optional conversion contracts
+remain in force.
+
+Default-policy TDD evidence: before the change, three model/settings regressions
+failed seven default assertions; a runner regression tried to acquire a compatible
+encoder for the default source. After the change, the full public-flavor strict
+suite passed 655 tests with three opt-in skips and zero failures. Compatibility
+fixtures choose compatible mode explicitly so those tests retain their intent.
+
 ## Contracts
 
 - `ProbedMedia` decodes actual ffprobe JSON, not yt-dlp labels. Probe with
-  `-v error -count_frames -show_streams -show_format -of json FILE`.
+  `-v error -threads 4 -count_frames -show_streams -show_format -of json FILE`.
   Counting frames is deliberate: some Matroska inputs have no declared count.
   The runner must own/cancel this subprocess and show indeterminate progress
   when duration is unavailable. Full frame counting has a cost for long media.

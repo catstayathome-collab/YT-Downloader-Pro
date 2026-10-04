@@ -135,7 +135,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
 
     init(
         outputKind: OutputKind = .mp4,
-        mp4OutputMode: MP4OutputMode = .quickTimeCompatible,
+        mp4OutputMode: MP4OutputMode = .originalEncoding,
         clientStrategy: YouTubeClientStrategy? = nil,
         videoQuality: VideoQuality = .best,
         audioQuality: AudioQuality = .best,
@@ -358,7 +358,7 @@ struct DownloadOptions: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
-            mp4OutputMode: try container.decodeIfPresent(MP4OutputMode.self, forKey: .mp4OutputMode) ?? .quickTimeCompatible,
+            mp4OutputMode: try container.decodeIfPresent(MP4OutputMode.self, forKey: .mp4OutputMode) ?? .originalEncoding,
             clientStrategy: try container.decodeIfPresent(YouTubeClientStrategy.self, forKey: .clientStrategy),
             videoQuality: try container.decode(VideoQuality.self, forKey: .videoQuality),
             audioQuality: try container.decode(AudioQuality.self, forKey: .audioQuality),
