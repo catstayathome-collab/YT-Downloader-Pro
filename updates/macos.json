@@ -1,11 +1,11 @@
 {
-  "download_url": "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.8.0/CSAH-Media-Downloader-2.8.0-build-49-macOS-arm64.zip",
-  "latest_version": "2.8.0",
+  "download_url": "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.8.1/CSAH-Media-Downloader-2.8.1-build-51-macOS-arm64.zip",
+  "latest_version": "2.8.1",
   "minimum_macos": "13.0.0",
   "platform": "macos",
-  "published_at": "2026-11-06T11:25:23Z",
-  "release_notes": "2.8.0\uff1aPro \u652f\u63f4 IG \u540c\u7bc7\u8cbc\u6587\u591a\u9078\u8207\u6700\u4f73\u756b\u8cea\u4e0b\u8f09\uff0c\u79fb\u9664\u8a2d\u5b9a\u5074\u6b04\u591a\u9918\u63d0\u793a\u3002Apple Silicon\uff0fmacOS 13+\uff1b\u5df2\u7c3d\u7f72\u53ca\u516c\u8b49\u3002\u8acb\u5f9e\u767c\u5e03\u9801\u4e0b\u8f09\u4e26\u624b\u52d5\u5b89\u88dd\uff1b\u672c\u7248\u5c1a\u672a\u5167\u5efa\u81ea\u52d5\u5b89\u88dd\u66f4\u65b0\u5668\u3002",
-  "release_url": "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/tag/macos-v2.8.0",
+  "published_at": "2026-11-06T14:01:52Z",
+  "release_notes": "2.8.1\uff1aApp \u5167\u4e0b\u8f09\u8207\u9a57\u8b49\u66f4\u65b0\uff0c\u7b49\u5f85\u65e2\u6709\u4e0b\u8f09\u4f47\u5217\u5b8c\u6210\u5f8c\u5b89\u88dd\u4e26\u91cd\u555f\u3002\u820a\u7248\u9996\u6b21\u4ecd\u9700\u624b\u52d5\u5b89\u88dd\u3002",
+  "release_url": "https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/tag/macos-v2.8.1",
   "schema_version": 1,
-  "sha256": "187f15329d514997944babcaa01a74cb6361be65f51297ea7f1ddd23babd175a"
+  "sha256": "c56accd08fe751eae3878e4bfec4c024d6045ac7723a7b69cd0657b1c1d10752"
 }
