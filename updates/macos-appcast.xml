@@ -3,6 +3,22 @@
   <channel>
     <title>CSAH Media Downloader updates</title>
     <item>
+      <title>CSAH Media Downloader 2.8.2</title>
+      <sparkle:version>52</sparkle:version>
+      <sparkle:shortVersionString>2.8.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <pubDate>Fri, 06 Nov 2026 21:48:55 GMT</pubDate>
+      <description>CSAH Media Downloader 2.8.2（build 52）
+
+- 強化異常或過大的縮圖與下載工具輸出處理。
+- 服務忙碌時顯示稍後重試提示；保留既有付款紀錄，不自動重送付款或取消操作。
+- 沿用App內更新流程：下載並驗證更新後，等待既有執行中與排隊影片完成，再安裝並重新啟動。
+
+支援Apple Silicon及macOS 13或更新版本。2.8.0及更早版本首次仍需手動安裝含更新器的版本。</description>
+      <enclosure url="https://github.com/catstayathome-collab/YT-Downloader-Pro/releases/download/macos-v2.8.2/CSAH-Media-Downloader-2.8.2-build-52-macOS-arm64.zip" sparkle:edSignature="PkahqwAyGSoqfN3bvUFgfw8itmI4l7Z18HAFh06BY4kqDzLxgviJ+3ALpmhgjHRFAFoWNGi/yDnOuQWJ5P9GBA==" length="51004719" type="application/octet-stream" />
+    </item>
+    <item>
       <title>CSAH Media Downloader 2.8.1</title>
       <sparkle:version>51</sparkle:version>
       <sparkle:shortVersionString>2.8.1</sparkle:shortVersionString>
@@ -19,6 +35,6 @@ App 內下載並驗證更新，左下角顯示進度。等待全部既有執行�
   </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: WNtH9MLPy4SzPXLf9gdI+IrlBOYwlqij4FLgXebQpuf58ug0Pa/E9ZpZfcHUjI2wDX5V6zXnfzoFCaoEUFQNDg==
-length: 1405
+edSignature: nPZPQh9Wae80gW2O01E/9nHNx1bS8lVkIiAi6YcaJYP84uxGDGdZsa4NPV8oIrCZGQVegH3gwA6du+3CDNhdCw==
+length: 2618
 -->
